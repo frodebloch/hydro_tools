@@ -1,0 +1,22 @@
+# Build artifacts
+*.o
+*.a
+*.mod
+
+# XFOIL binaries
+xfoil
+pxplot
+pplot
+
+# Quilt patches
+.pc/
+
+# XFOIL runtime output
+*.bl
+*.pol
+*.cav
+*.dmp
+
+# Editor backups
+*~
+*.swp
