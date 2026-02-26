@@ -73,6 +73,8 @@ subroutine sectiondata           !input section data; call of sectionhydrodynami
 integer:: i,ii,j                 !indices
 integer:: im1                    !i-1 except for i=1
 integer:: nfre=52                !number of frequencies
+integer:: ios                    !iostat for backward-compatible input parsing
+character(200):: catline         !buffer for catamaran input line
 real:: fp(nfremax)               !wave frequency parameter omega^2*t/g
 real:: om(nfremax)               !circular wave frequency
 real:: da                        !section area increment
@@ -100,7 +102,16 @@ read(5,*)nmu,wangl(1:nmu)
 write(6,'( '' Wave encounter angles         '',(10f8.3))')wangl(1:nmu)
 read(5,*)offsetfile
 write(6,'(a,a)')' Offset file name: ',trim(offsetfile) 
-read(5,*)catamaran,hulld                              !catamaran configuration? hull center-to-CL distance
+! Read catamaran line — backward compatible with old format (just 'f' or 't')
+! and new format ('f 0.0' or 't 2.0').
+read(5,'(a)') catline
+hulld = 0.0
+read(catline,*,iostat=ios) catamaran, hulld
+if (ios /= 0) then
+  ! Could not read both values; try reading just the logical (old format)
+  hulld = 0.0
+  read(catline,*) catamaran
+endif
 write(6,'(a,a   )')' Catamaran?                    ',merge('     yes','      no',catamaran)
 if (catamaran) write(6,'(a,f8.3)')' Hull center-to-CL distance    ',hulld
 if (catamaran) write(6,'(a)')' NOTE: Pressure output (pressuretransfer) contains starboard hull only.'
