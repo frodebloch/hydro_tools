@@ -11,6 +11,7 @@ C     CAVSHOW    - Display cavity information
 C     CAVSYS     - BL Newton system for cavitated stations
 C     CAVMASS    - Compute cavity mass source and augment MASS array
 C     CAVINV     - Inviscid-only cavitation prediction (no BL solve)
+C     CAVINV_FB  - Inviscid cavitation with displacement feedback
 C
 
 
@@ -65,7 +66,7 @@ C---- zero output quantities
       CDCAV_J = 0.0
 C
 C---- closure model parameters
-      FCLTAPER = 0.20
+      FCLTAPER = 0.50
       DO IS=1, 2
         HCLOSE(IS) = 0.0
         HCMAX(IS)  = 0.0
@@ -1218,6 +1219,310 @@ C---- clean up working arrays (extent info preserved in plot-copy)
 C
       RETURN
       END ! CAVINV
+
+
+
+      SUBROUTINE CAVINV_FB
+C-----------------------------------------------------------
+C     Inviscid cavitation prediction with displacement feedback.
+C
+C     Like CAVINV, this works without a boundary-layer solve.
+C     Unlike CAVINV, the cavity thickness feeds back into the
+C     inviscid panel solution through the DIJ source-influence
+C     matrix, so the pressure distribution outside the cavity
+C     is modified by the cavity displacement.
+C
+C     This provides a converged cavity solution for cases where
+C     the viscous V-I iteration may fail (e.g. large cavities).
+C
+C     The feedback mechanism is the same as VISCAL Pass 2:
+C       MASS(IBL,IS) = HCAV(IBL,IS) * QCAV   at cavity stations
+C       UEDG = UINV + DIJ * MASS              via UESET
+C       QVIS, GAM updated via QVFUE, GAMQV
+C       CPI recomputed -> CAVREGION -> CAVTHICK -> repeat
+C
+C     The cavity extent is iterated until converged (or max
+C     iterations reached).  Relaxation is applied to MASS to
+C     avoid oscillation.
+C
+C     Called from OPERi when LCAV is active and .NOT.LVISC.
+C
+C     Requires: SIGMA > 0, panel solution available (LQAIJ)
+C-----------------------------------------------------------
+      INCLUDE 'XFOIL.INC'
+      INCLUDE 'XCAV.INC'
+C
+C---- iteration limits
+      INTEGER NCAVMX, NFBMAX
+      DATA NCAVMX / 30 /
+      DATA NFBMAX  /  5 /
+C
+C---- saved cavity extent for convergence check
+      INTEGER ICAV1S(ISX), ICAV2S(ISX)
+      INTEGER NCAVPREV
+      LOGICAL LCONV
+      INTEGER IC2, NBLEND
+      REAL UECAV, FRAC, WGT
+C
+C---- bail out if cavitation not properly set up
+      IF(.NOT.LCAV .OR. SIGMA.LE.0.0) RETURN
+C
+C---- bail out if no panel solution available
+      IF(.NOT.LQAIJ) THEN
+        WRITE(*,*) 'CAVINV_FB: no panel solution -- skipping'
+        RETURN
+      ENDIF
+C
+      WRITE(*,*)
+      WRITE(*,*) 'Inviscid cavity analysis with feedback ...'
+C
+C---- ensure NW=0 if wake not set up (inviscid mode)
+      IF(.NOT.LWAKE) NW = 0
+C
+C---- set up BL-to-panel index mapping
+      CALL STFIND
+      CALL IBLPAN
+C
+C---- set arc length array
+      CALL XICALC
+C
+C---- set inviscid BL edge velocity UINV from panel solution
+      CALL UICALC
+C
+C---- set up source influence matrix DIJ (airfoil + wake if present)
+      IF(.NOT.LWDIJ .OR. .NOT.LADIJ) CALL QDCALC
+C
+C---- initialize UEDG and MASS to inviscid values (no displacement)
+      DO IS=1, 2
+        DO IBL=1, NBL(IS)
+          UEDG(IBL,IS) = UINV(IBL,IS)
+          MASS(IBL,IS) = 0.0
+        ENDDO
+      ENDDO
+C
+C---- compute cavity speed
+      QCAV = QINF * SQRT(1.0 + SIGMA)
+C
+C---- compute inviscid Cp from panel velocities
+      CALL CPCALC(N,QINV,QINF,MINF,CPI)
+C
+C---- initial cavity detection (no feedback yet)
+      CALL CAVREGION
+C
+      IF(.NOT.LCAVZ) THEN
+C------ no cavitation detected at this sigma -- skip feedback
+        WRITE(*,*) '  No cavitation at sigma =', SIGMA
+        GO TO 900
+      ENDIF
+C
+      WRITE(*,1000) SIGMA, QCAV/QINF
+ 1000 FORMAT('  sigma =', F8.4, '  Qcav/Qinf =', F8.4)
+C
+C==== Outer loop: iterate on cavity extent ====
+C
+      DO 500 ICAVIT=1, NCAVMX
+C
+C------ save current extent for convergence check
+        NCAVPREV = NCAVP
+        DO IS=1, 2
+          ICAV1S(IS) = ICAV1(IS)
+          ICAV2S(IS) = ICAV2(IS)
+        ENDDO
+C
+C------ compute cavity thickness from inviscid Cp
+        CALL CAVTHICK
+C
+C------ feedback sub-loop: ramp cavity displacement into panel solution
+C       Same ramped relaxation as VISCAL Pass 2
+        DO 400 IFBIT=1, NFBMAX
+C
+          RLXCAV = FLOAT(IFBIT) / FLOAT(NFBMAX)
+C
+C-------- set MASS = RLXCAV * HCAV * QCAV at cavity stations
+C         zero everywhere else
+          DO IS=1, 2
+            DO IBL=1, NBL(IS)
+              MASS(IBL,IS) = 0.0
+            ENDDO
+            IF(NCAVS(IS).LE.0) GO TO 310
+            DO IBL = ICAV1(IS), ICAV2(IS)
+              IF(LCAVP(IBL,IS)) THEN
+                MASS(IBL,IS) = RLXCAV * HCAV(IBL,IS) * QCAV
+              ENDIF
+            ENDDO
+C
+C---------- No MASS tail past cavity closure.
+C           The FM taper (FCLTAPER=0.50) already ensures MASS and
+C           dMASS/ds go smoothly to zero at ICAV2.  Adding a tail
+C           past ICAV2 was found to introduce Cp oscillations:
+C           the extra displacement sources in the tail create an
+C           artificial velocity reduction via DIJ that oscillates
+C           with the panel discretization.  Without a tail, the
+C           closure transition is monotone (a single-panel jump
+C           at ICAV2 followed by smooth recovery).
+  308       CONTINUE
+  310       CONTINUE
+          ENDDO
+C
+C-------- compute new UEDG from UINV + DIJ * MASS
+          CALL UESET
+C
+C-------- override UEDG at cavity stations to QCAV
+C         The displacement changes Ue outside the cavity;
+C         inside the cavity, Ue is prescribed = QCAV.
+          DO IS=1, 2
+            IF(NCAVS(IS).LE.0) GO TO 320
+            DO IBL = ICAV1(IS), ICAV2(IS)
+              IF(LCAVP(IBL,IS)) THEN
+                UEDG(IBL,IS) = SIGN(QCAV, UEDG(IBL,IS))
+              ENDIF
+            ENDDO
+  320       CONTINUE
+          ENDDO
+C
+C-------- smooth the velocity jump at cavity closure
+C         The DIJ influence from all cavity MASS sources creates
+C         a large velocity deficit at post-cavity stations.
+C         Inside the cavity UEDG = QCAV (forced).  At the first
+C         post-cavity station the full DUI is exposed, causing
+C         a Cp jump toward zero.
+C
+C         Fix: blend UEDG from QCAV at the cavity edge to the
+C         raw UESET value over NBLEND stations past closure.
+C         This smooths the velocity transition without adding
+C         MASS sources.
+C
+          DO IS=1, 2
+            IF(NCAVS(IS).LE.0) GO TO 325
+C
+            IC2 = ICAV2(IS)
+            UECAV = SIGN(QCAV, UEDG(IC2,IS))
+C
+C---------- blend over NBLEND stations past closure
+            NBLEND = 6
+            DO IBL = IC2+1, MIN(IC2+NBLEND, NBL(IS))
+C
+C------------ blending weight: cos^2 decay from 1 to 0
+              FRAC = FLOAT(IBL - IC2) / FLOAT(NBLEND + 1)
+              WGT  = COS(0.5*3.14159265 * FRAC)**2
+C
+C------------ blended UEDG
+              UEDG(IBL,IS) = WGT * UECAV
+     &                     + (1.0 - WGT) * UEDG(IBL,IS)
+            ENDDO
+C
+  325       CONTINUE
+          ENDDO
+C
+C-------- propagate to panel velocities and circulation
+          CALL QVFUE
+          CALL GAMQV
+C
+  400   CONTINUE
+C
+C------ recompute Cp from the feedback-modified panel velocities
+C       Use GAM (= QVIS after GAMQV) which includes cavity displacement
+        CALL CPCALC(N,GAM,QINF,MINF,CPI)
+C
+C------ recompute CL, CM from modified circulation
+        CALL CLCALC(N,X,Y,GAM,GAM_A,ALFA,MINF,QINF,
+     &              XCMREF,YCMREF,
+     &              CL,CM,CDP, CL_ALF,CL_MSQ)
+C
+C------ re-detect cavity from updated Cp
+        CALL CAVREGION
+C
+        IF(.NOT.LCAVZ) THEN
+C-------- cavity disappeared after feedback -- report and exit
+          WRITE(*,*) '  Cavity vanished during feedback iteration'
+          GO TO 900
+        ENDIF
+C
+C------ report iteration
+        WRITE(*,1100) ICAVIT, NCAVS(1), NCAVS(2), CL
+ 1100   FORMAT('  Iter', I3, ':  Ncav=', I4, '/', I4,
+     &         '  CL=', F8.4)
+C
+C------ check convergence: cavity extent unchanged
+        LCONV = .TRUE.
+        DO IS=1, 2
+          IF(ICAV1(IS).NE.ICAV1S(IS)) LCONV = .FALSE.
+          IF(ICAV2(IS).NE.ICAV2S(IS)) LCONV = .FALSE.
+        ENDDO
+C
+        IF(LCONV) THEN
+          WRITE(*,*) '  Cavity extent converged.'
+          NCAVITER = ICAVIT
+          RCAVEXT  = 0.0
+          LCAVCONV = .TRUE.
+          GO TO 600
+        ENDIF
+C
+  500 CONTINUE
+C
+C---- did not converge
+      WRITE(*,*) '  Cavity extent not converged after', NCAVMX,
+     &           ' iterations'
+      NCAVITER = NCAVMX
+      LCAVCONV = .FALSE.
+C
+C==== Post-process converged (or best) cavity solution ====
+C
+  600 CONTINUE
+C
+C---- final cavity thickness
+      CALL CAVTHICK
+C
+C---- apply closure model
+      DO IS=1, 2
+        IF(NCAVS(IS).GT.0) THEN
+          IF(ICAVMOD.EQ.1) THEN
+            CALL CAVCLOSE_FM(IS)
+          ELSE
+            CALL CAVCLOSE_RJ(IS)
+          ENDIF
+        ENDIF
+      ENDDO
+C
+C---- compute cavity drag
+      CALL CAVDRAG
+C
+C---- display cavity information
+      CALL CAVSHOW
+C
+C---- save plot-copy variables for CPCAV drawing
+  900 CONTINUE
+      LCAVZP = LCAVZ
+      DO IS=1, 2
+        NCAVSP(IS) = NCAVS(IS)
+        ICAV1P(IS) = ICAV1(IS)
+        ICAV2P(IS) = ICAV2(IS)
+      ENDDO
+C
+C---- clean up working arrays (extent info preserved in plot-copy)
+      DO IS=1, 2
+        NCAVS(IS) = 0
+        ICAV1(IS) = 0
+        ICAV2(IS) = 0
+        DO IBL=1, IBLTE(IS)
+          LCAVP(IBL,IS) = .FALSE.
+        ENDDO
+      ENDDO
+      NCAVP = 0
+      LCAVZ = .FALSE.
+C
+C---- zero out MASS so it doesn't contaminate a later viscous solve
+      DO IS=1, 2
+        DO IBL=1, NBL(IS)
+          MASS(IBL,IS) = 0.0
+        ENDDO
+      ENDDO
+C
+C---- reset LIPAN so VISCAL will redo IBLPAN+IBLSYS if user switches to VISC
+      LIPAN = .FALSE.
+C
+      RETURN
+      END ! CAVINV_FB
 
 
 

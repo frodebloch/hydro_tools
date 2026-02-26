@@ -439,7 +439,7 @@ C------- set inviscid solution only if point is not being recalculated
        ENDIF
 C
        IF(LVISC) CALL VISCAL(ITMAX)
-       IF(.NOT.LVISC .AND. LCAV) CALL CAVINV
+       IF(.NOT.LVISC .AND. LCAV) CALL CAVINV_FB
        CALL CPX
        CALL FCPMIN
 C
@@ -497,7 +497,7 @@ C--------------------------------------------------------
        ENDIF
 C
        IF(LVISC) CALL VISCAL(ITMAX)
-       IF(.NOT.LVISC .AND. LCAV) CALL CAVINV
+       IF(.NOT.LVISC .AND. LCAV) CALL CAVINV_FB
        CALL CPX
        CALL FCPMIN
 C
@@ -533,7 +533,7 @@ C--------------------------------------------------------
         IF(ABS(MINF-MVISC) .GT. 1.0E-5) LVCONV = .FALSE.
        ENDIF
        IF(LVISC) CALL VISCAL(ITMAX)
-       IF(.NOT.LVISC .AND. LCAV) CALL CAVINV
+       IF(.NOT.LVISC .AND. LCAV) CALL CAVINV_FB
        CALL FCPMIN
 C
        CALL CPX
@@ -687,7 +687,7 @@ C
          CALL SPECAL
          ITMAXS = ITMAX + 5
          IF(LVISC) CALL VISCAL(ITMAXS)
-         IF(.NOT.LVISC .AND. LCAV) CALL CAVINV
+         IF(.NOT.LVISC .AND. LCAV) CALL CAVINV_FB
 C
          ADEG = ALFA/DTOR
 C
