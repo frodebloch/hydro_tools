@@ -3383,6 +3383,70 @@ Wavelengths: do iom=1,nom                                                       
       enddo; enddo CatStbTriangles
      enddo CatStbSections
 
+      !--- Port hull drift forces: mirror of starboard hull ---
+      !Symmetry: pres_port(i,mu) = pres_stb(npres+1-i, -mu)
+      !         pot_port(i,mu)  = pot_stb(npres+1-i, -mu)
+      !Port hull geometry: yint_port, zint_port (already computed, at y ~ +hulld)
+      !Port hull motions: motion_all(:,imirr) — global vessel motions at mirror angle
+      !Load port hull pressures/potentials from mirror angle with reversed index
+      do ise1=1,nse; do i=1,npres
+       jj=npres+1-i
+       pres(i,1,ise1)=pres_all(jj,ise1,imirr)
+       pot(i,ise1)=pot_all(jj,ise1,imirr)
+      enddo; enddo
+      motion(:,1)=motion_all(:,imirr)
+      !--- Port hull WL integral + triangle integral ---
+      CatPortSections: do ise1=1,nse
+       dx2=(x(min(ise1+1,nse))-x(max(ise1-1,1)))/2
+       if (ise1==1) then
+        dystb=merge((yint_port(1,2)+yint_port(1,1))/2,(yint_port(1,2)-yint_port(1,1))/2,ltrwet(iv))
+        dyprt=merge((yint_port(npres,2)+yint_port(npres,1))/2, &
+                    (yint_port(npres,2)-yint_port(npres,1))/2,ltrwet(iv))
+       elseif (ise1==nse) then
+        dystb=((yint_port(1,nse)+yint_port(npres,nse))/2-(yint_port(1,nse-1)+yint_port(1,nse)))/2
+        dyprt=((yint_port(1,nse)+yint_port(npres,nse))/2-(yint_port(npres,nse-1)+yint_port(npres,nse)))/2
+       else
+        dystb=(yint_port(1,ise1+1)-yint_port(1,ise1-1))/2
+        dyprt=(yint_port(npres,ise1+1)-yint_port(npres,ise1-1))/2
+       endif
+        dfxistb= 0.25*abs(pres(1,1,ise1))**2*dystb/rho/g
+        dfxiprt=-0.25*abs(pres(npres,1,ise1))**2*dyprt/rho/g
+        fxi=fxi+dfxistb+dfxiprt
+        dfeta=0.25*dx2*(-abs(pres(1,1,ise1))**2+abs(pres(npres,1,ise1))**2)/rho/g
+       feta=feta+dfeta
+       mdrift(3)=mdrift(3)+x(ise1)*dfeta-yint_port(1,ise1)*dfxistb-yint_port(npres,ise1)*dfxiprt
+       if(ise1==1)cycle
+       is1=ise1-1; is2=ise1
+       CatPortTriangles: do i=2,npres; do j=1,2
+        if(j==1)then; ip1=i-1; ip2=i-1; is3=merge(is2,is1,i<=npres/2+1); ip3=i
+        else
+         ip1=merge(i-1,i,i<=npres/2+1); ip2=merge(i,i-1,i<=npres/2+1); is3=merge(is1,is2,i<=npres/2+1); ip3=i
+        endif
+        xtri(:,1)=(/x(is1),yint_port(ip1,is1),zint_port(ip1,is1)/)
+        xtri(:,2)=(/x(is2),yint_port(ip2,is2),zint_port(ip2,is2)/)
+        xtri(:,3)=(/x(is3),yint_port(ip3,is3),zint_port(ip3,is3)/)
+        xc=sum(xtri,2)/3
+        flvec=0.5*(xtri(:,1)-xtri(:,3)).vprod.(xtri(:,2)-xtri(:,1))
+        xn=flvec/sqrt(sum(flvec**2))
+        gradvec=graddreieck(xtri)
+        vbody=ciome*(motion(1:3,1)+(motion(4:6,1).vprod.cmplx(xc,(/0.,0.,0./))))
+        vdotn=sum(vbody*xn)
+        gradpot=(pot(ip1,is1)-pot(ip3,is3))*gradvec(:,1)+(pot(ip2,is2)-pot(ip1,is1))*gradvec(:,2) &
+             +vdotn*xn
+         presaverage=(pres(ip1,1,is1)+pres(ip2,1,is2)+pres(ip3,1,is3))/3
+          df=-0.25*rho*sum((abs(gradpot)**2))*flvec &
+               -0.5*real((presaverage*flvec).vprod.conjg((motion(4:6,1))))
+         fxi=fxi+df(1)
+         feta=feta+df(2)
+         mdrift(1)=mdrift(1)+xc(2)*df(3)-xc(3)*df(2)
+         mdrift(3)=mdrift(3)+xc(1)*df(2)-xc(2)*df(1)
+         if(count((/ip1,ip2,ip3/)==npres)==2)exit CatPortTriangles
+        if(is3==is1)then; ip1=ip3; else; ip2=ip3; endif
+       enddo; enddo CatPortTriangles
+      enddo CatPortSections
+
+      !Restore current-angle motions for fin drift forces
+      motion(:,1)=motion_all(:,imu)
       !Fin drift forces — use per-angle stored fin variables
       findriftf=0
       CatFinDrift: do ifin=1,nfin

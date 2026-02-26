@@ -6,7 +6,7 @@ pdstrip_dbg
 *.mod
 *.o
 
-# Large PDStrip output files
+# Large PDStrip output files (root level)
 sectionresults
 pressuretransfer
 relativemotions
@@ -15,10 +15,6 @@ debug.out
 normals.out
 parsed_output.tsv
 
-# Generated plots
-*.png
-*.pdf
-
 # Python cache
 __pycache__/
 *.pyc
@@ -26,10 +22,20 @@ __pycache__/
 # Virtual environments
 capytaine_venv/
 
-# Large debug/saved output files
-debug_*.out
-pdstrip_*.out
-!pdstrip.out
-
 # NetCDF files
 *.nc
+
+# ===== test_convergence/ rules =====
+
+# Allow plot PNGs in test_convergence/
+# (no global *.png rule — only ignore where needed)
+
+# Per-run large/regenerable files
+test_convergence/*/pressuretransfer
+test_convergence/*/sectionresults
+test_convergence/*/relativemotions
+test_convergence/*/responsefunctions
+test_convergence/*/debug.out
+test_convergence/*/normals.out
+test_convergence/*/pdstrip
+test_convergence/*/pdstrip_stdout*.txt
