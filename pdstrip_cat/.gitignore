@@ -1,0 +1,35 @@
+# Compiled binary
+pdstrip
+pdstrip_dbg
+
+# Fortran module files
+*.mod
+*.o
+
+# Large PDStrip output files
+sectionresults
+pressuretransfer
+relativemotions
+responsefunctions
+debug.out
+normals.out
+parsed_output.tsv
+
+# Generated plots
+*.png
+*.pdf
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual environments
+capytaine_venv/
+
+# Large debug/saved output files
+debug_*.out
+pdstrip_*.out
+!pdstrip.out
+
+# NetCDF files
+*.nc

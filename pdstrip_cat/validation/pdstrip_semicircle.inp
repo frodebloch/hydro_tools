@@ -1,0 +1,32 @@
+-20 t t f
+Semi-circular cylinder barge R=1m L=20m for validation
+9.81 1025.0 0 -1e6 -0.5
+3 -90 0 90
+validation/geomet_semicircle.out
+f 0.0          catamaran? hull center-to-CL distance
+
+f
+32069.1 0.0 0.0 -0.4235 66.985 33.901 33.721 0.0 0.0 0.0
+
+0 0 0 0 0  flow separation
+
+0.1 6.0       wave steepness; max wave height
+0.8 0.6  0.8 0.6  0.8 0.6
+0.8 0.6  0.8 0.6
+
+0       fin
+
+0       sails
+
+0 forces depending on motions
+
+0.0 0.0 0.0 0.0 0.0 suspended weight
+
+1  motion points
+0.0 0.0 0.0
+
+15
+3.0 4.0 5.0 6.0 8.0 10.0 13.0 17.0 22.0 28.0 35.0 45.0 55.0 70.0 90.0
+
+1
+0.0 t

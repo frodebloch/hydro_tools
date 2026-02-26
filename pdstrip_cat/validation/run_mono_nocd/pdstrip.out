@@ -1,0 +1,1120 @@
+ +-no.of pressure points per section-20
+ Section hydrodynamic data?         yes
+ Transfer functions?                yes
+ Significant amplitudes?             no
+
+ Semi-circular cylinder barge R=1m L=20m NO VISCOUS DAMPING                      
+ In the following input data x,y,z are directed forward, to port side, up
+
+ Gravity acceleration             9.810
+ Water density                 1025.000
+ z of still waterline             0.000
+ z of water bottom               -0.100E+07
+ z for water drift velocity      -0.500
+ Wave encounter angles          -90.000   0.000  90.000
+ Offset file name: geomet_semicircle.out
+ Catamaran?                          no
+ Number of sections                   5
+ Symmetry?                           no
+ Reference draft                  1.000
+ Section no.  1 at x=   -10.000
+ y:    -1.000    -0.988    -0.951    -0.891    -0.809    -0.707    -0.588    -0.454
+ y:    -0.309    -0.156     0.000     0.156     0.309     0.454     0.588     0.707
+ y:     0.809     0.891     0.951     0.988     1.000
+ z:     0.000    -0.156    -0.309    -0.454    -0.588    -0.707    -0.809    -0.891
+ z:    -0.951    -0.988    -1.000    -0.988    -0.951    -0.891    -0.809    -0.707
+ z:    -0.588    -0.454    -0.309    -0.156     0.000
+ Section no.  2 at x=    -5.000
+ y:    -1.000    -0.988    -0.951    -0.891    -0.809    -0.707    -0.588    -0.454
+ y:    -0.309    -0.156     0.000     0.156     0.309     0.454     0.588     0.707
+ y:     0.809     0.891     0.951     0.988     1.000
+ z:     0.000    -0.156    -0.309    -0.454    -0.588    -0.707    -0.809    -0.891
+ z:    -0.951    -0.988    -1.000    -0.988    -0.951    -0.891    -0.809    -0.707
+ z:    -0.588    -0.454    -0.309    -0.156     0.000
+ Section no.  3 at x=     0.000
+ y:    -1.000    -0.988    -0.951    -0.891    -0.809    -0.707    -0.588    -0.454
+ y:    -0.309    -0.156     0.000     0.156     0.309     0.454     0.588     0.707
+ y:     0.809     0.891     0.951     0.988     1.000
+ z:     0.000    -0.156    -0.309    -0.454    -0.588    -0.707    -0.809    -0.891
+ z:    -0.951    -0.988    -1.000    -0.988    -0.951    -0.891    -0.809    -0.707
+ z:    -0.588    -0.454    -0.309    -0.156     0.000
+ Section no.  4 at x=     5.000
+ y:    -1.000    -0.988    -0.951    -0.891    -0.809    -0.707    -0.588    -0.454
+ y:    -0.309    -0.156     0.000     0.156     0.309     0.454     0.588     0.707
+ y:     0.809     0.891     0.951     0.988     1.000
+ z:     0.000    -0.156    -0.309    -0.454    -0.588    -0.707    -0.809    -0.891
+ z:    -0.951    -0.988    -1.000    -0.988    -0.951    -0.891    -0.809    -0.707
+ z:    -0.588    -0.454    -0.309    -0.156     0.000
+ Section no.  5 at x=    10.000
+ y:    -1.000    -0.988    -0.951    -0.891    -0.809    -0.707    -0.588    -0.454
+ y:    -0.309    -0.156     0.000     0.156     0.309     0.454     0.588     0.707
+ y:     0.809     0.891     0.951     0.988     1.000
+ z:     0.000    -0.156    -0.309    -0.454    -0.588    -0.707    -0.809    -0.891
+ z:    -0.951    -0.988    -1.000    -0.988    -0.951    -0.891    -0.809    -0.707
+ z:    -0.588    -0.454    -0.309    -0.156     0.000
+-----------------------------------------------------------------------------------------------------------------------------------
+ In the following input data x,y,z are directed forward, to port side, up
+
+ Semi-circular cylinder barge R=1m L=20m NO VISCOUS DAMPING                      
+ Intersection forces? no 
+ Mass data of total ship:
+  Inter-    mass    center of gravity at     inertial averages relative to cog
+ Section               x       y       z     yy+zz     xx+zz     xx+yy        xy        yz        xz
+    0  32201.301   0.000   0.000  -0.424     0.640    25.000    25.000     0.000     0.000     0.000
+
+ Section        x          yb          zb        area     breadth  flow sep. in front?
+    1     -10.000       0.000      -0.424       1.564       2.000      0
+    2      -5.000       0.000      -0.424       1.564       2.000      0
+    3       0.000       0.000      -0.424       1.564       2.000      0
+    4       5.000       0.000      -0.424       1.564       2.000      0
+    5      10.000       0.000      -0.424       1.564       2.000      0
+
+ Wave steepness, quadr. effects     0.001
+ but wave height not exceeding      0.001
+ Section  breadth     draft     CD horizontal   CD vertical
+      1     2.000     1.000          0.000          0.000
+      2     2.000     1.000          0.000          0.000
+      3     2.000     1.000          0.000          0.000
+      4     2.000     1.000          0.000          0.000
+      5     2.000     1.000          0.000          0.000
+Transverse metacentric height:   0.427
+ No fins
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ No sails
+ No forces depending on ship motions
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ No suspended weight
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Points where motions and accelerations shall be determined
+ no.        1
+ -----------------------------------------------------------------------------------------------------------------------------------
+   x    0.000
+   y    0.000
+   z    0.000
+
+ In the following 1,2,3 designate directions forward, to starboard, downward
+
+ Motions and intersection forces in regular waves
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 4.533  encounter frequ. 4.533  wave length     3.00  wave number 2.0944  wave angle -90.0
+ speed   0.00  wetted transom?         T  log(determinant)   86.36  17.83
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation        -0.000        0.000        0.000        -0.196        0.124        0.232         0.078       -0.081        0.112
+ Rotation/k         -0.065        0.041        0.076         0.000        0.000        0.000         0.000        0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1        -0.000        0.000        0.000        -0.196        0.124        0.232         0.078       -0.081        0.112
+
+ Relative motions
+ at point  1        -0.000       -0.000        0.000        -0.196       -0.876        0.897        -0.922       -0.081        0.926
+ Longitudinal and transverse drift force per wave amplitude squared  -0.282499E-01   118552.    
+ Yaw drift moment per wave amplitude squared                        -357.562    
+ Roll drift moment per wave amplitude squared                         15091.2    
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.000     1.169
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 4.533  encounter frequ. 4.533  wave length     3.00  wave number 2.0944  wave angle   0.0
+ speed   0.00  wetted transom?         T  log(determinant)   86.36  17.83
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation        -0.000        0.017        0.017         0.000        0.000        0.000         0.001        0.004        0.004
+ Rotation/k          0.000        0.000        0.000         0.000       -0.000        0.000         0.000        0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1        -0.000        0.017        0.017         0.000        0.000        0.000         0.001        0.004        0.004
+
+ Relative motions
+ at point  1        -0.000       -0.983        0.983         0.000        0.000        0.000        -0.999        0.004        0.999
+ Longitudinal and transverse drift force per wave amplitude squared   -139.989      0.143066    
+ Yaw drift moment per wave amplitude squared                        0.105489    
+ Roll drift moment per wave amplitude squared                        0.291443E-02
+ Long., transv. reduced water drift velocity per wave amplitude^2        1.169    -0.000
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 4.533  encounter frequ. 4.533  wave length     3.00  wave number 2.0944  wave angle  90.0
+ speed   0.00  wetted transom?         T  log(determinant)   86.36  17.83
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation        -0.000        0.000        0.000         0.196       -0.124        0.232         0.078       -0.081        0.112
+ Rotation/k          0.065       -0.041        0.076         0.000        0.000        0.000        -0.000       -0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1        -0.000        0.000        0.000         0.196       -0.124        0.232         0.078       -0.081        0.112
+
+ Relative motions
+ at point  1        -0.000       -0.000        0.000         0.196        0.876        0.897        -0.922       -0.081        0.926
+ Longitudinal and transverse drift force per wave amplitude squared  -0.266856E-01  -118552.    
+ Yaw drift moment per wave amplitude squared                         370.679    
+ Roll drift moment per wave amplitude squared                        -15091.3    
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.000    -1.169
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 4.533  encounter frequ. 4.533  wave length     3.00  wave number 2.0944  wave angle 180.0
+ speed   0.00  wetted transom?         T  log(determinant)   86.36  17.83
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation         0.000       -0.017        0.017         0.000        0.000        0.000         0.001        0.004        0.004
+ Rotation/k          0.000        0.000        0.000        -0.000        0.000        0.000        -0.000       -0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1         0.000       -0.017        0.017         0.000        0.000        0.000         0.001        0.004        0.004
+
+ Relative motions
+ at point  1         0.000        0.983        0.983         0.000        0.000        0.000        -0.999        0.004        0.999
+ Longitudinal and transverse drift force per wave amplitude squared    139.989     -0.122070E-02
+ Yaw drift moment per wave amplitude squared                        0.187518    
+ Roll drift moment per wave amplitude squared                        0.354004E-02
+ Long., transv. reduced water drift velocity per wave amplitude^2       -1.169    -0.000
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 3.925  encounter frequ. 3.925  wave length     4.00  wave number 1.5708  wave angle -90.0
+ speed   0.00  wetted transom?         T  log(determinant)   83.70  17.25
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation        -0.000        0.000        0.000        -0.218        0.275        0.351         0.086       -0.236        0.251
+ Rotation/k         -0.107        0.135        0.173         0.000        0.000        0.000         0.000        0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1        -0.000        0.000        0.000        -0.218        0.275        0.351         0.086       -0.236        0.251
+
+ Relative motions
+ at point  1        -0.000       -0.000        0.000        -0.218       -0.725        0.757        -0.914       -0.236        0.944
+ Longitudinal and transverse drift force per wave amplitude squared  -0.875852E-01   131254.    
+ Yaw drift moment per wave amplitude squared                        -774.390    
+ Roll drift moment per wave amplitude squared                         37888.8    
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.000     1.282
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 3.925  encounter frequ. 3.925  wave length     4.00  wave number 1.5708  wave angle   0.0
+ speed   0.00  wetted transom?         T  log(determinant)   83.70  17.25
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation        -0.005        0.003        0.006         0.000        0.000        0.000        -0.000       -0.000        0.000
+ Rotation/k          0.000        0.000        0.000         0.007       -0.004        0.008         0.000       -0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1        -0.005        0.003        0.006         0.000        0.000        0.000        -0.000       -0.000        0.000
+
+ Relative motions
+ at point  1        -0.005       -0.997        0.997         0.000        0.000        0.000        -1.000       -0.000        1.000
+ Longitudinal and transverse drift force per wave amplitude squared    4726.97      0.150269    
+ Yaw drift moment per wave amplitude squared                       -0.110751E-01
+ Roll drift moment per wave amplitude squared                        0.246429E-02
+ Long., transv. reduced water drift velocity per wave amplitude^2        1.282    -0.000
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 3.925  encounter frequ. 3.925  wave length     4.00  wave number 1.5708  wave angle  90.0
+ speed   0.00  wetted transom?         T  log(determinant)   83.70  17.25
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation        -0.000        0.000        0.000         0.218       -0.275        0.351         0.086       -0.236        0.251
+ Rotation/k          0.107       -0.135        0.173         0.000        0.000        0.000        -0.000       -0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1        -0.000        0.000        0.000         0.218       -0.275        0.351         0.086       -0.236        0.251
+
+ Relative motions
+ at point  1        -0.000       -0.000        0.000         0.218        0.725        0.757        -0.914       -0.236        0.944
+ Longitudinal and transverse drift force per wave amplitude squared  -0.899962E-01  -131253.    
+ Yaw drift moment per wave amplitude squared                         827.507    
+ Roll drift moment per wave amplitude squared                        -37888.8    
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.000    -1.282
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 3.925  encounter frequ. 3.925  wave length     4.00  wave number 1.5708  wave angle 180.0
+ speed   0.00  wetted transom?         T  log(determinant)   83.70  17.25
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation         0.005       -0.003        0.006         0.000        0.000        0.000        -0.000       -0.000        0.000
+ Rotation/k          0.000        0.000        0.000        -0.007        0.004        0.008        -0.000        0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1         0.005       -0.003        0.006         0.000        0.000        0.000        -0.000       -0.000        0.000
+
+ Relative motions
+ at point  1         0.005        0.997        0.997         0.000        0.000        0.000        -1.000       -0.000        1.000
+ Longitudinal and transverse drift force per wave amplitude squared   -4731.10     -0.878906E-02
+ Yaw drift moment per wave amplitude squared                        0.205030    
+ Roll drift moment per wave amplitude squared                        0.256348E-02
+ Long., transv. reduced water drift velocity per wave amplitude^2       -1.282    -0.000
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 3.511  encounter frequ. 3.511  wave length     5.00  wave number 1.2566  wave angle -90.0
+ speed   0.00  wetted transom?         T  log(determinant)   81.24  16.46
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation        -0.000        0.000        0.000        -0.218        0.396        0.452         0.122       -0.476        0.491
+ Rotation/k         -0.154        0.279        0.318         0.000        0.000        0.000         0.000        0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1        -0.000        0.000        0.000        -0.218        0.396        0.452         0.122       -0.476        0.491
+
+ Relative motions
+ at point  1        -0.000       -0.000        0.000        -0.218       -0.604        0.642        -0.878       -0.476        0.999
+ Longitudinal and transverse drift force per wave amplitude squared  -0.251984       152935.    
+ Yaw drift moment per wave amplitude squared                        -1481.48    
+ Roll drift moment per wave amplitude squared                         81269.5    
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.000     1.256
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 3.511  encounter frequ. 3.511  wave length     5.00  wave number 1.2566  wave angle   0.0
+ speed   0.00  wetted transom?         T  log(determinant)   81.24  16.46
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation         0.000       -0.000        0.000        -0.000        0.000        0.000        -0.171       -0.282        0.330
+ Rotation/k         -0.000        0.000        0.000        -0.000        0.000        0.000        -0.000       -0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1         0.000       -0.000        0.000        -0.000        0.000        0.000        -0.171       -0.282        0.330
+
+ Relative motions
+ at point  1         0.000       -1.000        1.000        -0.000        0.000        0.000        -1.171       -0.282        1.205
+ Longitudinal and transverse drift force per wave amplitude squared   0.107757     -0.191650E-01
+ Yaw drift moment per wave amplitude squared                       -0.835240E-04
+ Roll drift moment per wave amplitude squared                       -0.754547E-02
+ Long., transv. reduced water drift velocity per wave amplitude^2        1.256    -0.000
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 3.511  encounter frequ. 3.511  wave length     5.00  wave number 1.2566  wave angle  90.0
+ speed   0.00  wetted transom?         T  log(determinant)   81.24  16.46
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation        -0.000        0.000        0.000         0.218       -0.396        0.452         0.122       -0.476        0.491
+ Rotation/k          0.154       -0.279        0.318         0.000        0.000        0.000        -0.000       -0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1        -0.000        0.000        0.000         0.218       -0.396        0.452         0.122       -0.476        0.491
+
+ Relative motions
+ at point  1        -0.000       -0.000        0.000         0.218        0.604        0.642        -0.878       -0.476        0.999
+ Longitudinal and transverse drift force per wave amplitude squared  -0.251867      -152935.    
+ Yaw drift moment per wave amplitude squared                         1610.55    
+ Roll drift moment per wave amplitude squared                        -81269.4    
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.000    -1.256
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 3.511  encounter frequ. 3.511  wave length     5.00  wave number 1.2566  wave angle 180.0
+ speed   0.00  wetted transom?         T  log(determinant)   81.24  16.46
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation        -0.000        0.000        0.000        -0.000        0.000        0.000        -0.171       -0.282        0.330
+ Rotation/k         -0.000        0.000        0.000         0.000       -0.000        0.000         0.000        0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1        -0.000        0.000        0.000        -0.000        0.000        0.000        -0.171       -0.282        0.330
+
+ Relative motions
+ at point  1        -0.000        1.000        1.000        -0.000        0.000        0.000        -1.171       -0.282        1.205
+ Longitudinal and transverse drift force per wave amplitude squared  -0.105864     -0.314209    
+ Yaw drift moment per wave amplitude squared                       -0.204251E-01
+ Roll drift moment per wave amplitude squared                       -0.717926E-02
+ Long., transv. reduced water drift velocity per wave amplitude^2       -1.256    -0.000
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 3.205  encounter frequ. 3.205  wave length     6.00  wave number 1.0472  wave angle -90.0
+ speed   0.00  wetted transom?         T  log(determinant)   78.35  15.43
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation        -0.000        0.000        0.000        -0.226        0.502        0.550         0.305       -0.788        0.845
+ Rotation/k         -0.222        0.493        0.540         0.000        0.000        0.000         0.000        0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1        -0.000        0.000        0.000        -0.226        0.502        0.550         0.305       -0.788        0.845
+
+ Relative motions
+ at point  1        -0.000       -0.000        0.000        -0.226       -0.498        0.547        -0.695       -0.788        1.051
+ Longitudinal and transverse drift force per wave amplitude squared  -0.267944       174866.    
+ Yaw drift moment per wave amplitude squared                        -2623.81    
+ Roll drift moment per wave amplitude squared                         159003.    
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.000     1.178
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 3.205  encounter frequ. 3.205  wave length     6.00  wave number 1.0472  wave angle   0.0
+ speed   0.00  wetted transom?         T  log(determinant)   78.35  15.43
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation         0.043       -0.035        0.055         0.000        0.000        0.000        -0.068       -0.238        0.248
+ Rotation/k          0.000        0.000        0.000        -0.098       -0.038        0.105        -0.000        0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1         0.043       -0.035        0.055         0.000        0.000        0.000        -0.068       -0.238        0.248
+
+ Relative motions
+ at point  1         0.043       -1.035        1.036         0.000        0.000        0.000        -1.068       -0.238        1.094
+ Longitudinal and transverse drift force per wave amplitude squared   -17476.3      0.239014    
+ Yaw drift moment per wave amplitude squared                        -1.15748    
+ Roll drift moment per wave amplitude squared                        -6.46867    
+ Long., transv. reduced water drift velocity per wave amplitude^2        1.178    -0.000
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 3.205  encounter frequ. 3.205  wave length     6.00  wave number 1.0472  wave angle  90.0
+ speed   0.00  wetted transom?         T  log(determinant)   78.35  15.43
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation        -0.000        0.000        0.000         0.226       -0.502        0.550         0.305       -0.788        0.845
+ Rotation/k          0.222       -0.493        0.540         0.000        0.000        0.000        -0.000       -0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1        -0.000        0.000        0.000         0.226       -0.502        0.550         0.305       -0.788        0.845
+
+ Relative motions
+ at point  1        -0.000       -0.000        0.000         0.226        0.498        0.547        -0.695       -0.788        1.051
+ Longitudinal and transverse drift force per wave amplitude squared  -0.265869      -174865.    
+ Yaw drift moment per wave amplitude squared                         2885.31    
+ Roll drift moment per wave amplitude squared                        -159003.    
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.000    -1.178
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 3.205  encounter frequ. 3.205  wave length     6.00  wave number 1.0472  wave angle 180.0
+ speed   0.00  wetted transom?         T  log(determinant)   78.35  15.43
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation        -0.043        0.035        0.055         0.000        0.000        0.000        -0.068       -0.238        0.248
+ Rotation/k          0.000        0.000        0.000         0.098        0.038        0.105         0.000       -0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1        -0.043        0.035        0.055         0.000        0.000        0.000        -0.068       -0.238        0.248
+
+ Relative motions
+ at point  1        -0.043        1.035        1.036         0.000        0.000        0.000        -1.068       -0.238        1.094
+ Longitudinal and transverse drift force per wave amplitude squared    17323.5     -0.717316E-01
+ Yaw drift moment per wave amplitude squared                        -1.68792    
+ Roll drift moment per wave amplitude squared                         6.54243    
+ Long., transv. reduced water drift velocity per wave amplitude^2       -1.178    -0.000
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 2.776  encounter frequ. 2.776  wave length     8.00  wave number 0.7854  wave angle -90.0
+ speed   0.00  wetted transom?         T  log(determinant)   78.76  16.88
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation        -0.000        0.000        0.000        -0.280        0.697        0.751         1.139       -0.785        1.383
+ Rotation/k         -0.547        1.362        1.468         0.000        0.000        0.000         0.000        0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1        -0.000        0.000        0.000        -0.280        0.697        0.751         1.139       -0.785        1.383
+
+ Relative motions
+ at point  1        -0.000       -0.000        0.000        -0.280       -0.303        0.413         0.139       -0.785        0.797
+ Longitudinal and transverse drift force per wave amplitude squared   0.790705E-02   114581.    
+ Yaw drift moment per wave amplitude squared                        -3921.03    
+ Roll drift moment per wave amplitude squared                         300799.    
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.000     0.994
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 2.776  encounter frequ. 2.776  wave length     8.00  wave number 0.7854  wave angle   0.0
+ speed   0.00  wetted transom?         T  log(determinant)   78.76  16.88
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation        -0.004        0.081        0.081        -0.000       -0.000        0.000        -0.064        0.112        0.129
+ Rotation/k         -0.000       -0.000        0.000         0.013        0.023        0.026         0.000       -0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1        -0.004        0.081        0.081        -0.000       -0.000        0.000        -0.064        0.112        0.129
+
+ Relative motions
+ at point  1        -0.004       -0.919        0.919        -0.000       -0.000        0.000        -1.064        0.112        1.070
+ Longitudinal and transverse drift force per wave amplitude squared   -2420.59      0.171021    
+ Yaw drift moment per wave amplitude squared                        0.209456    
+ Roll drift moment per wave amplitude squared                       -0.401897    
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.994    -0.000
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 2.776  encounter frequ. 2.776  wave length     8.00  wave number 0.7854  wave angle  90.0
+ speed   0.00  wetted transom?         T  log(determinant)   78.76  16.88
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation        -0.000        0.000        0.000         0.280       -0.697        0.751         1.139       -0.785        1.383
+ Rotation/k          0.547       -1.362        1.468         0.000        0.000        0.000        -0.000       -0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1        -0.000        0.000        0.000         0.280       -0.697        0.751         1.139       -0.785        1.383
+
+ Relative motions
+ at point  1        -0.000       -0.000        0.000         0.280        0.303        0.413         0.139       -0.785        0.797
+ Longitudinal and transverse drift force per wave amplitude squared   0.902854E-02  -114580.    
+ Yaw drift moment per wave amplitude squared                         4945.54    
+ Roll drift moment per wave amplitude squared                        -300799.    
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.000    -0.994
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 2.776  encounter frequ. 2.776  wave length     8.00  wave number 0.7854  wave angle 180.0
+ speed   0.00  wetted transom?         T  log(determinant)   78.76  16.88
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation         0.004       -0.081        0.081        -0.000       -0.000        0.000        -0.064        0.112        0.129
+ Rotation/k         -0.000       -0.000        0.000        -0.013       -0.023        0.026        -0.000        0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1         0.004       -0.081        0.081        -0.000       -0.000        0.000        -0.064        0.112        0.129
+
+ Relative motions
+ at point  1         0.004        0.919        0.919        -0.000        0.000        0.000        -1.064        0.112        1.070
+ Longitudinal and transverse drift force per wave amplitude squared    2432.79      0.125244    
+ Yaw drift moment per wave amplitude squared                        0.875249E-01
+ Roll drift moment per wave amplitude squared                        0.413479    
+ Long., transv. reduced water drift velocity per wave amplitude^2       -0.994    -0.000
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 2.483  encounter frequ. 2.483  wave length    10.00  wave number 0.6283  wave angle -90.0
+ speed   0.00  wetted transom?         T  log(determinant)   78.27  15.85
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation         0.000        0.000        0.000        -0.729        0.922        1.176         1.278       -0.320        1.318
+ Rotation/k         -3.504        4.433        5.651        -0.000        0.000        0.000         0.000        0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1         0.000        0.000        0.000        -0.729        0.922        1.176         1.278       -0.320        1.318
+
+ Relative motions
+ at point  1         0.000       -0.000        0.000        -0.729       -0.078        0.733         0.278       -0.320        0.424
+ Longitudinal and transverse drift force per wave amplitude squared  -0.354352E-01   27111.9    
+ Yaw drift moment per wave amplitude squared                        -3580.12    
+ Roll drift moment per wave amplitude squared                         626492.    
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.000     0.832
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 2.483  encounter frequ. 2.483  wave length    10.00  wave number 0.6283  wave angle   0.0
+ speed   0.00  wetted transom?         T  log(determinant)   78.27  15.85
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation         0.000       -0.000        0.000         0.000        0.000        0.000         0.000        0.000        0.000
+ Rotation/k          0.000        0.000        0.000        -0.000       -0.000        0.000        -0.000        0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1         0.000       -0.000        0.000         0.000        0.000        0.000         0.000        0.000        0.000
+
+ Relative motions
+ at point  1         0.000       -1.000        1.000         0.000        0.000        0.000        -1.000        0.000        1.000
+ Longitudinal and transverse drift force per wave amplitude squared   0.321623E-02  0.217407    
+ Yaw drift moment per wave amplitude squared                        0.236322    
+ Roll drift moment per wave amplitude squared                        0.736618E-02
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.832    -0.000
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 2.483  encounter frequ. 2.483  wave length    10.00  wave number 0.6283  wave angle  90.0
+ speed   0.00  wetted transom?         T  log(determinant)   78.27  15.85
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation         0.000        0.000        0.000         0.729       -0.922        1.176         1.278       -0.320        1.318
+ Rotation/k          3.504       -4.433        5.651        -0.000        0.000        0.000        -0.000       -0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1         0.000        0.000        0.000         0.729       -0.922        1.176         1.278       -0.320        1.318
+
+ Relative motions
+ at point  1         0.000       -0.000        0.000         0.729        0.078        0.733         0.278       -0.320        0.424
+ Longitudinal and transverse drift force per wave amplitude squared  -0.354349E-01  -27112.4    
+ Yaw drift moment per wave amplitude squared                         12454.6    
+ Roll drift moment per wave amplitude squared                        -626490.    
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.000    -0.832
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 2.483  encounter frequ. 2.483  wave length    10.00  wave number 0.6283  wave angle 180.0
+ speed   0.00  wetted transom?         T  log(determinant)   78.27  15.85
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation        -0.000        0.000        0.000         0.000        0.000        0.000         0.000        0.000        0.000
+ Rotation/k          0.000        0.000        0.000         0.000        0.000        0.000         0.000       -0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1        -0.000        0.000        0.000         0.000        0.000        0.000         0.000        0.000        0.000
+
+ Relative motions
+ at point  1        -0.000        1.000        1.000         0.000        0.000        0.000        -1.000        0.000        1.000
+ Longitudinal and transverse drift force per wave amplitude squared  -0.370423E-02  0.173584    
+ Yaw drift moment per wave amplitude squared                        0.180670    
+ Roll drift moment per wave amplitude squared                        0.794220E-02
+ Long., transv. reduced water drift velocity per wave amplitude^2       -0.832    -0.000
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 2.177  encounter frequ. 2.177  wave length    13.00  wave number 0.4833  wave angle -90.0
+ speed   0.00  wetted transom?         T  log(determinant)   79.10  13.22
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation         0.000        0.000        0.000         0.053        0.302        0.307         1.167       -0.098        1.171
+ Rotation/k         -0.740       -4.191        4.256        -0.000        0.000        0.000         0.000        0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1         0.000        0.000        0.000         0.053        0.302        0.307         1.167       -0.098        1.171
+
+ Relative motions
+ at point  1         0.000       -0.000        0.000         0.053       -0.698        0.700         0.167       -0.098        0.193
+ Longitudinal and transverse drift force per wave amplitude squared  -0.328996E-02  -6578.32    
+ Yaw drift moment per wave amplitude squared                         1010.85    
+ Roll drift moment per wave amplitude squared                         26085.5    
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.000     0.649
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 2.177  encounter frequ. 2.177  wave length    13.00  wave number 0.4833  wave angle   0.0
+ speed   0.00  wetted transom?         T  log(determinant)   79.10  13.22
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation         0.001       -0.153        0.153        -0.000       -0.000        0.000        -0.105        0.033        0.110
+ Rotation/k          0.000        0.000        0.000        -0.007       -0.043        0.044        -0.000        0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1         0.001       -0.153        0.153        -0.000       -0.000        0.000        -0.105        0.033        0.110
+
+ Relative motions
+ at point  1         0.001       -1.153        1.153        -0.000       -0.000        0.000        -1.105        0.033        1.105
+ Longitudinal and transverse drift force per wave amplitude squared    399.660      0.215820    
+ Yaw drift moment per wave amplitude squared                        0.341272    
+ Roll drift moment per wave amplitude squared                        0.668297E-01
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.649    -0.000
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 2.177  encounter frequ. 2.177  wave length    13.00  wave number 0.4833  wave angle  90.0
+ speed   0.00  wetted transom?         T  log(determinant)   79.10  13.22
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation         0.000        0.000        0.000        -0.053       -0.302        0.307         1.167       -0.098        1.171
+ Rotation/k          0.740        4.191        4.256        -0.000        0.000        0.000        -0.000       -0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1         0.000        0.000        0.000        -0.053       -0.302        0.307         1.167       -0.098        1.171
+
+ Relative motions
+ at point  1         0.000       -0.000        0.000        -0.053        0.698        0.700         0.167       -0.098        0.193
+ Longitudinal and transverse drift force per wave amplitude squared  -0.275166E-02   6578.39    
+ Yaw drift moment per wave amplitude squared                         1568.10    
+ Roll drift moment per wave amplitude squared                        -26085.7    
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.000    -0.649
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 2.177  encounter frequ. 2.177  wave length    13.00  wave number 0.4833  wave angle 180.0
+ speed   0.00  wetted transom?         T  log(determinant)   79.10  13.22
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation        -0.001        0.153        0.153        -0.000       -0.000        0.000        -0.105        0.033        0.110
+ Rotation/k          0.000        0.000        0.000         0.007        0.043        0.044         0.000       -0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1        -0.001        0.153        0.153        -0.000       -0.000        0.000        -0.105        0.033        0.110
+
+ Relative motions
+ at point  1        -0.001        1.153        1.153        -0.000        0.000        0.000        -1.105        0.033        1.105
+ Longitudinal and transverse drift force per wave amplitude squared   -386.786      0.164490    
+ Yaw drift moment per wave amplitude squared                        0.323545    
+ Roll drift moment per wave amplitude squared                       -0.523911E-01
+ Long., transv. reduced water drift velocity per wave amplitude^2       -0.649    -0.000
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 1.904  encounter frequ. 1.904  wave length    17.00  wave number 0.3696  wave angle -90.0
+ speed   0.00  wetted transom?         T  log(determinant)   79.95  12.98
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation         0.000        0.000        0.000         0.019        0.618        0.618         1.087       -0.034        1.088
+ Rotation/k         -0.066       -2.115        2.117        -0.000        0.000        0.000         0.000        0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1         0.000        0.000        0.000         0.019        0.618        0.618         1.087       -0.034        1.088
+
+ Relative motions
+ at point  1         0.000       -0.000        0.000         0.019       -0.382        0.383         0.087       -0.034        0.093
+ Longitudinal and transverse drift force per wave amplitude squared   0.415588E-03  -86.2196    
+ Yaw drift moment per wave amplitude squared                         157.617    
+ Roll drift moment per wave amplitude squared                        -377.658    
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.000     0.486
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 1.904  encounter frequ. 1.904  wave length    17.00  wave number 0.3696  wave angle   0.0
+ speed   0.00  wetted transom?         T  log(determinant)   79.95  12.98
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation        -0.001       -0.130        0.130        -0.000        0.000        0.000        -0.108        0.019        0.110
+ Rotation/k          0.000       -0.000        0.000         0.008        0.075        0.075        -0.000       -0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1        -0.001       -0.130        0.130        -0.000        0.000        0.000        -0.108        0.019        0.110
+
+ Relative motions
+ at point  1        -0.001       -1.130        1.130        -0.000        0.000        0.000        -1.108        0.019        1.108
+ Longitudinal and transverse drift force per wave amplitude squared    144.690      0.160217    
+ Yaw drift moment per wave amplitude squared                       -0.334110    
+ Roll drift moment per wave amplitude squared                       -0.267410E-01
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.486    -0.000
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 1.904  encounter frequ. 1.904  wave length    17.00  wave number 0.3696  wave angle  90.0
+ speed   0.00  wetted transom?         T  log(determinant)   79.95  12.98
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation         0.000        0.000        0.000        -0.019       -0.618        0.618         1.087       -0.034        1.088
+ Rotation/k          0.066        2.115        2.117        -0.000        0.000        0.000        -0.000       -0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1         0.000        0.000        0.000        -0.019       -0.618        0.618         1.087       -0.034        1.088
+
+ Relative motions
+ at point  1         0.000       -0.000        0.000        -0.019        0.382        0.383         0.087       -0.034        0.093
+ Longitudinal and transverse drift force per wave amplitude squared   0.507116E-03   86.3102    
+ Yaw drift moment per wave amplitude squared                         153.894    
+ Roll drift moment per wave amplitude squared                         377.463    
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.000    -0.486
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 1.904  encounter frequ. 1.904  wave length    17.00  wave number 0.3696  wave angle 180.0
+ speed   0.00  wetted transom?         T  log(determinant)   79.95  12.98
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation         0.001        0.130        0.130        -0.000        0.000        0.000        -0.108        0.019        0.110
+ Rotation/k          0.000       -0.000        0.000        -0.008       -0.075        0.075         0.000        0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1         0.001        0.130        0.130        -0.000        0.000        0.000        -0.108        0.019        0.110
+
+ Relative motions
+ at point  1         0.001        1.130        1.130        -0.000        0.000        0.000        -1.108        0.019        1.108
+ Longitudinal and transverse drift force per wave amplitude squared   -155.795      0.119141    
+ Yaw drift moment per wave amplitude squared                       -0.412418    
+ Roll drift moment per wave amplitude squared                        0.363617E-01
+ Long., transv. reduced water drift velocity per wave amplitude^2       -0.486    -0.000
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 1.674  encounter frequ. 1.674  wave length    22.00  wave number 0.2856  wave angle -90.0
+ speed   0.00  wetted transom?         T  log(determinant)   80.12  12.95
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation         0.000        0.000        0.000         0.006        0.726        0.726         1.047       -0.014        1.047
+ Rotation/k         -0.014       -1.599        1.599        -0.000        0.000        0.000         0.000        0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1         0.000        0.000        0.000         0.006        0.726        0.726         1.047       -0.014        1.047
+
+ Relative motions
+ at point  1         0.000       -0.000        0.000         0.006       -0.274        0.274         0.047       -0.014        0.049
+ Longitudinal and transverse drift force per wave amplitude squared   0.348856E-03   45.7640    
+ Yaw drift moment per wave amplitude squared                         45.9706    
+ Roll drift moment per wave amplitude squared                        -468.614    
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.000     0.359
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 1.674  encounter frequ. 1.674  wave length    22.00  wave number 0.2856  wave angle   0.0
+ speed   0.00  wetted transom?         T  log(determinant)   80.12  12.95
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation        -0.002        0.051        0.051         0.000        0.000        0.000         0.086       -0.009        0.087
+ Rotation/k          0.000       -0.000        0.000         0.019        0.285        0.286         0.000       -0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1        -0.002        0.051        0.051         0.000        0.000        0.000         0.086       -0.009        0.087
+
+ Relative motions
+ at point  1        -0.002       -0.949        0.949         0.000        0.000        0.000        -0.914       -0.009        0.914
+ Longitudinal and transverse drift force per wave amplitude squared   -81.2031      0.991211E-01
+ Yaw drift moment per wave amplitude squared                        -1.16661    
+ Roll drift moment per wave amplitude squared                        0.357208E-01
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.359    -0.000
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 1.674  encounter frequ. 1.674  wave length    22.00  wave number 0.2856  wave angle  90.0
+ speed   0.00  wetted transom?         T  log(determinant)   80.12  12.95
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation         0.000        0.000        0.000        -0.006       -0.726        0.726         1.047       -0.014        1.047
+ Rotation/k          0.014        1.599        1.599        -0.000        0.000        0.000        -0.000       -0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1         0.000        0.000        0.000        -0.006       -0.726        0.726         1.047       -0.014        1.047
+
+ Relative motions
+ at point  1         0.000       -0.000        0.000        -0.006        0.274        0.274         0.047       -0.014        0.049
+ Longitudinal and transverse drift force per wave amplitude squared   0.354472E-03  -45.8169    
+ Yaw drift moment per wave amplitude squared                         40.9510    
+ Roll drift moment per wave amplitude squared                         468.539    
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.000    -0.359
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 1.674  encounter frequ. 1.674  wave length    22.00  wave number 0.2856  wave angle 180.0
+ speed   0.00  wetted transom?         T  log(determinant)   80.12  12.95
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation         0.002       -0.051        0.051         0.000        0.000        0.000         0.086       -0.009        0.087
+ Rotation/k          0.000       -0.000        0.000        -0.019       -0.285        0.286        -0.000        0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1         0.002       -0.051        0.051         0.000        0.000        0.000         0.086       -0.009        0.087
+
+ Relative motions
+ at point  1         0.002        0.949        0.949         0.000        0.000        0.000        -0.914       -0.009        0.914
+ Longitudinal and transverse drift force per wave amplitude squared    77.2192      0.596008E-01
+ Yaw drift moment per wave amplitude squared                        -1.70569    
+ Roll drift moment per wave amplitude squared                       -0.299702E-01
+ Long., transv. reduced water drift velocity per wave amplitude^2       -0.359    -0.000
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 1.484  encounter frequ. 1.484  wave length    28.00  wave number 0.2244  wave angle -90.0
+ speed   0.00  wetted transom?         T  log(determinant)   80.02  12.94
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation         0.000        0.000        0.000         0.002        0.792        0.792         1.027       -0.006        1.027
+ Rotation/k         -0.004       -1.384        1.384        -0.000        0.000        0.000         0.000        0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1         0.000        0.000        0.000         0.002        0.792        0.792         1.027       -0.006        1.027
+
+ Relative motions
+ at point  1         0.000       -0.000        0.000         0.002       -0.208        0.208         0.027       -0.006        0.028
+ Longitudinal and transverse drift force per wave amplitude squared   0.279519E-03   18.7614    
+ Yaw drift moment per wave amplitude squared                         17.2841    
+ Roll drift moment per wave amplitude squared                        -194.518    
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.000     0.266
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 1.484  encounter frequ. 1.484  wave length    28.00  wave number 0.2244  wave angle   0.0
+ speed   0.00  wetted transom?         T  log(determinant)   80.02  12.94
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation        -0.002        0.263        0.263         0.000        0.000        0.000         0.324       -0.022        0.325
+ Rotation/k         -0.000       -0.000        0.000         0.021        0.484        0.484         0.000       -0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1        -0.002        0.263        0.263         0.000        0.000        0.000         0.324       -0.022        0.325
+
+ Relative motions
+ at point  1        -0.002       -0.737        0.737         0.000        0.000        0.000        -0.676       -0.022        0.676
+ Longitudinal and transverse drift force per wave amplitude squared   -106.548      0.747070E-01
+ Yaw drift moment per wave amplitude squared                        -1.39539    
+ Roll drift moment per wave amplitude squared                        0.799255E-01
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.266    -0.000
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 1.484  encounter frequ. 1.484  wave length    28.00  wave number 0.2244  wave angle  90.0
+ speed   0.00  wetted transom?         T  log(determinant)   80.02  12.94
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation         0.000        0.000        0.000        -0.002       -0.792        0.792         1.027       -0.006        1.027
+ Rotation/k          0.004        1.384        1.384        -0.000        0.000        0.000        -0.000       -0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1         0.000        0.000        0.000        -0.002       -0.792        0.792         1.027       -0.006        1.027
+
+ Relative motions
+ at point  1         0.000       -0.000        0.000        -0.002        0.208        0.208         0.027       -0.006        0.028
+ Longitudinal and transverse drift force per wave amplitude squared   0.244738E-03  -18.7499    
+ Yaw drift moment per wave amplitude squared                         15.6656    
+ Roll drift moment per wave amplitude squared                         194.462    
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.000    -0.266
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 1.484  encounter frequ. 1.484  wave length    28.00  wave number 0.2244  wave angle 180.0
+ speed   0.00  wetted transom?         T  log(determinant)   80.02  12.94
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation         0.002       -0.263        0.263         0.000        0.000        0.000         0.324       -0.022        0.325
+ Rotation/k         -0.000       -0.000        0.000        -0.021       -0.484        0.484        -0.000        0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1         0.002       -0.263        0.263         0.000        0.000        0.000         0.324       -0.022        0.325
+
+ Relative motions
+ at point  1         0.002        0.737        0.737         0.000        0.000        0.000        -0.676       -0.022        0.676
+ Longitudinal and transverse drift force per wave amplitude squared    120.101      0.429382E-01
+ Yaw drift moment per wave amplitude squared                        -1.81333    
+ Roll drift moment per wave amplitude squared                       -0.754976E-01
+ Long., transv. reduced water drift velocity per wave amplitude^2       -0.266    -0.000
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 1.327  encounter frequ. 1.327  wave length    35.00  wave number 0.1795  wave angle -90.0
+ speed   0.00  wetted transom?         T  log(determinant)   79.81  12.92
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation        -0.000        0.000        0.000         0.001        0.836        0.836         1.016       -0.003        1.016
+ Rotation/k         -0.001       -1.268        1.268         0.000        0.000        0.000         0.000        0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1        -0.000        0.000        0.000         0.001        0.836        0.836         1.016       -0.003        1.016
+
+ Relative motions
+ at point  1        -0.000       -0.000        0.000         0.001       -0.164        0.164         0.016       -0.003        0.017
+ Longitudinal and transverse drift force per wave amplitude squared   0.103910E-03   15.4214    
+ Yaw drift moment per wave amplitude squared                         7.56882    
+ Roll drift moment per wave amplitude squared                        -99.8364    
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.000     0.199
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 1.327  encounter frequ. 1.327  wave length    35.00  wave number 0.1795  wave angle   0.0
+ speed   0.00  wetted transom?         T  log(determinant)   79.81  12.92
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation        -0.001        0.442        0.442         0.000       -0.000        0.000         0.522       -0.024        0.522
+ Rotation/k         -0.000        0.000        0.000         0.018        0.634        0.634        -0.000       -0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1        -0.001        0.442        0.442         0.000       -0.000        0.000         0.522       -0.024        0.522
+
+ Relative motions
+ at point  1        -0.001       -0.558        0.558         0.000       -0.000        0.000        -0.478       -0.024        0.479
+ Longitudinal and transverse drift force per wave amplitude squared   -55.1074      0.534973E-01
+ Yaw drift moment per wave amplitude squared                        -1.10869    
+ Roll drift moment per wave amplitude squared                        0.713844E-01
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.199    -0.000
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 1.327  encounter frequ. 1.327  wave length    35.00  wave number 0.1795  wave angle  90.0
+ speed   0.00  wetted transom?         T  log(determinant)   79.81  12.92
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation        -0.000        0.000        0.000        -0.001       -0.836        0.836         1.016       -0.003        1.016
+ Rotation/k          0.001        1.268        1.268         0.000        0.000        0.000        -0.000       -0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1        -0.000        0.000        0.000        -0.001       -0.836        0.836         1.016       -0.003        1.016
+
+ Relative motions
+ at point  1        -0.000       -0.000        0.000        -0.001        0.164        0.164         0.016       -0.003        0.017
+ Longitudinal and transverse drift force per wave amplitude squared   0.101047E-03  -15.3773    
+ Yaw drift moment per wave amplitude squared                         7.01394    
+ Roll drift moment per wave amplitude squared                         99.7961    
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.000    -0.199
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 1.327  encounter frequ. 1.327  wave length    35.00  wave number 0.1795  wave angle 180.0
+ speed   0.00  wetted transom?         T  log(determinant)   79.81  12.92
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation         0.001       -0.442        0.442         0.000       -0.000        0.000         0.522       -0.024        0.522
+ Rotation/k         -0.000        0.000        0.000        -0.018       -0.634        0.634         0.000        0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1         0.001       -0.442        0.442         0.000       -0.000        0.000         0.522       -0.024        0.522
+
+ Relative motions
+ at point  1         0.001        0.558        0.558         0.000        0.000        0.000        -0.478       -0.024        0.479
+ Longitudinal and transverse drift force per wave amplitude squared    74.2073      0.324707E-01
+ Yaw drift moment per wave amplitude squared                        -1.25880    
+ Roll drift moment per wave amplitude squared                       -0.626802E-01
+ Long., transv. reduced water drift velocity per wave amplitude^2       -0.199    -0.000
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 1.170  encounter frequ. 1.170  wave length    45.00  wave number 0.1396  wave angle -90.0
+ speed   0.00  wetted transom?         T  log(determinant)   79.49  12.88
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation        -0.000        0.000        0.000         0.000        0.873        0.873         1.010       -0.002        1.010
+ Rotation/k         -0.000       -1.185        1.185         0.000        0.000        0.000         0.000        0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1        -0.000        0.000        0.000         0.000        0.873        0.873         1.010       -0.002        1.010
+
+ Relative motions
+ at point  1        -0.000       -0.000        0.000         0.000       -0.127        0.127         0.010       -0.002        0.010
+ Longitudinal and transverse drift force per wave amplitude squared   0.404801E-04   16.3254    
+ Yaw drift moment per wave amplitude squared                         3.14354    
+ Roll drift moment per wave amplitude squared                        -58.3777    
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.000     0.142
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 1.170  encounter frequ. 1.170  wave length    45.00  wave number 0.1396  wave angle   0.0
+ speed   0.00  wetted transom?         T  log(determinant)   79.49  12.88
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation        -0.001        0.602        0.602        -0.000       -0.000        0.000         0.691       -0.020        0.691
+ Rotation/k          0.000        0.000        0.000         0.014        0.759        0.759        -0.000        0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1        -0.001        0.602        0.602        -0.000       -0.000        0.000         0.691       -0.020        0.691
+
+ Relative motions
+ at point  1        -0.001       -0.398        0.398        -0.000       -0.000        0.000        -0.309       -0.020        0.310
+ Longitudinal and transverse drift force per wave amplitude squared   -8.68942      0.183411E-01
+ Yaw drift moment per wave amplitude squared                       -0.649362    
+ Roll drift moment per wave amplitude squared                        0.375252E-01
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.142    -0.000
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 1.170  encounter frequ. 1.170  wave length    45.00  wave number 0.1396  wave angle  90.0
+ speed   0.00  wetted transom?         T  log(determinant)   79.49  12.88
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation        -0.000        0.000        0.000        -0.000       -0.873        0.873         1.010       -0.002        1.010
+ Rotation/k          0.000        1.185        1.185         0.000        0.000        0.000        -0.000       -0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1        -0.000        0.000        0.000        -0.000       -0.873        0.873         1.010       -0.002        1.010
+
+ Relative motions
+ at point  1        -0.000       -0.000        0.000        -0.000        0.127        0.127         0.010       -0.002        0.010
+ Longitudinal and transverse drift force per wave amplitude squared   0.419197E-04  -16.3001    
+ Yaw drift moment per wave amplitude squared                         2.94899    
+ Roll drift moment per wave amplitude squared                         58.4146    
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.000    -0.142
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 1.170  encounter frequ. 1.170  wave length    45.00  wave number 0.1396  wave angle 180.0
+ speed   0.00  wetted transom?         T  log(determinant)   79.49  12.88
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation         0.001       -0.602        0.602        -0.000       -0.000        0.000         0.691       -0.020        0.691
+ Rotation/k          0.000        0.000        0.000        -0.014       -0.759        0.759         0.000       -0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1         0.001       -0.602        0.602        -0.000       -0.000        0.000         0.691       -0.020        0.691
+
+ Relative motions
+ at point  1         0.001        0.398        0.398        -0.000        0.000        0.000        -0.309       -0.020        0.310
+ Longitudinal and transverse drift force per wave amplitude squared    24.6188      0.862122E-02
+ Yaw drift moment per wave amplitude squared                       -0.759741    
+ Roll drift moment per wave amplitude squared                       -0.401011E-01
+ Long., transv. reduced water drift velocity per wave amplitude^2       -0.142    -0.000
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 1.059  encounter frequ. 1.059  wave length    55.00  wave number 0.1142  wave angle -90.0
+ speed   0.00  wetted transom?         T  log(determinant)   79.20  12.85
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation         0.000        0.000        0.000         0.000        0.898        0.898         1.006       -0.001        1.006
+ Rotation/k         -0.000       -1.143        1.143        -0.000        0.000        0.000         0.000        0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1         0.000        0.000        0.000         0.000        0.898        0.898         1.006       -0.001        1.006
+
+ Relative motions
+ at point  1         0.000       -0.000        0.000         0.000       -0.102        0.102         0.006       -0.001        0.006
+ Longitudinal and transverse drift force per wave amplitude squared   0.130554E-03   9.15689    
+ Yaw drift moment per wave amplitude squared                         1.63329    
+ Roll drift moment per wave amplitude squared                        -23.1715    
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.000     0.108
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 1.059  encounter frequ. 1.059  wave length    55.00  wave number 0.1142  wave angle   0.0
+ speed   0.00  wetted transom?         T  log(determinant)   79.20  12.85
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation        -0.000        0.698        0.698         0.000        0.000        0.000         0.787       -0.015        0.787
+ Rotation/k         -0.000       -0.000        0.000         0.010        0.829        0.830         0.000       -0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1        -0.000        0.698        0.698         0.000        0.000        0.000         0.787       -0.015        0.787
+
+ Relative motions
+ at point  1        -0.000       -0.302        0.302         0.000        0.000        0.000        -0.213       -0.015        0.214
+ Longitudinal and transverse drift force per wave amplitude squared   -1.59805      0.620117E-01
+ Yaw drift moment per wave amplitude squared                       -0.380278    
+ Roll drift moment per wave amplitude squared                        0.241823E-01
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.108    -0.000
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 1.059  encounter frequ. 1.059  wave length    55.00  wave number 0.1142  wave angle  90.0
+ speed   0.00  wetted transom?         T  log(determinant)   79.20  12.85
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation         0.000        0.000        0.000        -0.000       -0.898        0.898         1.006       -0.001        1.006
+ Rotation/k          0.000        1.143        1.143        -0.000        0.000        0.000        -0.000        0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1         0.000        0.000        0.000        -0.000       -0.898        0.898         1.006       -0.001        1.006
+
+ Relative motions
+ at point  1         0.000       -0.000        0.000        -0.000        0.102        0.102         0.006       -0.001        0.006
+ Longitudinal and transverse drift force per wave amplitude squared   0.148804E-03  -9.11174    
+ Yaw drift moment per wave amplitude squared                         1.55067    
+ Roll drift moment per wave amplitude squared                         23.2117    
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.000    -0.108
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 1.059  encounter frequ. 1.059  wave length    55.00  wave number 0.1142  wave angle 180.0
+ speed   0.00  wetted transom?         T  log(determinant)   79.20  12.85
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation         0.000       -0.698        0.698         0.000        0.000        0.000         0.787       -0.015        0.787
+ Rotation/k         -0.000       -0.000        0.000        -0.010       -0.829        0.830        -0.000        0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1         0.000       -0.698        0.698         0.000        0.000        0.000         0.787       -0.015        0.787
+
+ Relative motions
+ at point  1         0.000        0.302        0.302         0.000        0.000        0.000        -0.213       -0.015        0.214
+ Longitudinal and transverse drift force per wave amplitude squared    13.0144      0.586700E-01
+ Yaw drift moment per wave amplitude squared                       -0.493327    
+ Roll drift moment per wave amplitude squared                       -0.191679E-01
+ Long., transv. reduced water drift velocity per wave amplitude^2       -0.108    -0.000
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 0.938  encounter frequ. 0.938  wave length    70.00  wave number 0.0898  wave angle -90.0
+ speed   0.00  wetted transom?         T  log(determinant)   78.81  12.81
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation        -0.000        0.000        0.000         0.000        0.917        0.917         1.004       -0.001        1.004
+ Rotation/k         -0.000       -1.101        1.101         0.000        0.000        0.000         0.000        0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1        -0.000        0.000        0.000         0.000        0.917        0.917         1.004       -0.001        1.004
+
+ Relative motions
+ at point  1        -0.000       -0.000        0.000         0.000       -0.083        0.083         0.004       -0.001        0.004
+ Longitudinal and transverse drift force per wave amplitude squared  -0.231593E-04   13.0865    
+ Yaw drift moment per wave amplitude squared                        0.726314    
+ Roll drift moment per wave amplitude squared                        -26.2116    
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.000     0.077
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 0.938  encounter frequ. 0.938  wave length    70.00  wave number 0.0898  wave angle   0.0
+ speed   0.00  wetted transom?         T  log(determinant)   78.81  12.81
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation        -0.000        0.782        0.782         0.000       -0.000        0.000         0.866       -0.011        0.866
+ Rotation/k         -0.000        0.000        0.000         0.008        0.888        0.888        -0.000       -0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1        -0.000        0.782        0.782         0.000       -0.000        0.000         0.866       -0.011        0.866
+
+ Relative motions
+ at point  1        -0.000       -0.218        0.218         0.000       -0.000        0.000        -0.134       -0.011        0.134
+ Longitudinal and transverse drift force per wave amplitude squared    11.3282      0.496216E-01
+ Yaw drift moment per wave amplitude squared                       -0.215575    
+ Roll drift moment per wave amplitude squared                        0.110254E-01
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.077    -0.000
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 0.938  encounter frequ. 0.938  wave length    70.00  wave number 0.0898  wave angle  90.0
+ speed   0.00  wetted transom?         T  log(determinant)   78.81  12.81
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation        -0.000        0.000        0.000        -0.000       -0.917        0.917         1.004       -0.001        1.004
+ Rotation/k          0.000        1.101        1.101         0.000        0.000        0.000        -0.000       -0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1        -0.000        0.000        0.000        -0.000       -0.917        0.917         1.004       -0.001        1.004
+
+ Relative motions
+ at point  1        -0.000       -0.000        0.000        -0.000        0.083        0.083         0.004       -0.001        0.004
+ Longitudinal and transverse drift force per wave amplitude squared  -0.295948E-04  -13.0656    
+ Yaw drift moment per wave amplitude squared                        0.661259    
+ Roll drift moment per wave amplitude squared                         26.2177    
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.000    -0.077
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 0.938  encounter frequ. 0.938  wave length    70.00  wave number 0.0898  wave angle 180.0
+ speed   0.00  wetted transom?         T  log(determinant)   78.81  12.81
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation         0.000       -0.782        0.782         0.000       -0.000        0.000         0.866       -0.011        0.866
+ Rotation/k         -0.000        0.000        0.000        -0.008       -0.888        0.888         0.000        0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1         0.000       -0.782        0.782         0.000       -0.000        0.000         0.866       -0.011        0.866
+
+ Relative motions
+ at point  1         0.000        0.218        0.218         0.000        0.000        0.000        -0.134       -0.011        0.134
+ Longitudinal and transverse drift force per wave amplitude squared   -4.53081      0.458374E-01
+ Yaw drift moment per wave amplitude squared                       -0.198528    
+ Roll drift moment per wave amplitude squared                       -0.878143E-02
+ Long., transv. reduced water drift velocity per wave amplitude^2       -0.077    -0.000
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 0.828  encounter frequ. 0.828  wave length    90.00  wave number 0.0698  wave angle -90.0
+ speed   0.00  wetted transom?         T  log(determinant)   78.39  12.77
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation        -0.000        0.000        0.000         0.000        0.933        0.933         1.003       -0.001        1.003
+ Rotation/k         -0.000       -1.071        1.071         0.000        0.000        0.000         0.000        0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1        -0.000        0.000        0.000         0.000        0.933        0.933         1.003       -0.001        1.003
+
+ Relative motions
+ at point  1        -0.000       -0.000        0.000         0.000       -0.067        0.067         0.003       -0.001        0.003
+ Longitudinal and transverse drift force per wave amplitude squared  -0.651064E-05   10.6128    
+ Yaw drift moment per wave amplitude squared                        0.330808    
+ Roll drift moment per wave amplitude squared                        -17.7977    
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.000     0.054
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 0.828  encounter frequ. 0.828  wave length    90.00  wave number 0.0698  wave angle   0.0
+ speed   0.00  wetted transom?         T  log(determinant)   78.39  12.77
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation        -0.000        0.842        0.842        -0.000       -0.000        0.000         0.918       -0.007        0.918
+ Rotation/k          0.000        0.000        0.000         0.005        0.928        0.928        -0.000        0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1        -0.000        0.842        0.842        -0.000       -0.000        0.000         0.918       -0.007        0.918
+
+ Relative motions
+ at point  1        -0.000       -0.158        0.158        -0.000       -0.000        0.000        -0.082       -0.007        0.082
+ Longitudinal and transverse drift force per wave amplitude squared    10.2092     -0.331497    
+ Yaw drift moment per wave amplitude squared                       -0.936368E-01
+ Roll drift moment per wave amplitude squared                       -0.350904E-01
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.054    -0.000
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 0.828  encounter frequ. 0.828  wave length    90.00  wave number 0.0698  wave angle  90.0
+ speed   0.00  wetted transom?         T  log(determinant)   78.39  12.77
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation        -0.000        0.000        0.000        -0.000       -0.933        0.933         1.003       -0.001        1.003
+ Rotation/k          0.000        1.071        1.071         0.000        0.000        0.000        -0.000       -0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1        -0.000        0.000        0.000        -0.000       -0.933        0.933         1.003       -0.001        1.003
+
+ Relative motions
+ at point  1        -0.000       -0.000        0.000        -0.000        0.067        0.067         0.003       -0.001        0.003
+ Longitudinal and transverse drift force per wave amplitude squared  -0.646312E-05  -10.5944    
+ Yaw drift moment per wave amplitude squared                        0.284426    
+ Roll drift moment per wave amplitude squared                         17.8036    
+ Long., transv. reduced water drift velocity per wave amplitude^2        0.000    -0.054
+ -----------------------------------------------------------------------------------------------------------------------------------
+
+ Wave circ. frequency 0.828  encounter frequ. 0.828  wave length    90.00  wave number 0.0698  wave angle 180.0
+ speed   0.00  wetted transom?         T  log(determinant)   78.39  12.77
+              Real part(1)  Imagin.part(1)    Abs(1)  Real part(2)  Imagin.part(2)    Abs(2)  Real part(3)  Imagin.part(3)    Abs(3)
+ Translation         0.000       -0.842        0.842        -0.000       -0.000        0.000         0.918       -0.007        0.918
+ Rotation/k          0.000        0.000        0.000        -0.005       -0.928        0.928         0.000       -0.000        0.000
+
+ Absolute motions in x, y, z direction
+ at point  1         0.000       -0.842        0.842        -0.000       -0.000        0.000         0.918       -0.007        0.918
+
+ Relative motions
+ at point  1         0.000        0.158        0.158        -0.000        0.000        0.000        -0.082       -0.007        0.082
+ Longitudinal and transverse drift force per wave amplitude squared   -6.55839     -0.335373    
+ Yaw drift moment per wave amplitude squared                       -0.949243E-01
+ Roll drift moment per wave amplitude squared                       -0.431890E-01
+ Long., transv. reduced water drift velocity per wave amplitude^2       -0.054    -0.000
