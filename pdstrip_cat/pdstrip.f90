@@ -59,6 +59,7 @@ real:: feta_stored(nvmax,nmumax,nomma) !stored sway drift per wave ampl^2 for re
 real:: omega_stored(nomma)       !wave frequencies corresponding to feta_stored
 integer:: nom_stored = 0         !number of stored frequencies
 
+
 character(80):: text             !text describing the ship and its loading case
 character(80):: offsetfile       !name of the file containing the offset point data
 
@@ -358,6 +359,7 @@ integer:: nbody                        !number of body panel sources (both hulls
 integer:: k,k1                         !offset point indices
 integer:: nf                           !number of free-surface panels (undamped) on each outboard side
 integer:: nft                          !number of free-surface panels on each side of the tunnel
+integer:: nf_tunnel                    !number of undamped tunnel FS panels (tunnel analog of nf)
 integer:: iw                           !index of wave angle
 integer:: is                           !points to row if equation solver detects singularity
 integer:: i,ii,j,l,m                   !indices
@@ -377,7 +379,6 @@ real:: h,hp                            !point distance on free surface near to b
 real:: hend                            !point distance on free surface far from body
 real:: tunnelw                         !tunnel half-width (from inner waterline to y=0)
 real:: ymid                            !y coordinate of tunnel midpoint
-real:: ht                              !accumulated distance for tunnel panel counting
 !Grid-point and source arrays: combined layout for both hulls + FS
 !Grid points yg/zg: body(1:2*nof1) + outboard FS + tunnel FS
 real:: yg(0:nofmax),zg(0:nofmax)       !y and z coordinates of all grid points (vessel frame)
@@ -397,6 +398,7 @@ complex:: farfield(2,3+nmumax)         !far-field wave amplitudes: (1)=stb outbo
 complex:: phi_eval_stb                 !potential at stb outboard evaluation point
 complex:: phi_eval_prt                 !potential at port outboard evaluation point
 real:: y_eval_stb, y_eval_prt          !y-coordinates of far-field evaluation points
+
 complex:: zw1,zw2,zw1a,zw2a            !complex intermediate numbers
 if (nof1.gt.100) call stop1('***  Too many (>100) points on section.')
 if (nmu.gt.nmumax) call stop1('*** Too many angles')
@@ -470,54 +472,60 @@ TwoFreeSurfaceDiscretisations: do nf=25,28,3
  enddo OutboardFS
 
   !Tunnel free surface: panels between inner waterlines of the two hulls.
-  !Stb inner waterline at ys(1), port inner waterline at yp(nof1). Tunnel goes from ys(1) to yp(nof1).
-  !ys(1) < yp(nof1) (stb hull inner wl is at more negative y than port hull inner wl).
-  !Two sets of panels grow from each inner waterline toward the tunnel midpoint ymid.
-  !Geometric growth (×1.5, capped at hend) is used; the last panel is sized to reach exactly ymid.
-  tunnelw=(yp(nof1)-ys(1))/2                                           !half-width of tunnel
-  ymid=(ys(1)+yp(nof1))/2                                              !tunnel midpoint y-coordinate
+   !Stb inner waterline at ys(1), port inner waterline at yp(nof1). Tunnel goes from ys(1) to yp(nof1).
+   !ys(1) < yp(nof1) (stb hull inner wl is at more negative y than port hull inner wl).
+   !Two sets of panels from each inner waterline toward the tunnel midpoint ymid.
+   !UNIFORM spacing is used to keep sources shallow in the confined tunnel gap.
+   tunnelw=(yp(nof1)-ys(1))/2                                           !half-width of tunnel
+   ymid=(ys(1)+yp(nof1))/2                                              !tunnel midpoint y-coordinate
 
-  !Count how many tunnel panels fit on one side (stb side: ys(1) toward ymid, dy>0)
-  h=sqrt((ys(1)-ys(2))**2+(zof1(1)-zof1(2))**2)                       !initial spacing = inner body panel
-  nft=0
-  ht=0                                                                  !accumulated distance from ys(1)
-  do while (ht<tunnelw-0.001*h)
-   h=min(h*1.5,hend)
-   ht=ht+h
-   nft=nft+1
-  enddo
-  !nft now counts panels; last panel may overshoot, will be trimmed below.
-  !Ensure we don't exceed array bounds (total sources = nbody + 2*nfs + 2*nft + 1)
-  do while (nbody+2*nfs+2*nft+1>nofmax.and.nft>0)
-   nft=nft-1
-  enddo
+   !Determine uniform tunnel panel count and size
+   h=sqrt((ys(1)-ys(2))**2+(zof1(1)-zof1(2))**2)                       !initial spacing = inner body panel
+   nft=max(min(nint(tunnelw/h),30),4)                                    !4-30 panels per side (cap for conditioning)
+   !Ensure we don't exceed array bounds (total sources = nbody + 2*nfs + 2*nft + 1)
+   do while (nbody+2*nfs+2*nft+1>nofmax.and.nft>4)
+    nft=nft-1
+    enddo
+    nf_tunnel=nft                                    !ALL tunnel panels use Near (undamped) BC
 
-  !Build tunnel FS panels from stb inner waterline toward positive y, ending at ymid
-  h=sqrt((ys(1)-ys(2))**2+(zof1(1)-zof1(2))**2)
-  iofs=nbody+2*nfs
-  do k=1,nft
-   h=min(h*1.5,hend)
-   if (k==nft) h=ymid-merge(ys(1),yg(2*nof1+2*nfs+k-1),k==1)         !trim last panel to reach midpoint
-   yg(2*nof1+2*nfs+k)=merge(ys(1),yg(2*nof1+2*nfs+k-1),k==1)+h
-   zg(2*nof1+2*nfs+k)=zwl
-   yq(iofs+k)=yg(2*nof1+2*nfs+k)-0.5*h
-   zq(iofs+k)=zwl-1.0*h
-  enddo
-  !Build tunnel FS panels from port inner waterline toward negative y, ending at ymid
-  h=sqrt((ys(1)-ys(2))**2+(zof1(1)-zof1(2))**2)
-  do k=1,nft
-   h=min(h*1.5,hend)
-   if (k==nft) h=merge(yp(nof1),yg(2*nof1+2*nfs+nft+k-1),k==1)-ymid  !trim last panel to reach midpoint
-   yg(2*nof1+2*nfs+nft+k)=merge(yp(nof1),yg(2*nof1+2*nfs+nft+k-1),k==1)-h
-   zg(2*nof1+2*nfs+nft+k)=zwl
-   yq(iofs+nft+k)=yg(2*nof1+2*nfs+nft+k)+0.5*h
-   zq(iofs+nft+k)=zwl-1.0*h
-  enddo
+   !Build tunnel FS panels from stb inner waterline toward positive y, ending at ymid
+   !UNIFORM spacing: h = tunnelw/nft for all panels (keeps sources shallow)
+   h=tunnelw/nft                                                         !uniform panel size
+   iofs=nbody+2*nfs
+   do k=1,nft
+    yg(2*nof1+2*nfs+k)=ys(1)+k*h
+    zg(2*nof1+2*nfs+k)=zwl
+    yq(iofs+k)=ys(1)+(k-0.5)*h                                          !source at panel midpoint
+    zq(iofs+k)=zwl-1.0*h                                                !depth = one panel width (uniform)
+   enddo
+   !Build tunnel FS panels from port inner waterline toward negative y, ending at ymid
+   do k=1,nft
+    yg(2*nof1+2*nfs+nft+k)=yp(nof1)-k*h
+    zg(2*nof1+2*nfs+nft+k)=zwl
+    yq(iofs+nft+k)=yp(nof1)-(k-0.5)*h                                   !source at panel midpoint
+    zq(iofs+nft+k)=zwl-1.0*h                                            !depth = one panel width (uniform)
+   enddo
 
  !Source 0 at y=0 centreline (between the two hulls)
  yq(0)=0
  zq(0)=zwl-abs(ys(nof1))/2
  nsrc=nbody+2*nfs+2*nft+1                                             !total sources including source 0
+
+ !--- Tunnel geometry diagnostic (first FS discretisation only) ---
+ if (nf==25 .and. nft>0) then
+  write(34,'(a,i3,a,i3,a,f8.3,a,f8.3,a,f8.3)') &
+   'TUNNEL_GEOM nft=',nft,' nbody=',nbody,' ys1=',ys(1),' yp_n=',yp(nof1),' tunnelw=',tunnelw
+  do k=1,nft
+   write(34,'(a,i3,a,f8.3,a,f8.3,a,f8.3)') &
+    '  stb_panel k=',k,' yq=',yq(nbody+2*nfs+k),' zq=',zq(nbody+2*nfs+k), &
+    ' depth=',zwl-zq(nbody+2*nfs+k)
+  enddo
+  do k=1,nft
+   write(34,'(a,i3,a,f8.3,a,f8.3,a,f8.3)') &
+    '  prt_panel k=',k,' yq=',yq(nbody+2*nfs+nft+k),' zq=',zq(nbody+2*nfs+nft+k), &
+    ' depth=',zwl-zq(nbody+2*nfs+nft+k)
+  enddo
+ endif
  if (nsrc>nofmax) call stop1('*** Too many sources in catamaran solver')
  !Also store body grid points in yg,zg for the FS boundary condition references
  do k=1,nof1
@@ -646,21 +654,21 @@ TwoFreeSurfaceDiscretisations: do nf=25,28,3
   enddo
  enddo OutboardPortFar
 
- !Tunnel stb-side: panels from yg(2*nof1+2*nfs+1) to yg(2*nof1+2*nfs+nft), from ys(1) toward +y
- TunnelStbNear: do k=1,min(nf,nft)
+  !Tunnel stb-side: panels from yg(2*nof1+2*nfs+1) to yg(2*nof1+2*nfs+nft), from ys(1) toward +y
+    TunnelStbNear: do k=1,min(nf_tunnel,nft)
   k1=2*nof1+2*nfs+k
   dy=yg(k1)-merge(ys(1),yg(k1-1),k==1)                               !dy > 0
   do i=0,nsrc-1
-   a(nbody+2*nfs+k,i)=-pqnb(merge(ys(1),yg(k1-1),k==1),zwl,yg(k1),zwl,yq(i),zq(i)) &
-    +om**2/g*abs(dy)*(pqb(merge(ys(1),yg(k1-1),k==1)+0.316*dy,zwl,yq(i),zq(i)) &
-    +pqb(merge(ys(1),yg(k1-1),k==1)+0.684*dy,zwl,yq(i),zq(i)))/2
+    a(nbody+2*nfs+k,i)=-pqnb(merge(ys(1),yg(k1-1),k==1),zwl,yg(k1),zwl,yq(i),zq(i)) &
+     +om**2/g*abs(dy)*(pqb(merge(ys(1),yg(k1-1),k==1)+0.316*dy,zwl,yq(i),zq(i)) &
+     +pqb(merge(ys(1),yg(k1-1),k==1)+0.684*dy,zwl,yq(i),zq(i)))/2
   enddo
  enddo TunnelStbNear
- TunnelStbFar: do k=nf+1,nft
-  k1=2*nof1+2*nfs+k
-  dy=yg(k1)-yg(k1-1)
-  factor=(real(k-nf)/(nft-nf))**2
-  do i=0,nsrc-1
+   TunnelStbFar: do k=nf_tunnel+1,nft
+    k1=2*nof1+2*nfs+k
+    dy=yg(k1)-yg(k1-1)
+    factor=(real(k-nf_tunnel)/(nft-nf_tunnel))**2
+   do i=0,nsrc-1
    a(nbody+2*nfs+k,i)=waven*abs(dy)* &
     (pqb(yg(k1-1)+0.316*dy,zwl,yq(i),zq(i))+pqb(yg(k1-1)+0.684*dy,zwl,yq(i),zq(i)))/2 &
     -(0.,1.)*(pqb(yg(k1)-factor*dy,zwl,yq(i),zq(i))-pqb(yg(k1-1)-factor*dy,zwl,yq(i),zq(i)))
@@ -668,19 +676,19 @@ TwoFreeSurfaceDiscretisations: do nf=25,28,3
  enddo TunnelStbFar
 
  !Tunnel port-side: panels from yg(2*nof1+2*nfs+nft+1) to yg(2*nof1+2*nfs+2*nft), from yp(nof1) toward -y
- TunnelPortNear: do k=1,min(nf,nft)
+  TunnelPortNear: do k=1,min(nf_tunnel,nft)
   k1=2*nof1+2*nfs+nft+k
   dy=yg(k1)-merge(yp(nof1),yg(k1-1),k==1)                            !dy < 0
   do i=0,nsrc-1
-   a(nbody+2*nfs+nft+k,i)=pqnb(merge(yp(nof1),yg(k1-1),k==1),zwl,yg(k1),zwl,yq(i),zq(i)) &
-    +om**2/g*abs(dy)*(pqb(merge(yp(nof1),yg(k1-1),k==1)+0.316*dy,zwl,yq(i),zq(i)) &
-    +pqb(merge(yp(nof1),yg(k1-1),k==1)+0.684*dy,zwl,yq(i),zq(i)))/2
+    a(nbody+2*nfs+nft+k,i)=pqnb(merge(yp(nof1),yg(k1-1),k==1),zwl,yg(k1),zwl,yq(i),zq(i)) &
+     +om**2/g*abs(dy)*(pqb(merge(yp(nof1),yg(k1-1),k==1)+0.316*dy,zwl,yq(i),zq(i)) &
+     +pqb(merge(yp(nof1),yg(k1-1),k==1)+0.684*dy,zwl,yq(i),zq(i)))/2
   enddo
  enddo TunnelPortNear
- TunnelPortFar: do k=nf+1,nft
-  k1=2*nof1+2*nfs+nft+k
-  dy=yg(k1)-yg(k1-1)
-  factor=(real(k-nf)/(nft-nf))**2
+  TunnelPortFar: do k=nf_tunnel+1,nft
+   k1=2*nof1+2*nfs+nft+k
+   dy=yg(k1)-yg(k1-1)
+   factor=(real(k-nf_tunnel)/(nft-nf_tunnel))**2
   do i=0,nsrc-1
    a(nbody+2*nfs+nft+k,i)=waven*abs(dy)* &
     (pqb(yg(k1-1)+0.316*dy,zwl,yq(i),zq(i))+pqb(yg(k1-1)+0.684*dy,zwl,yq(i),zq(i)))/2 &
@@ -691,12 +699,11 @@ TwoFreeSurfaceDiscretisations: do nf=25,28,3
  !Source sum constraint: sum of all source strengths = 0
  a(0,0:nsrc-1)=1.
 
- !Solve equation system
  call simqcd(a(0,0),nsrc,3+nmu,nofmax+1,is,1.e-10,detl)
  if (is.ne.0) then
   print *,'SINGULAR cat: nsrc=',nsrc,' is=',is,' nf=',nf,' nft=',nft,' om=',om
-  call stop1('*** Singular equation system in catamaran solver.')
-  endif
+   call stop1('*** Singular equation system in catamaran solver.')
+   endif
 
  !--- Force integration over BOTH hulls ---
  Forces: do m=1,3                                      !m=1 sway, m=2 heave, m=3 roll
@@ -783,6 +790,43 @@ TwoFreeSurfaceDiscretisations: do nf=25,28,3
  endif WithPressure
 
 enddo TwoFreeSurfaceDiscretisations
+
+ !--- Energy balance diagnostic for diffraction far-field amplitudes ---
+ !For a 2D lossless body at beam seas (sinw=±1):
+ !  Transmission T = 1 + A_lee,  Reflection R = A_weather
+ !  Energy conservation: |R|^2 + |T|^2 = 1
+ !  Violation measure: E = |R|^2 + |T|^2 - 1 (should be ~0, negative if damped)
+ !At mu=-90 (sinw=-1, waves from +y toward -y):
+ !  A_stb = scattered toward -y (lee direction) → T = 1 + A_stb
+ !  A_prt = scattered toward +y (weather direction) → R = A_prt
+ !At mu=+90 (sinw=+1, waves from -y toward +y):
+ !  A_prt = scattered toward +y (lee direction) → T = 1 + A_prt
+ !  A_stb = scattered toward -y (weather direction) → R = A_stb
+ do l=4,3+nmu
+  sinw = sin(wangl(l-3)*3.14159265/180.0)
+  if (abs(sinw) > 0.99) then  !beam seas only
+   if (sinw < 0.0) then
+    !Waves from +y toward -y: A_stb is lee (transmission), A_prt is weather (reflection)
+    write(34,'(a,f8.3,a,f8.1,a,2g12.4,a,2g12.4,a,g12.4,a,g12.4,a,g12.4)') &
+     'ENERGY_BAL omega=',om,' mu=',wangl(l-3), &
+     ' A_lee=',real(farfield(1,l)),aimag(farfield(1,l)), &
+     ' A_wea=',real(farfield(2,l)),aimag(farfield(2,l)), &
+     ' |R|2=',abs(farfield(2,l))**2, &
+     ' |T|2=',abs(1.0+farfield(1,l))**2, &
+     ' |R|2+|T|2=',abs(farfield(2,l))**2+abs(1.0+farfield(1,l))**2
+   else
+    !Waves from -y toward +y: A_prt is lee (transmission), A_stb is weather (reflection)
+    write(34,'(a,f8.3,a,f8.1,a,2g12.4,a,2g12.4,a,g12.4,a,g12.4,a,g12.4)') &
+     'ENERGY_BAL omega=',om,' mu=',wangl(l-3), &
+     ' A_lee=',real(farfield(2,l)),aimag(farfield(2,l)), &
+     ' A_wea=',real(farfield(1,l)),aimag(farfield(1,l)), &
+     ' |R|2=',abs(farfield(1,l))**2, &
+     ' |T|2=',abs(1.0+farfield(2,l))**2, &
+     ' |R|2+|T|2=',abs(farfield(1,l))**2+abs(1.0+farfield(2,l))**2
+   endif
+  endif
+ enddo
+
 end subroutine addedmassexcitationcat
 
 function pq(dy,dz)  !pq=source (flux 2 pi) potential. dy,dz vector from source point to actual point
@@ -2042,6 +2086,8 @@ complex:: heave_local              !local heave displacement at section (xi3 - x
 real:: ff_cross_term               !incident-scattered cross-term correction for sway drift
 real:: ff_energy_stb, ff_energy_prt !per-section |T|^2 and |R|^2 for energy check
 real:: ff_energy_sum               !accumulated energy sum for all sections
+real:: ff_escale                   !energy conservation scale factor per section
+real:: ff_escale_sec(nsemax,nmumax) !stored per-section per-heading energy scale for Pinkster
 real:: fxi_maruo_heave             !heave contribution to Maruo drift
 real:: fxi_maruo_sway              !sway contribution to Maruo drift
 real:: draft_sec                   !draft at section (for wave decay)
@@ -3435,6 +3481,35 @@ Wavelengths: do iom=1,nom                                                       
     kd=min(waven*(zbot-zwl),30.)
     xdotdr=0.5*waven*om*(cosh(2*(waven*(zdrift-zwl)-kd))/sinh(kd)**2 &
      -1./(waven*(zbot-zwl)*tanh(waven*(zbot-zwl))))
+    !--- Precompute per-section energy conservation scaling for Pinkster ---
+    !Uses same formula as far-field: |R|^2+|T|^2 <= 1 per section
+    do imu=1,nmu
+     cosm=cos(mu(imu)); sinm=sin(mu(imu))
+     motion(:,1)=motion_all(:,imu)
+     do ise1=1,nse
+      ff_escale_sec(ise1,imu) = 1.0
+       if (abs(sinm) > 0.05) then
+       heave_local = motion(3,1) - x(ise1)*motion(5,1)
+       czeta3(ise1)=exp(-ci*waven*x(ise1)*cosm)                      !wave phase at section (same sign as far-field)
+       A_ff_stb = ffi_diff_sec(1,ise1,imu)*czeta3(ise1) &
+                + motion(2,1)*ffi_rad_sec_all(1,1,ise1,imu) &
+                + heave_local*ffi_rad_sec_all(1,2,ise1,imu) &
+                + motion(4,1)*ffi_rad_sec_all(1,3,ise1,imu)
+       A_ff_prt = ffi_diff_sec(2,ise1,imu)*czeta3(ise1) &
+                + motion(2,1)*ffi_rad_sec_all(2,1,ise1,imu) &
+                + heave_local*ffi_rad_sec_all(2,2,ise1,imu) &
+                + motion(4,1)*ffi_rad_sec_all(2,3,ise1,imu)
+       if (sinm > 0.) then
+        ff_escale = abs(A_ff_stb)**2 + abs(1.0+A_ff_prt)**2
+       else
+        ff_escale = abs(A_ff_prt)**2 + abs(1.0+A_ff_stb)**2
+       endif
+            if (ff_escale > 1.0) then
+             ff_escale_sec(ise1,imu) = 1.0/sqrt(ff_escale)
+         endif
+       endif
+     enddo
+    enddo
     CatAngles: do imu=1,nmu
      cosm=cos(mu(imu)); sinm=sin(mu(imu))
      ome=om-waven*vs*cosm
@@ -3449,12 +3524,15 @@ Wavelengths: do iom=1,nom                                                       
        write(24,*) pres_port_i, presaverage, pot_port_i
       enddo
      enddo
-     !--- Drift forces for catamaran: both hulls ---
-     !Load stb hull data for this angle
-     do ise1=1,nse
-      pres(:,1,ise1)=pres_all(:,ise1,imu)
-      pot(:,ise1)=pot_all(:,ise1,imu)
-     enddo
+      !--- Drift forces for catamaran: both hulls ---
+      !Load stb hull data for this angle, with energy conservation scaling
+        !Use escale^2: far-field energy gives escale for amplitudes, but near-field
+        !trapping amplification exceeds far-field by ~escale factor (cavity modes),
+        !so pressure/potential need escale^2 correction for physically consistent drift.
+        do ise1=1,nse
+         pres(:,1,ise1)=pres_all(:,ise1,imu) * ff_escale_sec(ise1,imu)**2
+         pot(:,ise1)=pot_all(:,ise1,imu) * ff_escale_sec(ise1,imu)**2
+        enddo
      motion(:,1)=motion_all(:,imu)
       fxi=0; feta=0; mdrift=0
       feta_stb_wl=0; feta_port_wl=0
@@ -3530,12 +3608,12 @@ Wavelengths: do iom=1,nom                                                       
       !         pot_port(i,mu)  = pot_stb(npres+1-i, -mu)
       !Port hull geometry: yint_port, zint_port (already computed, at y ~ +hulld)
       !Port hull motions: motion_all(:,imirr) — global vessel motions at mirror angle
-      !Load port hull pressures/potentials from mirror angle with reversed index
-      do ise1=1,nse; do i=1,npres
-       jj=npres+1-i
-       pres(i,1,ise1)=pres_all(jj,ise1,imirr)
-       pot(i,ise1)=pot_all(jj,ise1,imirr)
-      enddo; enddo
+       !Load port hull pressures/potentials from mirror angle with reversed index, scaled
+        do ise1=1,nse; do i=1,npres
+         jj=npres+1-i
+         pres(i,1,ise1)=pres_all(jj,ise1,imirr) * ff_escale_sec(ise1,imirr)**2
+         pot(i,ise1)=pot_all(jj,ise1,imirr) * ff_escale_sec(ise1,imirr)**2
+        enddo; enddo
       motion(:,1)=motion_all(:,imirr)
       !--- Port hull WL integral + triangle integral ---
       CatPortSections: do ise1=1,nse
@@ -3600,6 +3678,7 @@ Wavelengths: do iom=1,nom                                                       
         enddo CatPortSections
 
       !--- Catamaran Pinkster sway decomposition diagnostic output ---
+      write(34,'(a,f8.4,a,f7.1)') '  CAT_SWAY om=',om,' mu=',mu(imu)*180./pi
       write(34,'(a,g14.6,a,g14.6)') '  CAT_SWAY feta_total=',feta,' fxi_total=',fxi
       write(34,'(a,g14.6,a,g14.6,a,g14.6)') '  CAT_SWAY_STB wl=',feta_stb_wl, &
         ' vel=',feta_stb_vel,' rot=',feta_stb_rot
@@ -3683,10 +3762,27 @@ Wavelengths: do iom=1,nom                                                       
                  + motion(2,1)*ffi_rad_sec_all(1,1,ise1,imu) &
                  + heave_local*ffi_rad_sec_all(1,2,ise1,imu) &
                  + motion(4,1)*ffi_rad_sec_all(1,3,ise1,imu)
-        A_ff_prt = ffi_diff_sec(2,ise1,imu)*czeta3(ise1) &
-                 + motion(2,1)*ffi_rad_sec_all(2,1,ise1,imu) &
-                 + heave_local*ffi_rad_sec_all(2,2,ise1,imu) &
-                 + motion(4,1)*ffi_rad_sec_all(2,3,ise1,imu)
+         A_ff_prt = ffi_diff_sec(2,ise1,imu)*czeta3(ise1) &
+                  + motion(2,1)*ffi_rad_sec_all(2,1,ise1,imu) &
+                  + heave_local*ffi_rad_sec_all(2,2,ise1,imu) &
+                  + motion(4,1)*ffi_rad_sec_all(2,3,ise1,imu)
+         !--- Per-section energy conservation scaling ---
+         !At beam-like headings (|sinm|>0.3), enforce |R|^2+|T|^2 <= 1.
+         !sinm>0: waves from -y, stb=weather(R), prt=lee(T=1+A_prt)
+         !sinm<0: waves from +y, prt=weather(R), stb=lee(T=1+A_stb)
+         ff_escale = 1.0
+         if (abs(sinm) > 0.05) then
+          if (sinm > 0.) then
+           ff_escale = abs(A_ff_stb)**2 + abs(1.0+A_ff_prt)**2           !|R|^2+|T|^2
+          else
+           ff_escale = abs(A_ff_prt)**2 + abs(1.0+A_ff_stb)**2
+          endif
+          if (ff_escale > 1.0) then
+           ff_escale = 1.0/sqrt(ff_escale)
+           A_ff_stb = A_ff_stb * ff_escale
+           A_ff_prt = A_ff_prt * ff_escale
+          endif
+         endif
         ! Far-field sway drift per section: scattered-only quadratic
         ! The cross-term 2*Re(A_stb) from 2D momentum conservation only applies
         ! at exact beam seas (sinm=±1) where incident and scattered waves share
