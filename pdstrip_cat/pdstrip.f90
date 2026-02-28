@@ -2144,6 +2144,9 @@ BodySections: do is=1,ns                                               !contribu
 enddo BodySections
 !print *,'*',restorematr(5,5,1)
 write(6,'(a,f8.3)')'Transverse metacentric height:',real(restorematr(4,4,1))/g/mass(1) 
+write(6,'(a,6e15.6)') 'RESTORING C row3: ',(real(restorematr(3,j,1)),j=1,6)
+write(6,'(a,6e15.6)') 'RESTORING C row4: ',(real(restorematr(4,j,1)),j=1,6)
+write(6,'(a,6e15.6)') 'RESTORING C row5: ',(real(restorematr(5,j,1)),j=1,6)
 zwmatr63=fillrealmatr(6,3,(/                 &
   area(1),   ys(1)*area(1),   -x(1)*area(1), &
     0.,            0.,                  0.,  &
