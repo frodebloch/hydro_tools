@@ -70,7 +70,7 @@ contains
 
 subroutine sectiondata           !input section data; call of sectionhydrodynamics
 ! for deep and shallow water; section motion and wave excitation; with and without symmetry
-integer:: i,ii,j                 !indices
+integer:: i,ii,j,l               !indices
 integer:: im1                    !i-1 except for i=1
 integer:: nfre=52                !number of frequencies
 integer:: ios                    !iostat for backward-compatible input parsing
@@ -83,6 +83,7 @@ complex:: addedm(3,3,nfremax)    !complex added mass matrix of a section = a+d/(
 complex:: diff(3,nmumax,nfremax) !diffraction force amplitude vector
 complex:: frkr(3,nmumax,nfremax) !Froude-Krilow force amplitude vector
 complex:: pr(nprmax,3+nmumax,nfremax) !pressure amplitude at pressure points on section contour
+complex:: ff(2,3+nmumax,nfremax)     !far-field wave amplitudes (catamaran only)
 fp=(/0.01,0.015, 0.020,.025,.031,.04,.05,.063,.08,.10,.12,.15,.19,.24,.31,.39, &
  .47,.55,.62,.70,.80,.90,1.0,1.1,1.25,1.4,1.55,1.7,1.9,2.2,2.4,2.7,3.0,3.3,3.6,4.0, &
  4.5,5.2,6.,7.,8.,9.,10.5,12.0,13.5,15.,17.,20.,25.,30.,40.,50./)     !standard frequency parameters
@@ -185,7 +186,7 @@ Sections: do ise=1,nse
  yof1(1:nof(ise))=yof(ise,1:nof(ise)); zof1(1:nof(ise))=zof(ise,1:nof(ise))
  if (lsect) then
    output=ise==18
-     call sectionhydrodynamics(nof(ise),yof1,zof1,nfre,om,addedm,diff,frkr,pr)
+      call sectionhydrodynamics(nof(ise),yof1,zof1,nfre,om,addedm,diff,frkr,pr,ff)
   write(20,*)nfre, x(ise)
   Frequencies: do i=1,nfre  
    write(20,*)om(i),nmu,wangl(1:nmu)*pi/180                 !store on file sectionresults: wave data
@@ -193,6 +194,7 @@ Sections: do ise=1,nse
    write(20,*)(diff(j,1:nmu,i),j=1,3)                                             !diffraction force
    write(20,*)(frkr(j,1:nmu,i),j=1,3)                                           !Froude-Krilow force
     if (npres>0) write(20,*)(ii,pr(ii,1:3+nmu,i),ii=1,npres)                               !pressures
+    if (catamaran) write(20,*)(ff(1:2,l,i),l=1,3+nmu)            !far-field wave amplitudes (stb,port)
    !if(i==16)print *,'pr4',om(i),pr(1,2,16)
   enddo Frequencies
  endif
@@ -210,7 +212,7 @@ if (lsect) &
  +sum((/(zof(ise,1:nof(ise)),ise=1,nse)/))+g+rho+zwl+1/zbot    !test number for unchanged input data
 end subroutine sectiondata
 
-subroutine sectionhydrodynamics(nof1,yof1,zof1,nfre,om,addedm,diff,frkr,pr)
+subroutine sectionhydrodynamics(nof1,yof1,zof1,nfre,om,addedm,diff,frkr,pr,ff)
 integer, intent(in):: nof1             !number of offset points on one section
 integer:: nfre                         !number of wave frequencies 
 integer:: i,ii                         !indices
@@ -232,7 +234,9 @@ complex:: diffprel(2,nmumax)           !preliminary diffraction force
 complex:: frkrprel(2,nmumax)           !preliminary Froude-Krilow force
 complex:: pr(nprmax,3+nmumax,nfremax)  !pressure amplitudes
 complex:: prtmp(nprmax)                !temporary array for symmetry averaging
+complex:: ff(2,3+nmumax,nfremax)       !far-field wave amplitudes (catamaran only): (1)=stb, (2)=port
 if (nfre.gt.nfremax) call stop1('Too many frequencies')
+ff=0                                                               !initialize far-field (only set for catamaran)
 call testsuitability(nof1,yof1,zof1)                            !discretization of section suitable?
 girth(1)=0.
 do i=2,nof1
@@ -271,9 +275,9 @@ Frequencies: do iom=1,nfre
    addedm(1:3:2,1:3:2,iom)=addedmprel
    diff(1:3:2,1:nmu,iom)=diffprel(1:2,1:nmu)
    frkr(1:3:2,1:nmu,iom)=frkrprel(1:2,1:nmu)
-  elseif (catamaran) then Symmetry                               !twin-hull BEM with interaction
-    call addedmassexcitationcat(nof1,yof1,zof1,om(iom),addedm(1,1,iom),diff(1,1,iom), &
-      frkr(1,1,iom),pr(1,1,iom),ileft,aint)
+   elseif (catamaran) then Symmetry                               !twin-hull BEM with interaction
+     call addedmassexcitationcat(nof1,yof1,zof1,om(iom),addedm(1,1,iom),diff(1,1,iom), &
+       frkr(1,1,iom),pr(1,1,iom),ileft,aint,ff(1,1,iom))
   else symmetry
    call addedmassexcitationa(nof1,yof1,zof1,om(iom),addedm(1,1,iom),diff(1,1,iom), &
     frkr(1,1,iom),pr(1,1,iom),ileft,aint)
@@ -335,7 +339,7 @@ Frequencies: do iom=1,nfre
 enddo Frequencies
 end subroutine sectionhydrodynamics
 
-subroutine addedmassexcitationcat(nof1,yof1,zof1,om,addedm1,diff1,frkr1,pr,ileft,aint)
+subroutine addedmassexcitationcat(nof1,yof1,zof1,om,addedm1,diff1,frkr1,pr,ileft,aint,farfield)
 !Twin-hull (catamaran) BEM solver with explicit two-hull modelling.
 !Both hulls are represented with independent body panels and sources; uses pqb/pqnb only.
 !Solves all 3 DOF simultaneously (no mp decomposition). This avoids the ill-conditioning
@@ -343,6 +347,10 @@ subroutine addedmassexcitationcat(nof1,yof1,zof1,om,addedm1,diff1,frkr1,pr,ileft
 !Body offsets yof1 are demihull-local; shifted by -hulld to vessel coordinates internally.
 !Free surface: outboard wings from each outer waterline + tunnel panels between inner waterlines.
 !Forces integrated over both hulls. Pressures pr for starboard hull; pr_port computed locally.
+!Far-field wave amplitudes farfield(1:2, 1:3+nmu) are computed for Maruo lateral drift force:
+!  farfield(1,l) = A_stb = outgoing wave amplitude toward y=-inf (stb outboard)
+!  farfield(2,l) = A_prt = outgoing wave amplitude toward y=+inf (port outboard)
+!  l=1..3: radiation modes (sway, heave, roll); l=4..3+nmu: diffraction for each wave angle
 integer, intent(in):: nof1             !no. of offset points on a section (full demihull)
 integer:: ileft(nprmax)                !index of offset point following a pressure point
 integer:: nsrc                         !number of unknowns (sources) in equation system
@@ -385,6 +393,10 @@ complex:: phiatoffsets(nofmax)         !potential amplitudes at offset points
 complex:: phiatoffsets_port(nofmax)    !potential amplitudes at port hull offset points
 complex:: diff1(3,nmu)                 !diffraction force amplitude, one frequency, one section
 complex:: frkr1(3,nmu)                 !Froude-Krilow force amplitude, one frequency, one section
+complex:: farfield(2,3+nmumax)         !far-field wave amplitudes: (1)=stb outboard, (2)=port outboard
+complex:: phi_eval_stb                 !potential at stb outboard evaluation point
+complex:: phi_eval_prt                 !potential at port outboard evaluation point
+real:: y_eval_stb, y_eval_prt          !y-coordinates of far-field evaluation points
 complex:: zw1,zw2,zw1a,zw2a            !complex intermediate numbers
 if (nof1.gt.100) call stop1('***  Too many (>100) points on section.')
 if (nmu.gt.nmumax) call stop1('*** Too many angles')
@@ -403,7 +415,7 @@ do k=1,nof1
  zp(k)=zof1(nof1+1-k)
 enddo
 
-addedm1=0.; diff1=0; pr=0
+addedm1=0.; diff1=0; pr=0; farfield=0
 TwoFreeSurfaceDiscretisations: do nf=25,28,3
  ciom=(0.,1.)*om
  t=zbot-zwl
@@ -726,6 +738,29 @@ TwoFreeSurfaceDiscretisations: do nf=25,28,3
    endif
   enddo MotionsAndWaves
  enddo Forces
+
+ !--- Far-field wave amplitude extraction ---
+ !Evaluate the solved potential at the last undamped outboard FS grid points.
+ !These are at the boundary between undamped (free-surface BC) and damped (radiation condition) zones,
+ !far enough from the body for a clean progressive outgoing wave.
+ !Stb outboard: yg(2*nof1+nf), wave going toward y=-inf  (exp(+iky) with k>0, y<0)
+ !Port outboard: yg(2*nof1+nfs+nf), wave going toward y=+inf  (exp(-iky))
+ y_eval_stb = yg(2*nof1+nf)
+ y_eval_prt = yg(2*nof1+nfs+nf)
+ do l=1,3+nmu
+  phi_eval_stb = 0
+  phi_eval_prt = 0
+  do i=0,nsrc-1
+   phi_eval_stb = phi_eval_stb + a(i,nsrc-1+l)*pqb(y_eval_stb,zwl,yq(i),zq(i))
+   phi_eval_prt = phi_eval_prt + a(i,nsrc-1+l)*pqb(y_eval_prt,zwl,yq(i),zq(i))
+  enddo
+  !Extract wave amplitude: eta = (i*omega/g)*phi at waterline
+  !Stb outboard: outgoing wave goes toward -y, form exp(+iky), envelope A_stb = (iw/g)*phi*exp(-iky)
+  !Port outboard: outgoing wave goes toward +y, form exp(-iky), envelope A_prt = (iw/g)*phi*exp(+iky)
+  !0.5 factor: averaging over two FS discretizations (nf=25,28)
+  farfield(1,l) = farfield(1,l) + 0.5*ciom/g * phi_eval_stb * exp(cmplx(0.,-waven*y_eval_stb))
+  farfield(2,l) = farfield(2,l) + 0.5*ciom/g * phi_eval_prt * exp(cmplx(0.,+waven*y_eval_prt))
+ enddo
 
  !Pressure calculation at starboard hull pressure points
  WithPressure: if (npres>0) then
@@ -1688,7 +1723,7 @@ logical:: ltrwet(nvmax)         !true if transom is wetted at the respective spe
 integer,parameter:: nfinmax=20  !max. no. of fins
 integer,parameter:: nsailmax=10 !max. no. of sails
 integer,parameter:: nforcemax=10!max. no. of motion-dependant forces
-integer:: i,j,k           !indices
+integer:: i,j,k,l           !indices
 integer:: ifre,nfre             !index and no. of frequencies of section hydrodynamic calculations
 integer:: is,ns                 !index and no. of intersections
 integer:: ifin,nfin             !index and number of fins
@@ -1876,6 +1911,11 @@ complex:: alforcematr(1,6)      !matrix of force steering constants
 complex:: bforcematr(6,6,nforcemax) !contribution of motion-dependent force to the added-mass matrix
 complex:: wbmatr(3,6,nbmax)     !W matrix for motion points (point motion per ship motion)
 complex:: fsec(3,3,nsemax,0:nfremax) !radiation force matrix of sections
+complex:: ffsec(2,3,nsemax,0:nfremax)  !far-field radiation wave amplitudes (stb/port × 3DOF × sections × freq)
+complex:: ffsecv(2,3)                  !far-field radiation amplitudes, 1 section 1 freq (for logmatr)
+complex:: ffdsec(2,1,nmumax,nsemax,0:nfremax) !far-field diffraction wave amplitudes per angle
+complex:: ffdsecv(2,1,nmumax)              !far-field diffraction amplitudes, 1 section (for logmatr, per angle)
+complex:: cff_tmp(2,3+nmumax)          !temporary for reading far-field from sectionresults
 complex,allocatable:: prsec(:,:,:,:) !matrix of radiation pressures in section calculations
 complex,allocatable:: pdsecv(:,:,:)  !matrix of diffraction pressures, 1 section, 1 frequency
 complex,allocatable:: pdsec(:,:,:,:,:) !matrix of diffraction pressures 
@@ -1981,6 +2021,7 @@ complex:: fdi_sec(3,1,nsemax)     !stored section diffraction force for Maruo
 complex:: fki_sec(3,1,nsemax)     !stored section FK force for Maruo
 real:: fxi_maruo                   !Maruo/G-B surge drift force
 real:: feta_maruo                  !Maruo/G-B sway drift force  
+real:: feta_farfield               !far-field sway drift force (from Kochin function amplitudes)
 real:: b33_sec                     !section 2D heave damping coefficient
 real:: b22_sec                     !section 2D sway damping coefficient
 complex:: vz_rel                   !relative vertical velocity at a section
@@ -1989,6 +2030,18 @@ real:: wz_amp                      !wave vertical velocity amplitude (decay fact
 real:: wy_amp_factor               !wave sway velocity amplitude factor
 complex:: sec_excit_z              !section heave excitation force (total = FK + diffraction)
 complex:: sec_excit_y              !section sway excitation force
+!--- Far-field (Kochin) sway drift force variables ---
+complex:: ffi_rad(2,3)             !interpolated radiation far-field at encounter frequency
+complex:: ffi_diff(2,1)            !interpolated diffraction far-field at wave frequency
+complex:: ffi_rad_sec(2,3,nsemax)  !stored radiation far-field per section (at encounter freq)
+complex:: ffi_diff_sec(2,nsemax,nmumax) !stored diffraction far-field per section per heading
+complex:: ffi_rad_sec_all(2,3,nsemax,nmumax) !stored radiation far-field per section per heading
+complex:: A_ff_stb, A_ff_prt      !total far-field amplitudes (stb outboard, port outboard)
+complex:: A_ff_trans               !far-field amplitude on the transmission side
+complex:: heave_local              !local heave displacement at section (xi3 - x*xi5)
+real:: ff_cross_term               !incident-scattered cross-term correction for sway drift
+real:: ff_energy_stb, ff_energy_prt !per-section |T|^2 and |R|^2 for energy check
+real:: ff_energy_sum               !accumulated energy sum for all sections
 real:: fxi_maruo_heave             !heave contribution to Maruo drift
 real:: fxi_maruo_sway              !sway contribution to Maruo drift
 real:: draft_sec                   !draft at section (for wave decay)
@@ -2008,7 +2061,28 @@ real:: cos_an                      !cos(angle between wave and local normal)
 real:: refl_factor                 !draft-dependent reflection factor
 real:: bwl_stb, bwl_prt           !waterline half-breadth starboard and port
 real:: maxbeam, sec_beam           !max section beam and current section beam (for degenerate section check)
+!--- Catamaran Pinkster drift decomposition diagnostics ---
+real:: feta_stb_wl, feta_port_wl   !sway WL integral, stb and port hull
+real:: feta_stb_vel, feta_port_vel  !sway velocity-squared term, stb and port hull
+real:: feta_stb_rot, feta_port_rot  !sway rotation term, stb and port hull
+real:: fxi_stb_wl, fxi_port_wl     !surge WL integral, stb and port hull
+real:: fxi_stb_tri, fxi_port_tri   !surge triangle total, stb and port hull
+real:: df_vel_y, df_rot_y           !per-triangle velocity and rotation y-components
 real:: sw_dx                       !section spacing for integration
+!--- Catamaran wave-trapping interpolation variables ---
+real:: trap_omega                   !predicted trapping frequency for mode n
+real:: trap_k                       !trapping wavenumber
+real:: trap_bw                      !half-bandwidth around trapping frequency
+real:: trap_om_lo, trap_om_hi       !lower and upper bounds of trapping window
+integer:: trap_ilo, trap_ihi        !frequency indices bounding trapping window
+integer:: trap_ileft, trap_iright   !indices of interpolation endpoints (outside window)
+integer:: n_trap                    !trapping mode number
+integer:: n_trap_max                !max number of trapping modes in frequency range
+integer:: n_trap_fixed              !counter for how many frequencies were interpolated
+real:: trap_wt                      !interpolation weight
+real:: trap_feta_left, trap_feta_right !feta at interpolation endpoints
+real:: feta_cap                     !maximum allowable |feta| for catamaran (outlier cap)
+integer:: n_capped                  !counter for capped values
 real:: fxi_pink, feta_pink         !unblended Pinkster values (saved before blending)
 real:: f_pink_wave, f_refl_wave    !wave-direction projections for blending comparison
 complex:: z_bow_complex            !complex bow vertical motion (heave + pitch*x_bow)
@@ -2345,31 +2419,47 @@ Sections: do ise1=1,nse                               !read and interpolate hydr
   read(20,*)(cfsece(i,1:3),i=1,3)                                                  !radiation forces
   read(20,*)(cfsece(i,4:nmu+3),i=1,3)                                            !diffraction forces
   read(20,*)(cfksece(i,1:nmu),i=1,3)                                           !Froude-Krilow forces
-  if (npres>0) then                                             !radiation and diffraction pressures
-   read(20,*)(iskip,(cpr(i+npres*j),j=0,2),(cpd(i+npres*j),j=0,nmu-1),i=1,npres) 
-  endif
-  FirstFrequency: if (ifre.eq.1) then   
-   fsec(1,1,ise1,0)=999.                         !special matrices as initial values because of mloga
-   prsec(1,1,ise1,0)=999.
-   pdsecv(1,1,1:nmu)=999.
-   fsecev(1,1,1:nmu)=999.
-   fksecev(1,1,1:nmu)=999
-  endif FirstFrequency
+   if (npres>0) then                                             !radiation and diffraction pressures
+    read(20,*)(iskip,(cpr(i+npres*j),j=0,2),(cpd(i+npres*j),j=0,nmu-1),i=1,npres) 
+   endif
+   if (catamaran) then                                           !far-field wave amplitudes
+    read(20,*)(cff_tmp(1:2,l),l=1,3+nmu)
+   endif
+   FirstFrequency: if (ifre.eq.1) then   
+    fsec(1,1,ise1,0)=999.                         !special matrices as initial values because of mloga
+    prsec(1,1,ise1,0)=999.
+    pdsecv(1,1,1:nmu)=999.
+    fsecev(1,1,1:nmu)=999.
+    fksecev(1,1,1:nmu)=999
+    if (catamaran) then
+     ffsecv=999.                                  !initial value for far-field logmatr
+     ffdsecv(1,1,1:nmu)=999.
+    endif
+   endif FirstFrequency
   cik=ci*waven          !change to internal global coordinates; logarithm of data for interpolation
   fsec(:,:,ise1,ifre)=transpose(fillcomplmatr(3,3,cfsece)/omsec(ifre)**2)    !/omsec^2 weil es A wird
   fsec(:,:,ise1,ifre)=logmatr(fsec(:,:,ise1,ifre),fsec(:,:,ise1,ifre-1))                   !radiation
   prsec(:,:,ise1,ifre)=transpose(fillcomplmatr(3,npres1,cpr))
   prsec(:,:,ise1,ifre)=logmatr(prsec(:,:,ise1,ifre),prsec(:,:,ise1,ifre-1))
-  Angles: do imu=1,nmu
-   pdsecv(:,:,imu)=logmatr(transpose(fillcomplmatr(1,npres1,cpd(npres1*(imu-1)+1))),pdsecv(:,:,imu))
-   pdsec(:,:,imu,ise1,ifre)=pdsecv(:,:,imu)
-   fsecev(:,:,imu)=logmatr(transpose(fillcomplmatr(1,3,cfsece(1,imu+3))),fsecev(:,:,imu))
-   fsece(:,:,imu,ise1,ifre)=fsecev(:,:,imu)
-   fksecev(:,:,imu)=logmatr(transpose(fillcomplmatr(1,3,cfksece(1,imu))),fksecev(:,:,imu))
-   fksece(:,:,imu,ise1,ifre)=fksecev(:,:,imu)
-  enddo Angles
- enddo Frequencies
-enddo Sections
+   Angles: do imu=1,nmu
+    pdsecv(:,:,imu)=logmatr(transpose(fillcomplmatr(1,npres1,cpd(npres1*(imu-1)+1))),pdsecv(:,:,imu))
+    pdsec(:,:,imu,ise1,ifre)=pdsecv(:,:,imu)
+    fsecev(:,:,imu)=logmatr(transpose(fillcomplmatr(1,3,cfsece(1,imu+3))),fsecev(:,:,imu))
+    fsece(:,:,imu,ise1,ifre)=fsecev(:,:,imu)
+    fksecev(:,:,imu)=logmatr(transpose(fillcomplmatr(1,3,cfksece(1,imu))),fksecev(:,:,imu))
+    fksece(:,:,imu,ise1,ifre)=fksecev(:,:,imu)
+   enddo Angles
+   !--- Far-field wave amplitudes: log-interpolate radiation (l=1..3) and diffraction (l=4..3+nmu) ---
+   FarFieldStore: if (catamaran) then
+    ffsecv=logmatr(cff_tmp(1:2,1:3),ffsecv)                                  !radiation: shape (2,3)
+    ffsec(:,:,ise1,ifre)=ffsecv
+    do imu=1,nmu
+     ffdsecv(:,:,imu)=logmatr(reshape(cff_tmp(:,3+imu),(/2,1/)),ffdsecv(:,:,imu))
+     ffdsec(:,:,imu,ise1,ifre)=ffdsecv(:,:,imu)
+    enddo
+   endif FarFieldStore
+  enddo Frequencies
+ enddo Sections
 read(20,*)testnumber
 if (abs(npres+sum(wangl(1:nmu))+sum(x(1:nse))+sum((/(yof(ise1,1:nof(ise1)),ise1=1,nse)/))  & 
  +sum((/(zof(ise1,1:nof(ise1)),ise1=1,nse)/))+g+rho+zwl+1/zbot-testnumber)>3e-2) &
@@ -2538,11 +2628,23 @@ Wavelengths: do iom=1,nom                                                       
        if (ome.lt.0.) then
         amatr=conjg(amatr); pri=conjg(pri)
        endif
-       !--- Store section data for Maruo far-field drift ---
-       amatr_sec(:,:,ise1)=amatr
-       fdi_sec(:,:,ise1)=fdi
-       fki_sec(:,:,ise1)=fki
-       !--- end store ---
+        !--- Store section data for Maruo far-field drift ---
+        amatr_sec(:,:,ise1)=amatr
+        fdi_sec(:,:,ise1)=fdi
+        fki_sec(:,:,ise1)=fki
+        !--- Interpolate far-field wave amplitudes (catamaran only) ---
+        if (catamaran) then
+         !Radiation: interpolate like amatr (encounter frequency)
+         ffi_rad=faktc*exp(fint1c*ffsec(:,:,ise1,iomc)+fint2c*ffsec(:,:,ise1,iomc+1))
+         if (fint2c.eq.0.) ffi_rad=cmplx(real(ffi_rad)/faktc,aimag(ffi_rad))
+         if (ome.lt.0.) ffi_rad=conjg(ffi_rad)
+         ffi_rad_sec(:,:,ise1)=ffi_rad
+         !Diffraction: interpolate like fdi (wave frequency), per angle im
+         ffi_diff=fakta*exp(fint1a*ffdsec(:,:,im,ise1,ioma)+fint2a*ffdsec(:,:,im,ise1,ioma+1))
+         if (fint2a.eq.0.) ffi_diff=cmplx(real(ffi_diff),aimag(ffi_diff)*fakta)
+         ffi_diff_sec(:,ise1,im)=ffi_diff(:,1)
+        endif
+        !--- end store ---
        pri=pri/ome**2                                                 !Eingef"ugt Juni 2013. Wichtig!
        awmatr=amatr.mprod.wmatr(:,:,ise1)
       dawmatr=vs*(awprev-awmatr)
@@ -2800,8 +2902,8 @@ Wavelengths: do iom=1,nom                                                       
     om,ome,6.28318/waven,waven,mu(imu)*180/pi,vs,ltrwet(iv),cdetl
    write(6,'(12x,3(''  Real part('',i1,'')  Imagin.part('',i1,'')    Abs('',i1,'')''))')(i,i,i,i=1,3)
    write(6,'('' Translation'',3(1x,3f13.3))')(motion(i,1),abs(motion(i,1)),i=1,3)
-   write(6,'('' Rotation/k '',3(1x,3f13.3))')(motion(i,1)/waven,abs(motion(i,1)/waven),i=4,6)
-   vcompar=vs*cosm+waveheight/2*ome*abs(motion(1,1)*cosm+motion(2,1)*sinm)
+    write(6,'('' Rotation/k '',3(1x,3f13.3))')(motion(i,1)/waven,abs(motion(i,1)/waven),i=4,6)
+    vcompar=vs*cosm+waveheight/2*ome*abs(motion(1,1)*cosm+motion(2,1)*sinm)
    if ((ome>=0.and.vcompar>=om/waven).or.(ome<0.and.vcompar<=om/waven)) then
     write(6,*)'*** SURFRIDING. Linearization inappropriate'
     motion(1,1)=(999.,0.)                                                  !indicator for surfriding
@@ -2875,13 +2977,15 @@ Wavelengths: do iom=1,nom                                                       
        if (.not.catamaran) write(24,*)pres(i,1,ise1),pwg(i,1,ise1),pot(i,ise1)
       enddo PressurePts
      enddo Sectns
-      if (catamaran) then                                            !store for deferred drift force calc.
-       do ise1=1,nse
-        pres_all(:,ise1,imu)=pres(:,1,ise1)
-        pot_all(:,ise1,imu)=pot(:,ise1)
-        amatr_sec_all(:,:,ise1,imu)=amatr_sec(:,:,ise1)            !store section added mass per heading for catamaran Maruo
-       enddo
-       motion_all(:,imu)=motion(:,1)
+       if (catamaran) then                                            !store for deferred drift force calc.
+        do ise1=1,nse
+         pres_all(:,ise1,imu)=pres(:,1,ise1)
+         pot_all(:,ise1,imu)=pot(:,ise1)
+         amatr_sec_all(:,:,ise1,imu)=amatr_sec(:,:,ise1)            !store section added mass per heading for catamaran Maruo
+         ffi_rad_sec_all(:,:,ise1,imu)=ffi_rad_sec(:,:,ise1)        !store far-field radiation per heading
+         if (imu.ne.im) ffi_diff_sec(:,ise1,imu)=ffi_diff_sec(:,ise1,im) !map section angle im -> extended angle imu
+        enddo
+        motion_all(:,imu)=motion(:,1)
        do ifin=1,nfin                                               !store fin variables per angle
        calphaw_all(ifin,imu)=calphaw(ifin)
        cffw_all(ifin,imu)=cffw(ifin)
@@ -2893,8 +2997,8 @@ Wavelengths: do iom=1,nom                                                       
       maxbeam = maxval(abs(yint(1,1:nse) - yint(npres,1:nse)))
       MonohullDrift: if (.not.catamaran) then
       !Determine drift forces (only if npres>0) --- monohull path, unchanged
-           fxi=0; feta=0; mdrift=0; fxi_WL=0; feta_WL=0; fxi_vel=0; fxi_rot=0
-           feta_vel=0; feta_rot=0; feta_rot_withpst=0  !sway velocity/rotation decomposition
+            fxi=0; feta=0; mdrift=0; fxi_WL=0; feta_WL=0; fxi_vel=0; fxi_rot=0
+            feta_vel=0; feta_rot=0; feta_rot_withpst=0  !sway velocity/rotation decomposition
           fxi_WL_nopst=0; feta_WL_nopst=0  !no-pst WL test
            fxi_rot_nopst=0; feta_rot_nopst=0; feta_rot_norollpst=0  !rotation term without pst
           fxi_boese_wp=0; fxi_boese=0  !Boese waterplane integral
@@ -3352,8 +3456,16 @@ Wavelengths: do iom=1,nom                                                       
       pot(:,ise1)=pot_all(:,ise1,imu)
      enddo
      motion(:,1)=motion_all(:,imu)
-     fxi=0; feta=0; mdrift=0
-     !--- Starboard hull drift forces (same as monohull but using stb hull coordinates) ---
+      fxi=0; feta=0; mdrift=0
+      feta_stb_wl=0; feta_port_wl=0
+      feta_stb_vel=0; feta_port_vel=0
+      feta_stb_rot=0; feta_port_rot=0
+      fxi_stb_wl=0; fxi_port_wl=0
+      fxi_stb_tri=0; fxi_port_tri=0
+      write(34,'(a,f8.3,a,f8.1)') &
+        'CAT_DRIFT_PINKSTER omega=',om, &
+        ' mu=',mu(imu)*180/3.14159265
+      !--- Starboard hull drift forces (same as monohull but using stb hull coordinates) ---
      CatStbSections: do ise1=1,nse
       dx2=(x(min(ise1+1,nse))-x(max(ise1-1,1)))/2
       if (ise1==1) then
@@ -3369,41 +3481,49 @@ Wavelengths: do iom=1,nom                                                       
        dfxistb= 0.25*abs(pres(1,1,ise1))**2*dystb/rho/g
        dfxiprt=-0.25*abs(pres(npres,1,ise1))**2*dyprt/rho/g
        fxi=fxi+dfxistb+dfxiprt
-       dfeta=0.25*dx2*(-abs(pres(1,1,ise1))**2+abs(pres(npres,1,ise1))**2)/rho/g
-      feta=feta+dfeta
-       mdrift(3)=mdrift(3)+x(ise1)*dfeta-yint(1,ise1)*dfxistb-yint(npres,ise1)*dfxiprt
-       if(ise1==1)cycle
-       !--- Skip degenerate sections (beam < 2% of max beam) ---
-       sec_beam = min(abs(yint(1,ise1) - yint(npres,ise1)), abs(yint(1,ise1-1) - yint(npres,ise1-1)))
-       if (sec_beam < 0.02*maxbeam) cycle
-       is1=ise1-1; is2=ise1
-       CatStbTriangles: do i=2,npres; do j=1,2
-       if(j==1)then; ip1=i-1; ip2=i-1; is3=merge(is2,is1,i<=npres/2+1); ip3=i
-       else
-        ip1=merge(i-1,i,i<=npres/2+1); ip2=merge(i,i-1,i<=npres/2+1); is3=merge(is1,is2,i<=npres/2+1); ip3=i
-       endif
-       xtri(:,1)=(/x(is1),yint(ip1,is1),zint(ip1,is1)/)
-       xtri(:,2)=(/x(is2),yint(ip2,is2),zint(ip2,is2)/)
-       xtri(:,3)=(/x(is3),yint(ip3,is3),zint(ip3,is3)/)
-       xc=sum(xtri,2)/3
-       flvec=0.5*(xtri(:,1)-xtri(:,3)).vprod.(xtri(:,2)-xtri(:,1))
-       xn=flvec/sqrt(sum(flvec**2))
-       gradvec=graddreieck(xtri)
-       vbody=ciome*(motion(1:3,1)+(motion(4:6,1).vprod.cmplx(xc,(/0.,0.,0./))))
-       vdotn=sum(vbody*xn)
-       gradpot=(pot(ip1,is1)-pot(ip3,is3))*gradvec(:,1)+(pot(ip2,is2)-pot(ip1,is1))*gradvec(:,2) &
-            +vdotn*xn
-        presaverage=(pres(ip1,1,is1)+pres(ip2,1,is2)+pres(ip3,1,is3))/3
-         df=-0.25*rho*sum((abs(gradpot)**2))*flvec &
-              -0.5*real((presaverage*flvec).vprod.conjg((motion(4:6,1))))
-        fxi=fxi+df(1)
-        feta=feta+df(2)
-        mdrift(1)=mdrift(1)+xc(2)*df(3)-xc(3)*df(2)
-        mdrift(3)=mdrift(3)+xc(1)*df(2)-xc(2)*df(1)
-        if(count((/ip1,ip2,ip3/)==npres)==2)exit CatStbTriangles
-       if(is3==is1)then; ip1=ip3; else; ip2=ip3; endif
-      enddo; enddo CatStbTriangles
-     enddo CatStbSections
+        dfeta=0.25*dx2*(-abs(pres(1,1,ise1))**2+abs(pres(npres,1,ise1))**2)/rho/g
+       feta=feta+dfeta
+       feta_stb_wl=feta_stb_wl+dfeta
+       fxi_stb_wl=fxi_stb_wl+dfxistb+dfxiprt
+        mdrift(3)=mdrift(3)+x(ise1)*dfeta-yint(1,ise1)*dfxistb-yint(npres,ise1)*dfxiprt
+        if(ise1==1)cycle
+        !--- Skip degenerate sections (beam < 2% of max beam) ---
+        sec_beam = min(abs(yint(1,ise1) - yint(npres,ise1)), abs(yint(1,ise1-1) - yint(npres,ise1-1)))
+        if (sec_beam < 0.02*maxbeam) cycle
+        is1=ise1-1; is2=ise1
+        CatStbTriangles: do i=2,npres; do j=1,2
+        if(j==1)then; ip1=i-1; ip2=i-1; is3=merge(is2,is1,i<=npres/2+1); ip3=i
+        else
+         ip1=merge(i-1,i,i<=npres/2+1); ip2=merge(i,i-1,i<=npres/2+1); is3=merge(is1,is2,i<=npres/2+1); ip3=i
+        endif
+        xtri(:,1)=(/x(is1),yint(ip1,is1),zint(ip1,is1)/)
+        xtri(:,2)=(/x(is2),yint(ip2,is2),zint(ip2,is2)/)
+        xtri(:,3)=(/x(is3),yint(ip3,is3),zint(ip3,is3)/)
+        xc=sum(xtri,2)/3
+        flvec=0.5*(xtri(:,1)-xtri(:,3)).vprod.(xtri(:,2)-xtri(:,1))
+        xn=flvec/sqrt(sum(flvec**2))
+        gradvec=graddreieck(xtri)
+        vbody=ciome*(motion(1:3,1)+(motion(4:6,1).vprod.cmplx(xc,(/0.,0.,0./))))
+        vdotn=sum(vbody*xn)
+        gradpot=(pot(ip1,is1)-pot(ip3,is3))*gradvec(:,1)+(pot(ip2,is2)-pot(ip1,is1))*gradvec(:,2) &
+             +vdotn*xn
+         presaverage=(pres(ip1,1,is1)+pres(ip2,1,is2)+pres(ip3,1,is3))/3
+          df=-0.25*rho*sum((abs(gradpot)**2))*flvec &
+               -0.5*real((presaverage*flvec).vprod.conjg((motion(4:6,1))))
+         !--- Decompose into velocity and rotation for diagnostics ---
+         df_vel_y = -0.25*rho*sum((abs(gradpot)**2))*flvec(2)
+         df_rot_y = df(2) - df_vel_y
+         feta_stb_vel=feta_stb_vel+df_vel_y
+         feta_stb_rot=feta_stb_rot+df_rot_y
+         fxi=fxi+df(1)
+         feta=feta+df(2)
+         fxi_stb_tri=fxi_stb_tri+df(1)
+         mdrift(1)=mdrift(1)+xc(2)*df(3)-xc(3)*df(2)
+         mdrift(3)=mdrift(3)+xc(1)*df(2)-xc(2)*df(1)
+         if(count((/ip1,ip2,ip3/)==npres)==2)exit CatStbTriangles
+        if(is3==is1)then; ip1=ip3; else; ip2=ip3; endif
+       enddo; enddo CatStbTriangles
+      enddo CatStbSections
 
       !--- Port hull drift forces: mirror of starboard hull ---
       !Symmetry: pres_port(i,mu) = pres_stb(npres+1-i, -mu)
@@ -3434,42 +3554,59 @@ Wavelengths: do iom=1,nom                                                       
         dfxistb= 0.25*abs(pres(1,1,ise1))**2*dystb/rho/g
         dfxiprt=-0.25*abs(pres(npres,1,ise1))**2*dyprt/rho/g
         fxi=fxi+dfxistb+dfxiprt
-        dfeta=0.25*dx2*(-abs(pres(1,1,ise1))**2+abs(pres(npres,1,ise1))**2)/rho/g
-       feta=feta+dfeta
-        mdrift(3)=mdrift(3)+x(ise1)*dfeta-yint_port(1,ise1)*dfxistb-yint_port(npres,ise1)*dfxiprt
-        if(ise1==1)cycle
-        !--- Skip degenerate sections (beam < 2% of max beam) ---
-        sec_beam = min(abs(yint_port(1,ise1) - yint_port(npres,ise1)), &
-                       abs(yint_port(1,ise1-1) - yint_port(npres,ise1-1)))
-        if (sec_beam < 0.02*maxbeam) cycle
-        is1=ise1-1; is2=ise1
-        CatPortTriangles: do i=2,npres; do j=1,2
-        if(j==1)then; ip1=i-1; ip2=i-1; is3=merge(is2,is1,i<=npres/2+1); ip3=i
-        else
-         ip1=merge(i-1,i,i<=npres/2+1); ip2=merge(i,i-1,i<=npres/2+1); is3=merge(is1,is2,i<=npres/2+1); ip3=i
-        endif
-        xtri(:,1)=(/x(is1),yint_port(ip1,is1),zint_port(ip1,is1)/)
-        xtri(:,2)=(/x(is2),yint_port(ip2,is2),zint_port(ip2,is2)/)
-        xtri(:,3)=(/x(is3),yint_port(ip3,is3),zint_port(ip3,is3)/)
-        xc=sum(xtri,2)/3
-        flvec=0.5*(xtri(:,1)-xtri(:,3)).vprod.(xtri(:,2)-xtri(:,1))
-        xn=flvec/sqrt(sum(flvec**2))
-        gradvec=graddreieck(xtri)
-        vbody=ciome*(motion(1:3,1)+(motion(4:6,1).vprod.cmplx(xc,(/0.,0.,0./))))
-        vdotn=sum(vbody*xn)
-        gradpot=(pot(ip1,is1)-pot(ip3,is3))*gradvec(:,1)+(pot(ip2,is2)-pot(ip1,is1))*gradvec(:,2) &
-             +vdotn*xn
-         presaverage=(pres(ip1,1,is1)+pres(ip2,1,is2)+pres(ip3,1,is3))/3
-          df=-0.25*rho*sum((abs(gradpot)**2))*flvec &
-               -0.5*real((presaverage*flvec).vprod.conjg((motion(4:6,1))))
-         fxi=fxi+df(1)
-         feta=feta+df(2)
-         mdrift(1)=mdrift(1)+xc(2)*df(3)-xc(3)*df(2)
-         mdrift(3)=mdrift(3)+xc(1)*df(2)-xc(2)*df(1)
-         if(count((/ip1,ip2,ip3/)==npres)==2)exit CatPortTriangles
-        if(is3==is1)then; ip1=ip3; else; ip2=ip3; endif
-       enddo; enddo CatPortTriangles
-       enddo CatPortSections
+         dfeta=0.25*dx2*(-abs(pres(1,1,ise1))**2+abs(pres(npres,1,ise1))**2)/rho/g
+        feta=feta+dfeta
+        feta_port_wl=feta_port_wl+dfeta
+        fxi_port_wl=fxi_port_wl+dfxistb+dfxiprt
+         mdrift(3)=mdrift(3)+x(ise1)*dfeta-yint_port(1,ise1)*dfxistb-yint_port(npres,ise1)*dfxiprt
+         if(ise1==1)cycle
+         !--- Skip degenerate sections (beam < 2% of max beam) ---
+         sec_beam = min(abs(yint_port(1,ise1) - yint_port(npres,ise1)), &
+                        abs(yint_port(1,ise1-1) - yint_port(npres,ise1-1)))
+         if (sec_beam < 0.02*maxbeam) cycle
+         is1=ise1-1; is2=ise1
+         CatPortTriangles: do i=2,npres; do j=1,2
+         if(j==1)then; ip1=i-1; ip2=i-1; is3=merge(is2,is1,i<=npres/2+1); ip3=i
+         else
+          ip1=merge(i-1,i,i<=npres/2+1); ip2=merge(i,i-1,i<=npres/2+1); is3=merge(is1,is2,i<=npres/2+1); ip3=i
+         endif
+         xtri(:,1)=(/x(is1),yint_port(ip1,is1),zint_port(ip1,is1)/)
+         xtri(:,2)=(/x(is2),yint_port(ip2,is2),zint_port(ip2,is2)/)
+         xtri(:,3)=(/x(is3),yint_port(ip3,is3),zint_port(ip3,is3)/)
+         xc=sum(xtri,2)/3
+         flvec=0.5*(xtri(:,1)-xtri(:,3)).vprod.(xtri(:,2)-xtri(:,1))
+         xn=flvec/sqrt(sum(flvec**2))
+         gradvec=graddreieck(xtri)
+         vbody=ciome*(motion(1:3,1)+(motion(4:6,1).vprod.cmplx(xc,(/0.,0.,0./))))
+         vdotn=sum(vbody*xn)
+         gradpot=(pot(ip1,is1)-pot(ip3,is3))*gradvec(:,1)+(pot(ip2,is2)-pot(ip1,is1))*gradvec(:,2) &
+              +vdotn*xn
+          presaverage=(pres(ip1,1,is1)+pres(ip2,1,is2)+pres(ip3,1,is3))/3
+           df=-0.25*rho*sum((abs(gradpot)**2))*flvec &
+                -0.5*real((presaverage*flvec).vprod.conjg((motion(4:6,1))))
+         !--- Decompose into velocity and rotation for diagnostics ---
+         df_vel_y = -0.25*rho*sum((abs(gradpot)**2))*flvec(2)
+         df_rot_y = df(2) - df_vel_y
+         feta_port_vel=feta_port_vel+df_vel_y
+         feta_port_rot=feta_port_rot+df_rot_y
+          fxi=fxi+df(1)
+          feta=feta+df(2)
+          fxi_port_tri=fxi_port_tri+df(1)
+          mdrift(1)=mdrift(1)+xc(2)*df(3)-xc(3)*df(2)
+          mdrift(3)=mdrift(3)+xc(1)*df(2)-xc(2)*df(1)
+          if(count((/ip1,ip2,ip3/)==npres)==2)exit CatPortTriangles
+         if(is3==is1)then; ip1=ip3; else; ip2=ip3; endif
+        enddo; enddo CatPortTriangles
+        enddo CatPortSections
+
+      !--- Catamaran Pinkster sway decomposition diagnostic output ---
+      write(34,'(a,g14.6,a,g14.6)') '  CAT_SWAY feta_total=',feta,' fxi_total=',fxi
+      write(34,'(a,g14.6,a,g14.6,a,g14.6)') '  CAT_SWAY_STB wl=',feta_stb_wl, &
+        ' vel=',feta_stb_vel,' rot=',feta_stb_rot
+      write(34,'(a,g14.6,a,g14.6,a,g14.6)') '  CAT_SWAY_PORT wl=',feta_port_wl, &
+        ' vel=',feta_port_vel,' rot=',feta_port_rot
+      write(34,'(a,g14.6,a,g14.6)') '  CAT_SURGE_STB wl=',fxi_stb_wl,' tri=',fxi_stb_tri
+      write(34,'(a,g14.6,a,g14.6)') '  CAT_SURGE_PORT wl=',fxi_port_wl,' tri=',fxi_port_tri
 
       !--- Catamaran Maruo/Gerritsma-Beukelman far-field drift force ---
       ! Uses coupled catamaran amatr_sec (both hulls together from 2D BEM)
@@ -3521,6 +3658,70 @@ Wavelengths: do iom=1,nom                                                       
         fxi_maruo_heave+fxi_maruo_sway
       !--- end catamaran Maruo ---
 
+      !--- Far-field (Kochin function) sway drift force ---
+       ! Uses scattered-only far-field amplitudes: F_y = rho*g/(2k) * [|A_prt|^2 - |A_stb|^2] * dx
+       !
+       ! At beam seas (sinm=±1), the full 2D momentum conservation gives a cross-term
+       ! 2*Re(A_stb) from incident-scattered interference, but this contributes only ~3%
+       ! change at beam seas and is INVALID at oblique headings (the interference oscillates
+       ! in y and averages to zero when sinm≠±1). The scattered-only quadratic gives
+       ! correct sign and reasonable magnitude at ALL headings.
+       !
+       ! Sign convention: 
+       !   sinm>0 (waves from +y): |A_stb|>|A_prt| → result negative = drift toward -y (lee) ✓
+       !   sinm<0 (waves from -y): |A_prt|>|A_stb| → result positive = drift toward +y (lee) ✓
+       !   sinm=0 (head/following): |A_prt|≈|A_stb| → ~0 ✓
+       !
+       ! A_total = A_diff*czeta3 + xi2*A_sway + xi3_local*A_heave + xi4*A_roll
+       feta_farfield = 0.
+       ff_energy_sum = 0.
+       do ise1=1,nse
+        dx2=(x(min(ise1+1,nse))-x(max(ise1-1,1)))/2.
+        ! Total far-field scattered amplitude = diffraction + radiation*motion
+        heave_local = motion(3,1) - x(ise1)*motion(5,1)
+        A_ff_stb = ffi_diff_sec(1,ise1,imu)*czeta3(ise1) &
+                 + motion(2,1)*ffi_rad_sec_all(1,1,ise1,imu) &
+                 + heave_local*ffi_rad_sec_all(1,2,ise1,imu) &
+                 + motion(4,1)*ffi_rad_sec_all(1,3,ise1,imu)
+        A_ff_prt = ffi_diff_sec(2,ise1,imu)*czeta3(ise1) &
+                 + motion(2,1)*ffi_rad_sec_all(2,1,ise1,imu) &
+                 + heave_local*ffi_rad_sec_all(2,2,ise1,imu) &
+                 + motion(4,1)*ffi_rad_sec_all(2,3,ise1,imu)
+        ! Far-field sway drift per section: scattered-only quadratic
+        ! The cross-term 2*Re(A_stb) from 2D momentum conservation only applies
+        ! at exact beam seas (sinm=±1) where incident and scattered waves share
+        ! the same y-wavenumber. At oblique headings (sinm≠±1), the cross-term
+        ! oscillates in y and averages to zero. The scattered quadratic
+        ! |A_prt|^2 - |A_stb|^2 gives correct sign at ALL headings:
+        !   sinm>0: A_stb side is lee → |A_stb|>|A_prt| → negative (toward lee) ✓
+        !   sinm<0: A_prt side is lee → |A_prt|>|A_stb| → positive (toward lee) ✓
+        !   sinm=0: |A_prt|≈|A_stb| → ~0 ✓
+        ! At beam seas the cross-term contributes only ~3% change (sigma 592→573).
+        feta_farfield = feta_farfield + rho*g/(2.*waven) * &
+           (abs(A_ff_prt)**2 - abs(A_ff_stb)**2) * dx2
+        ! Scattered energy diagnostic: |A_stb|^2 + |A_prt|^2 per section
+        ! (valid at all headings; at beam seas relates to energy balance via |R|^2+|T|^2-1)
+        ff_energy_stb = abs(A_ff_stb)**2
+        ff_energy_prt = abs(A_ff_prt)**2
+        ff_energy_sum = ff_energy_sum + (ff_energy_stb + ff_energy_prt) * dx2
+        ! Detailed per-section output at beam seas for selected frequencies
+        if (abs(mu(imu)-1.5708)<0.02 .and. (abs(om-0.921)<0.01 .or. abs(om-1.259)<0.01)) then
+         if (ise1==1 .or. ise1==nse/4 .or. ise1==nse/2 .or. ise1==3*nse/4 .or. ise1==nse) then
+          write(34,'(a,i3,a,f6.3,a,2g12.4,a,2g12.4,a,g12.4)') &
+           '  FF_DETAIL ise=',ise1,' om=',om, &
+           ' A_stb=',real(A_ff_stb),aimag(A_ff_stb), &
+           ' A_prt=',real(A_ff_prt),aimag(A_ff_prt), &
+           ' |Ap|2-|As|2=',ff_energy_prt-ff_energy_stb
+         endif
+        endif
+       enddo
+       ! Normalize energy sum by total length for per-section average
+       ff_energy_sum = ff_energy_sum / max(x(nse)-x(1), 1.0)
+       write(34,'(a,f8.3,a,f8.1,a,g14.6,a,g14.6)') &
+         'CAT_FF_SWAY omega=',om,' mu=',mu(imu)*180/3.14159265, &
+         ' feta_farfield=',feta_farfield,' energy_avg=',ff_energy_sum
+       !--- end far-field sway ---
+
       !Restore current-angle motions for fin drift forces
       motion(:,1)=motion_all(:,imu)
       !Fin drift forces — use per-angle stored fin variables
@@ -3544,8 +3745,10 @@ Wavelengths: do iom=1,nom                                                       
      write(6,'(a,g14.6)')' Roll drift moment per wave amplitude squared                      ',mdrift(1)
      write(6,'(a,2f10.3)')' Long., transv. reduced water drift velocity per wave amplitude^2   ', &
       xdotdr*cosm,-xdotdr*sinm
-     write(24,*)fxi,feta,xdotdr*cosm,-xdotdr*sinm
-    enddo CatAngles
+      write(34,'(a,g14.6,a,g14.6)') '  CAT_DRIFT_SWAY feta_pinkster=',feta,' feta_farfield=',feta_farfield
+      write(24,*)fxi,feta_farfield,xdotdr*cosm,-xdotdr*sinm
+      feta_stored(iv,imu,iom) = feta_farfield              !use far-field sway (replaces Pinkster)
+     enddo CatAngles
     close(30)
    endif CatDriftForces
 
@@ -3608,6 +3811,129 @@ Wavelengths: do iom=1,nom                                                       
    write(6,'(a)') ' No frequencies fall in resonance window'
   endif
  endif ResonanceInterp
+
+ !--- Post-processing: interpolate catamaran sway drift through wave-trapping frequencies ---
+ !Wave trapping between catamaran hulls occurs when transverse wavelength component matches hull gap:
+ !  k_trap * 2*hulld * |sin(mu)| = n*pi,  n=1,2,3,...
+ !  => k_trap = n*pi / (2*hulld*|sin(mu)|)
+ !  => omega_trap = sqrt(g * k_trap)  (deep water)
+ !At these frequencies, 2D strip theory creates artificial resonance (no longitudinal escape).
+ !Fix: detect trapping frequencies per heading and linearly interpolate feta_stored through them.
+ CatTrappingInterp: if (catamaran .and. nom_stored > 0 .and. npres > 0 .and. hulld > 0) then
+  n_trap_fixed = 0
+  write(6,'(/a)') ' === Catamaran wave-trapping interpolation ==='
+  write(6,'(a,f8.3,a)') '  Hull CL-to-center distance hulld =', hulld, ' m'
+  write(6,'(a,f8.3,a,f8.3)') '  Frequency range: ', omega_stored(nom_stored), &
+   ' to ', omega_stored(1)
+  do imu=1,nmu
+   if (abs(sin(mu(imu))) < 0.05) cycle    !skip near-axial headings (no transverse trapping)
+   !Compute trapping frequencies for this heading
+   n_trap_max = 10                          !check up to 10 modes
+   do n_trap=1,n_trap_max
+    trap_k = n_trap * pi / (2.0 * hulld * abs(sin(mu(imu))))
+    trap_omega = sqrt(g * trap_k)          !deep water dispersion
+    !Check if trapping frequency is within our computed range
+    if (trap_omega < omega_stored(nom_stored) * 0.9) cycle  !below range
+    if (trap_omega > omega_stored(1) * 1.1) exit            !above range, higher modes also above
+    !Define bandwidth: ±25% of trapping frequency (wide enough to catch the full spike)
+    trap_bw = 0.25 * trap_omega
+    trap_om_lo = trap_omega - trap_bw
+    trap_om_hi = trap_omega + trap_bw
+    !Find frequency indices within this window
+    !omega_stored is in DESCENDING order (index 1 = highest freq)
+    trap_ilo = 0; trap_ihi = 0
+    do iom=1,nom_stored
+     if (omega_stored(iom) <= trap_om_hi .and. trap_ilo == 0) trap_ilo = iom
+     if (omega_stored(iom) < trap_om_lo) then
+      trap_ihi = iom - 1
+      exit
+     endif
+     if (iom == nom_stored) trap_ihi = nom_stored
+    enddo
+    if (trap_ilo > 0 .and. trap_ihi >= trap_ilo) then
+     trap_ileft = trap_ilo - 1              !higher-freq side (lower index)
+     trap_iright = trap_ihi + 1             !lower-freq side (higher index)
+     if (trap_ileft >= 1 .and. trap_iright <= nom_stored) then
+      write(6,'(a,i2,a,f6.1,a,f7.3,a,f7.3,a,f7.3,a,i3,a)') &
+       '  Mode n=',n_trap,' mu=',mu(imu)*180./pi,'deg: omega_trap=',trap_omega, &
+       ' window=[',omega_stored(trap_ihi),',',omega_stored(trap_ilo), &
+       '] (',trap_ihi-trap_ilo+1,' pts)'
+      do iv=1,nv
+       trap_feta_left = feta_stored(iv,imu,trap_ileft)
+       trap_feta_right = feta_stored(iv,imu,trap_iright)
+       do iom=trap_ilo,trap_ihi
+        !Linear interpolation in omega between boundary points
+        trap_wt = (omega_stored(iom) - omega_stored(trap_iright)) &
+               / (omega_stored(trap_ileft) - omega_stored(trap_iright))
+        feta_stored(iv,imu,iom) = trap_feta_right &
+               + trap_wt * (trap_feta_left - trap_feta_right)
+        n_trap_fixed = n_trap_fixed + 1
+       enddo
+      enddo
+      !Write diagnostic output
+      do iom=trap_ilo,trap_ihi
+       do iv=1,nv
+        write(34,'(a,i2,a,f8.4,a,f8.1,a,i2,a,g14.6)') &
+         ' CAT_TRAP_INTERP n=',n_trap,' omega=',omega_stored(iom), &
+         ' mu=',mu(imu)*180./pi, &
+         ' iv=',iv,' feta_interp=',feta_stored(iv,imu,iom)
+       enddo
+      enddo
+     else
+      write(6,'(a,i2,a,f6.1,a,f7.3,a)') &
+       '  Mode n=',n_trap,' mu=',mu(imu)*180./pi,'deg: omega_trap=',trap_omega, &
+       ' — at edge of freq range, skipping'
+     endif
+    endif
+   enddo  !n_trap
+  enddo  !imu
+   write(6,'(a,i6,a)') '  Total: interpolated ', n_trap_fixed, ' (freq,heading,speed) points'
+   !--- Cleanup pass: cap any remaining extreme feta_stored values ---
+   !After mode-by-mode interpolation, some boundary points may still be contaminated
+   !(e.g., when a higher trapping mode is at the edge of the frequency range).
+   !Strategy: compute max |feta| at low frequencies (omega < lowest trapping omega)
+   !where no trapping occurs, then cap all values at 20x that reference.
+   !The lowest trapping frequency for any heading is n=1, mu=90° (beam seas):
+   !  k_trap_min = pi/(2*hulld)  =>  omega_trap_min = sqrt(g*pi/(2*hulld))
+   !Values below 0.75*omega_trap_min are safely below all trapping.
+   trap_omega = sqrt(g * pi / (2.0 * hulld))   !lowest possible trapping frequency
+   feta_cap = 0
+   do iom=1,nom_stored
+    if (omega_stored(iom) > 0.75 * trap_omega) cycle  !skip frequencies near/above trapping
+    do imu=1,nmu
+     do iv=1,nv
+      feta_cap = max(feta_cap, abs(feta_stored(iv,imu,iom)))
+     enddo
+    enddo
+   enddo
+   if (feta_cap < 1.0) then
+    !Fallback: if no frequencies below trapping, use the minimum |feta| across all data
+    feta_cap = huge(feta_cap)
+    do iom=1,nom_stored; do imu=1,nmu; do iv=1,nv
+     if (abs(feta_stored(iv,imu,iom)) > 0) &
+      feta_cap = min(feta_cap, abs(feta_stored(iv,imu,iom)))
+    enddo; enddo; enddo
+    feta_cap = max(feta_cap, 1.0)
+   endif
+   feta_cap = 5.0 * feta_cap              !allow 5x the low-frequency maximum
+   write(6,'(a,g14.6,a,g14.6)') '  Low-freq reference max |feta| = ', feta_cap/5., &
+    '  cap = ', feta_cap
+   n_capped = 0
+   do imu=1,nmu
+    do iom=1,nom_stored
+     do iv=1,nv
+      if (abs(feta_stored(iv,imu,iom)) > feta_cap) then
+       write(34,'(a,f8.4,a,f8.1,a,g14.6,a,g14.6)') &
+        ' CAT_TRAP_CAP omega=',omega_stored(iom),' mu=',mu(imu)*180./pi, &
+        ' raw=',feta_stored(iv,imu,iom),' cap=',sign(feta_cap,feta_stored(iv,imu,iom))
+       feta_stored(iv,imu,iom) = sign(feta_cap, feta_stored(iv,imu,iom))
+       n_capped = n_capped + 1
+      endif
+     enddo
+    enddo
+   enddo
+   write(6,'(a,i4,a)') '  Capped ', n_capped, ' residual outlier values'
+  endif CatTrappingInterp
 
 call signampl                       !calculate significant amplitudes in natural seaways if required
 end program pdstrip
