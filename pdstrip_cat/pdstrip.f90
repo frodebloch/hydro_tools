@@ -1976,6 +1976,7 @@ complex:: cffs_all(1,6,nfinmax,nmumax)    !stored cffs per angle for catamaran d
 complex:: delfin_all(1,6,nfinmax,nmumax)  !stored delfin per angle for catamaran deferred drift
 !--- Maruo/Gerritsma-Beukelman far-field drift force variables ---
 complex:: amatr_sec(3,3,nsemax)   !stored section added mass (3x3) for all sections at current freq
+complex:: amatr_sec_all(3,3,nsemax,nmumax) !stored section added mass for all sections AND all headings (catamaran Maruo)
 complex:: fdi_sec(3,1,nsemax)     !stored section diffraction force for Maruo
 complex:: fki_sec(3,1,nsemax)     !stored section FK force for Maruo
 real:: fxi_maruo                   !Maruo/G-B surge drift force
@@ -2006,6 +2007,7 @@ real:: nmag2                       !|n_outward|^2 for waterline normal
 real:: cos_an                      !cos(angle between wave and local normal)
 real:: refl_factor                 !draft-dependent reflection factor
 real:: bwl_stb, bwl_prt           !waterline half-breadth starboard and port
+real:: maxbeam, sec_beam           !max section beam and current section beam (for degenerate section check)
 real:: sw_dx                       !section spacing for integration
 real:: fxi_pink, feta_pink         !unblended Pinkster values (saved before blending)
 real:: f_pink_wave, f_refl_wave    !wave-direction projections for blending comparison
@@ -2873,19 +2875,22 @@ Wavelengths: do iom=1,nom                                                       
        if (.not.catamaran) write(24,*)pres(i,1,ise1),pwg(i,1,ise1),pot(i,ise1)
       enddo PressurePts
      enddo Sectns
-     if (catamaran) then                                            !store for deferred drift force calc.
-      do ise1=1,nse
-       pres_all(:,ise1,imu)=pres(:,1,ise1)
-       pot_all(:,ise1,imu)=pot(:,ise1)
-      enddo
-      motion_all(:,imu)=motion(:,1)
-      do ifin=1,nfin                                               !store fin variables per angle
+      if (catamaran) then                                            !store for deferred drift force calc.
+       do ise1=1,nse
+        pres_all(:,ise1,imu)=pres(:,1,ise1)
+        pot_all(:,ise1,imu)=pot(:,ise1)
+        amatr_sec_all(:,:,ise1,imu)=amatr_sec(:,:,ise1)            !store section added mass per heading for catamaran Maruo
+       enddo
+       motion_all(:,imu)=motion(:,1)
+       do ifin=1,nfin                                               !store fin variables per angle
        calphaw_all(ifin,imu)=calphaw(ifin)
        cffw_all(ifin,imu)=cffw(ifin)
        cffs_all(:,:,ifin,imu)=cffs(:,:,ifin)
        delfin_all(:,:,ifin,imu)=delfin(:,:,ifin)
       enddo
      endif
+      !--- Compute max section beam for degenerate section detection ---
+      maxbeam = maxval(abs(yint(1,1:nse) - yint(npres,1:nse)))
       MonohullDrift: if (.not.catamaran) then
       !Determine drift forces (only if npres>0) --- monohull path, unchanged
            fxi=0; feta=0; mdrift=0; fxi_WL=0; feta_WL=0; fxi_vel=0; fxi_rot=0
@@ -2941,8 +2946,19 @@ Wavelengths: do iom=1,nom                                                       
             ' |p_stb|=',abs(pres(1,1,ise1)),' |p_port|=',abs(pres(npres,1,ise1)), &
            ' dfxistb=',dfxistb,' dfxiprt=',dfxiprt, &
            ' dfeta=',dfeta,' feta_cum=',feta
-        mdrift(3)=mdrift(3)+x(ise1)*dfeta-yint(1,ise1)*dfxistb-yint(npres,ise1)*dfxiprt
-         if(ise1==1)cycle
+         mdrift(3)=mdrift(3)+x(ise1)*dfeta-yint(1,ise1)*dfxistb-yint(npres,ise1)*dfxiprt
+          if(ise1==1)cycle
+          !--- Skip degenerate sections (beam < 2% of max beam) ---
+          ! Bow/stern tip sections with near-zero beam create highly skewed triangles
+          ! that produce catastrophic velocity-squared errors in the Pinkster drift force.
+          ! The WL integral above is kept (it's correct); only the triangle integration is skipped.
+          ! Check both current section AND previous section (triangles span ise1-1 to ise1).
+          sec_beam = min(abs(yint(1,ise1) - yint(npres,ise1)), abs(yint(1,ise1-1) - yint(npres,ise1-1)))
+          if (sec_beam < 0.02*maxbeam) then
+            write(34,'(a,i3,a,f8.2,a,g12.4,a,g12.4)') &
+              '  SKIP_DEGEN sec=',ise1,' x=',x(ise1),' beam=',sec_beam,' maxbeam=',maxbeam
+            cycle
+          endif
        !Part of drift force due to square of periodical velocity and due to hull rotations
        is1=ise1-1; is2=ise1
        feta_before_tri=feta
@@ -3355,10 +3371,13 @@ Wavelengths: do iom=1,nom                                                       
        fxi=fxi+dfxistb+dfxiprt
        dfeta=0.25*dx2*(-abs(pres(1,1,ise1))**2+abs(pres(npres,1,ise1))**2)/rho/g
       feta=feta+dfeta
-      mdrift(3)=mdrift(3)+x(ise1)*dfeta-yint(1,ise1)*dfxistb-yint(npres,ise1)*dfxiprt
-      if(ise1==1)cycle
-      is1=ise1-1; is2=ise1
-      CatStbTriangles: do i=2,npres; do j=1,2
+       mdrift(3)=mdrift(3)+x(ise1)*dfeta-yint(1,ise1)*dfxistb-yint(npres,ise1)*dfxiprt
+       if(ise1==1)cycle
+       !--- Skip degenerate sections (beam < 2% of max beam) ---
+       sec_beam = min(abs(yint(1,ise1) - yint(npres,ise1)), abs(yint(1,ise1-1) - yint(npres,ise1-1)))
+       if (sec_beam < 0.02*maxbeam) cycle
+       is1=ise1-1; is2=ise1
+       CatStbTriangles: do i=2,npres; do j=1,2
        if(j==1)then; ip1=i-1; ip2=i-1; is3=merge(is2,is1,i<=npres/2+1); ip3=i
        else
         ip1=merge(i-1,i,i<=npres/2+1); ip2=merge(i,i-1,i<=npres/2+1); is3=merge(is1,is2,i<=npres/2+1); ip3=i
@@ -3417,10 +3436,14 @@ Wavelengths: do iom=1,nom                                                       
         fxi=fxi+dfxistb+dfxiprt
         dfeta=0.25*dx2*(-abs(pres(1,1,ise1))**2+abs(pres(npres,1,ise1))**2)/rho/g
        feta=feta+dfeta
-       mdrift(3)=mdrift(3)+x(ise1)*dfeta-yint_port(1,ise1)*dfxistb-yint_port(npres,ise1)*dfxiprt
-       if(ise1==1)cycle
-       is1=ise1-1; is2=ise1
-       CatPortTriangles: do i=2,npres; do j=1,2
+        mdrift(3)=mdrift(3)+x(ise1)*dfeta-yint_port(1,ise1)*dfxistb-yint_port(npres,ise1)*dfxiprt
+        if(ise1==1)cycle
+        !--- Skip degenerate sections (beam < 2% of max beam) ---
+        sec_beam = min(abs(yint_port(1,ise1) - yint_port(npres,ise1)), &
+                       abs(yint_port(1,ise1-1) - yint_port(npres,ise1-1)))
+        if (sec_beam < 0.02*maxbeam) cycle
+        is1=ise1-1; is2=ise1
+        CatPortTriangles: do i=2,npres; do j=1,2
         if(j==1)then; ip1=i-1; ip2=i-1; is3=merge(is2,is1,i<=npres/2+1); ip3=i
         else
          ip1=merge(i-1,i,i<=npres/2+1); ip2=merge(i,i-1,i<=npres/2+1); is3=merge(is1,is2,i<=npres/2+1); ip3=i
@@ -3446,7 +3469,57 @@ Wavelengths: do iom=1,nom                                                       
          if(count((/ip1,ip2,ip3/)==npres)==2)exit CatPortTriangles
         if(is3==is1)then; ip1=ip3; else; ip2=ip3; endif
        enddo; enddo CatPortTriangles
-      enddo CatPortSections
+       enddo CatPortSections
+
+      !--- Catamaran Maruo/Gerritsma-Beukelman far-field drift force ---
+      ! Uses coupled catamaran amatr_sec (both hulls together from 2D BEM)
+      ! and catamaran motions for current heading.
+      ! czeta3 is recomputed for current heading; amatr_sec loaded from stored array.
+      ! Result: total catamaran added resistance (both hulls).
+      motion(:,1)=motion_all(:,imu)   !use catamaran motions for current heading
+      fxi_maruo=0; fxi_maruo_heave=0; fxi_maruo_sway=0
+      CatMaruoSections: do ise1=1,nse
+       dx2=(x(min(ise1+1,nse))-x(max(ise1-1,1)))/2
+       ! Recompute wave phase at this section for current heading
+       czeta3(ise1)=exp(-ci*waven*x(ise1)*cosm)
+       ! Section heave damping b33 from stored catamaran amatr_sec
+       b33_sec = -aimag(amatr_sec_all(2,2,ise1,imu)) * abs(ome)**3
+       ! Section sway damping b22
+       b22_sec = -aimag(amatr_sec_all(1,1,ise1,imu)) * abs(ome)**3
+       ! Section draft
+       draft_sec = tcross(ise1)
+       ! Wave decay factor at section draft
+       if (waven*(zbot-zwl)>3.0) then
+        wz_amp = exp(-waven*draft_sec)
+       else
+        wz_amp = cosh(waven*(draft_sec+zwl-zbot))/sinh(waven*(zbot-zwl))
+       endif
+       ! Relative heave displacement at section x
+       vz_rel = motion(3,1) - x(ise1)*motion(5,1) - czeta3(ise1)*wz_amp
+       ! Heave contribution to added resistance
+       fxi_maruo_heave = fxi_maruo_heave + ome**2*waven/(2.*om)*b33_sec*abs(vz_rel)**2*dx2
+       ! Sway relative displacement (for oblique seas)
+       if (abs(sinm) > 0.001) then
+        if (waven*(zbot-zwl)>3.0) then
+         wy_amp_factor = exp(-waven*draft_sec)
+        else
+         wy_amp_factor = cosh(waven*(draft_sec+zwl-zbot))/sinh(waven*(zbot-zwl))
+        endif
+        vy_rel = motion(2,1) - x(ise1)*motion(4,1) + czeta3(ise1)*ci*sinm*wy_amp_factor
+        fxi_maruo_sway = fxi_maruo_sway + ome**2*waven/(2.*om)*b22_sec*abs(vy_rel)**2*dx2
+       endif
+      enddo CatMaruoSections
+      ! Total Maruo drift force (resistance = positive toward stern)
+      ! fxi convention: positive forward; added resistance is negative fxi
+      fxi_maruo = -(fxi_maruo_heave + fxi_maruo_sway)
+      write(34,'(a,f8.3,a,f8.1)') 'CAT_DRIFT_MARUO omega=',om,' mu=',mu(imu)*180/3.14159265
+      write(34,'(a,g14.6,a,g14.6,a,g14.6)') &
+        '  CAT_MARUO fxi_maruo=',fxi_maruo, &
+        ' fxi_maruo_heave=',fxi_maruo_heave,' fxi_maruo_sway=',fxi_maruo_sway
+      write(6,'(a,g14.6,a,g14.6)') &
+        ' Cat Maruo/G-B far-field surge drift force: ',fxi_maruo,' (heave+sway contrib: ', &
+        fxi_maruo_heave+fxi_maruo_sway
+      !--- end catamaran Maruo ---
 
       !Restore current-angle motions for fin drift forces
       motion(:,1)=motion_all(:,imu)
