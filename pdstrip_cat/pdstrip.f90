@@ -3584,22 +3584,22 @@ Wavelengths: do iom=1,nom                                                       
         xtri(:,1)=(/x(is1),yint(ip1,is1),zint(ip1,is1)/)
         xtri(:,2)=(/x(is2),yint(ip2,is2),zint(ip2,is2)/)
         xtri(:,3)=(/x(is3),yint(ip3,is3),zint(ip3,is3)/)
-        xc=sum(xtri,2)/3
-        flvec=0.5*(xtri(:,1)-xtri(:,3)).vprod.(xtri(:,2)-xtri(:,1))
-        xn=flvec/sqrt(sum(flvec**2))
-        gradvec=graddreieck(xtri)
-        vbody=ciome*(motion(1:3,1)+(motion(4:6,1).vprod.cmplx(xc,(/0.,0.,0./))))
-        vdotn=sum(vbody*xn)
-        gradpot=(pot(ip1,is1)-pot(ip3,is3))*gradvec(:,1)+(pot(ip2,is2)-pot(ip1,is1))*gradvec(:,2) &
-             +vdotn*xn
-         presaverage=(pres(ip1,1,is1)+pres(ip2,1,is2)+pres(ip3,1,is3))/3
-          df=-0.25*rho*sum((abs(gradpot)**2))*flvec &
-               -0.5*real((presaverage*flvec).vprod.conjg((motion(4:6,1))))
-         !--- Decompose into velocity and rotation for diagnostics ---
-         df_vel_y = -0.25*rho*sum((abs(gradpot)**2))*flvec(2)
-         df_rot_y = df(2) - df_vel_y
-         feta_stb_vel=feta_stb_vel+df_vel_y
-         feta_stb_rot=feta_stb_rot+df_rot_y
+         xc=sum(xtri,2)/3
+         flvec=0.5*(xtri(:,1)-xtri(:,3)).vprod.(xtri(:,2)-xtri(:,1))
+         xn=flvec/sqrt(sum(flvec**2))
+         gradvec=graddreieck(xtri)
+         vbody=ciome*(motion(1:3,1)+(motion(4:6,1).vprod.cmplx(xc,(/0.,0.,0./))))
+         vdotn=sum(vbody*xn)
+         gradpot=(pot(ip1,is1)-pot(ip3,is3))*gradvec(:,1)+(pot(ip2,is2)-pot(ip1,is1))*gradvec(:,2) &
+              +vdotn*xn
+             presaverage=(pres(ip1,1,is1)+pres(ip2,1,is2)+pres(ip3,1,is3))/3
+              df=-0.25*rho*sum((abs(gradpot)**2))*flvec &
+                   -0.5*real((presaverage*flvec).vprod.conjg((motion(4:6,1))))
+          !--- Decompose into velocity and rotation for diagnostics ---
+          df_vel_y = -0.25*rho*sum((abs(gradpot)**2))*flvec(2)
+          df_rot_y = df(2) - df_vel_y
+          feta_stb_vel=feta_stb_vel+df_vel_y
+          feta_stb_rot=feta_stb_rot+df_rot_y
          fxi=fxi+df(1)
          feta=feta+df(2)
          fxi_stb_tri=fxi_stb_tri+df(1)
@@ -3614,7 +3614,8 @@ Wavelengths: do iom=1,nom                                                       
       !Symmetry: pres_port(i,mu) = pres_stb(npres+1-i, -mu)
       !         pot_port(i,mu)  = pot_stb(npres+1-i, -mu)
       !Port hull geometry: yint_port, zint_port (already computed, at y ~ +hulld)
-      !Port hull motions: motion_all(:,imirr) — global vessel motions at mirror angle
+      !Port hull motions: pres/pot use mirror heading (imirr); body velocity and
+      !rotation drift term use current heading (imu) for physical rigid-body motion
        !Load port hull pressures/potentials from mirror angle with reversed index, scaled
         do ise1=1,nse; do i=1,npres
          jj=npres+1-i
@@ -3655,25 +3656,25 @@ Wavelengths: do iom=1,nom                                                       
          else
           ip1=merge(i-1,i,i<=npres/2+1); ip2=merge(i,i-1,i<=npres/2+1); is3=merge(is1,is2,i<=npres/2+1); ip3=i
          endif
-         xtri(:,1)=(/x(is1),yint_port(ip1,is1),zint_port(ip1,is1)/)
-         xtri(:,2)=(/x(is2),yint_port(ip2,is2),zint_port(ip2,is2)/)
-         xtri(:,3)=(/x(is3),yint_port(ip3,is3),zint_port(ip3,is3)/)
-         xc=sum(xtri,2)/3
-         flvec=0.5*(xtri(:,1)-xtri(:,3)).vprod.(xtri(:,2)-xtri(:,1))
-         xn=flvec/sqrt(sum(flvec**2))
-         gradvec=graddreieck(xtri)
-         vbody=ciome*(motion(1:3,1)+(motion(4:6,1).vprod.cmplx(xc,(/0.,0.,0./))))
+          xtri(:,1)=(/x(is1),yint_port(ip1,is1),zint_port(ip1,is1)/)
+          xtri(:,2)=(/x(is2),yint_port(ip2,is2),zint_port(ip2,is2)/)
+          xtri(:,3)=(/x(is3),yint_port(ip3,is3),zint_port(ip3,is3)/)
+          xc=sum(xtri,2)/3
+           flvec=0.5*(xtri(:,1)-xtri(:,3)).vprod.(xtri(:,2)-xtri(:,1))
+           xn=flvec/sqrt(sum(flvec**2))
+           gradvec=graddreieck(xtri)
+           vbody=ciome*(motion_all(1:3,imu)+(motion_all(4:6,imu).vprod.cmplx(xc,(/0.,0.,0./))))
          vdotn=sum(vbody*xn)
          gradpot=(pot(ip1,is1)-pot(ip3,is3))*gradvec(:,1)+(pot(ip2,is2)-pot(ip1,is1))*gradvec(:,2) &
               +vdotn*xn
-          presaverage=(pres(ip1,1,is1)+pres(ip2,1,is2)+pres(ip3,1,is3))/3
-           df=-0.25*rho*sum((abs(gradpot)**2))*flvec &
-                -0.5*real((presaverage*flvec).vprod.conjg((motion(4:6,1))))
-         !--- Decompose into velocity and rotation for diagnostics ---
-         df_vel_y = -0.25*rho*sum((abs(gradpot)**2))*flvec(2)
-         df_rot_y = df(2) - df_vel_y
-         feta_port_vel=feta_port_vel+df_vel_y
-         feta_port_rot=feta_port_rot+df_rot_y
+            presaverage=(pres(ip1,1,is1)+pres(ip2,1,is2)+pres(ip3,1,is3))/3
+             df=-0.25*rho*sum((abs(gradpot)**2))*flvec &
+                  -0.5*real((presaverage*flvec).vprod.conjg(motion_all(4:6,imu)))
+          !--- Decompose into velocity and rotation for diagnostics ---
+          df_vel_y = -0.25*rho*sum((abs(gradpot)**2))*flvec(2)
+          df_rot_y = df(2) - df_vel_y
+          feta_port_vel=feta_port_vel+df_vel_y
+          feta_port_rot=feta_port_rot+df_rot_y
           fxi=fxi+df(1)
           feta=feta+df(2)
           fxi_port_tri=fxi_port_tri+df(1)
