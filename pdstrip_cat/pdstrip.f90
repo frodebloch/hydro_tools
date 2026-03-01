@@ -56,7 +56,8 @@ real:: zdrift                    !z coordinate for water particle drift velocity
 real:: hulld                     !catamaran: transverse distance from CL to demihull center (>=0)
 real:: omega_roll = 0.0          !natural roll frequency sqrt(C44/I44), set in Phase 1
 real:: feta_stored(nvmax,nmumax,nomma) !stored sway drift per wave ampl^2 for resonance interpolation
-real:: omega_stored(nomma)       !wave frequencies corresponding to feta_stored
+real:: fxi_stored(nvmax,nmumax,nomma)  !stored surge drift per wave ampl^2 for trapping interpolation
+real:: omega_stored(nomma)       !wave frequencies corresponding to feta_stored/fxi_stored
 integer:: nom_stored = 0         !number of stored frequencies
 
 
@@ -1645,8 +1646,8 @@ Seaways: do
     WithPressure: if (npres>0) then
      signpres(1:npres,1:nse,iv)=signpres(1:npres,1:nse,iv)+ &
      spi*pres2(1:npres,1:nse,iv,imu)*muin(imu)                            !signif. ampl. of pressure
-      barfxi (iv)=barfxi (iv)+spi*fxi (iv,imu)*muin(imu)                    !longitudinal drift force
-      barfeta(iv)=barfeta(iv)+spi*feta_stored(iv,imu,iom)*muin(imu)      !transverse drift (interpolated)
+       barfxi (iv)=barfxi (iv)+spi*fxi_stored(iv,imu,iom)*muin(imu)      !longitudinal drift (interpolated)
+       barfeta(iv)=barfeta(iv)+spi*feta_stored(iv,imu,iom)*muin(imu)      !transverse drift (interpolated)
      if (iv==1) then
       bardotxdr=bardotxdr+spi*dotxdr(1,imu)*muin(imu)                          !long. drift velocity
       bardotydr=bardotydr+spi*dotydr(iv,imu)*muin(imu)                        !transv.drift velocity
@@ -2066,6 +2067,7 @@ complex:: fki_sec(3,1,nsemax)     !stored section FK force for Maruo
 real:: fxi_maruo                   !Maruo/G-B surge drift force
 real:: feta_maruo                  !Maruo/G-B sway drift force  
 real:: feta_farfield               !far-field sway drift force (from Kochin function amplitudes)
+real:: feta_diff_only              !far-field sway drift force from diffraction only (no radiation)
 real:: b33_sec                     !section 2D heave damping coefficient
 real:: b22_sec                     !section 2D sway damping coefficient
 complex:: vz_rel                   !relative vertical velocity at a section
@@ -2127,7 +2129,9 @@ integer:: n_trap_max                !max number of trapping modes in frequency r
 integer:: n_trap_fixed              !counter for how many frequencies were interpolated
 real:: trap_wt                      !interpolation weight
 real:: trap_feta_left, trap_feta_right !feta at interpolation endpoints
+real:: trap_fxi_left, trap_fxi_right   !fxi at interpolation endpoints (surge trapping interp)
 real:: feta_cap                     !maximum allowable |feta| for catamaran (outlier cap)
+real:: fxi_cap                      !maximum allowable |fxi| for catamaran (outlier cap)
 integer:: n_capped                  !counter for capped values
 real:: fxi_pink, feta_pink         !unblended Pinkster values (saved before blending)
 real:: f_pink_wave, f_refl_wave    !wave-direction projections for blending comparison
@@ -2160,6 +2164,16 @@ allocate(pres(npres1,1,nsemax),pres_nopst(npres1,1,nsemax),pres_norollpst(npres1
 allocate(pdsec(npres1,1,nmumax,nsemax,0:nfremax),pdsecv(npres1,1,nmumax),pri(npres1,3))
 allocate(prw(npres1,6,nsemax),dprw(npres1,6),dpw(npres1,1),phi0w(npres1,6),pst(npres1,6,nsemax))
 call sectiondata
+!--- Default viscous roll damping for catamarans (5% critical) ---
+! Real vessels always have viscous roll damping from skin friction, eddy-making,
+! and appendages (bilge keels, skegs). Without this, the potential-flow roll RAO
+! goes to infinity at resonance, causing unphysical Pinkster drift force blow-up.
+! 20% of critical is realistic for catamarans: hulls orbit at large radius (hulld)
+! giving high velocities and strong viscous damping (drag ~ v^2, moment arm ~ hulld).
+if (catamaran .and. roll_damp_frac < 1e-6) then
+  roll_damp_frac = 0.20
+  write(6,'(a,f6.3,a)') ' Catamaran roll damping: ',roll_damp_frac,' of critical (default)'
+endif
 if (catamaran) allocate(pres_all(npres1,nsemax,nmumax),pot_all(npres1,nsemax,nmumax))
 if(.not.ltrans.and..not.lsign) stop   
 write(6,'(131("-"))')                !calculation of transfer functions (responses in regular waves)
@@ -3469,7 +3483,8 @@ Wavelengths: do iom=1,nom                                                       
      write(6,'(a,2f10.3)')' Long., transv. reduced water drift velocity per wave amplitude^2   ', &
       xdotdr*cosm,-xdotdr*sinm
       write(24,*)fxi,feta,xdotdr*cosm,-xdotdr*sinm
-      feta_stored(iv,imu,iom) = feta                       !store for resonance interpolation
+       feta_stored(iv,imu,iom) = feta                       !store for resonance interpolation
+       fxi_stored(iv,imu,iom) = fxi                         !store for trapping interpolation
       endif MonohullDrift
     endif IfPressure
    enddo WaveDir
@@ -3481,35 +3496,27 @@ Wavelengths: do iom=1,nom                                                       
     kd=min(waven*(zbot-zwl),30.)
     xdotdr=0.5*waven*om*(cosh(2*(waven*(zdrift-zwl)-kd))/sinh(kd)**2 &
      -1./(waven*(zbot-zwl)*tanh(waven*(zbot-zwl))))
-    !--- Precompute per-section energy conservation scaling for Pinkster ---
-    !Uses same formula as far-field: |R|^2+|T|^2 <= 1 per section
-    do imu=1,nmu
-     cosm=cos(mu(imu)); sinm=sin(mu(imu))
-     motion(:,1)=motion_all(:,imu)
-     do ise1=1,nse
-      ff_escale_sec(ise1,imu) = 1.0
-       if (abs(sinm) > 0.05) then
-       heave_local = motion(3,1) - x(ise1)*motion(5,1)
-       czeta3(ise1)=exp(-ci*waven*x(ise1)*cosm)                      !wave phase at section (same sign as far-field)
-       A_ff_stb = ffi_diff_sec(1,ise1,imu)*czeta3(ise1) &
-                + motion(2,1)*ffi_rad_sec_all(1,1,ise1,imu) &
-                + heave_local*ffi_rad_sec_all(1,2,ise1,imu) &
-                + motion(4,1)*ffi_rad_sec_all(1,3,ise1,imu)
-       A_ff_prt = ffi_diff_sec(2,ise1,imu)*czeta3(ise1) &
-                + motion(2,1)*ffi_rad_sec_all(2,1,ise1,imu) &
-                + heave_local*ffi_rad_sec_all(2,2,ise1,imu) &
-                + motion(4,1)*ffi_rad_sec_all(2,3,ise1,imu)
-       if (sinm > 0.) then
-        ff_escale = abs(A_ff_stb)**2 + abs(1.0+A_ff_prt)**2
-       else
-        ff_escale = abs(A_ff_prt)**2 + abs(1.0+A_ff_stb)**2
-       endif
-            if (ff_escale > 1.0) then
-             ff_escale_sec(ise1,imu) = 1.0/sqrt(ff_escale)
-         endif
-       endif
+     !--- Precompute per-section energy conservation scaling for Pinkster ---
+     !Uses diffraction-only amplitudes: |R|^2+|T|^2 <= 1 per section
+     !For restrained body, BEM should enforce this; scaling is safety net for tunnel trapping.
+     do imu=1,nmu
+      cosm=cos(mu(imu)); sinm=sin(mu(imu))
+      do ise1=1,nse
+       ff_escale_sec(ise1,imu) = 1.0
+        if (abs(sinm) > 0.05) then
+        A_ff_stb = ffi_diff_sec(1,ise1,imu)
+        A_ff_prt = ffi_diff_sec(2,ise1,imu)
+        if (sinm > 0.) then
+         ff_escale = abs(A_ff_stb)**2 + abs(1.0+A_ff_prt)**2
+        else
+         ff_escale = abs(A_ff_prt)**2 + abs(1.0+A_ff_stb)**2
+        endif
+             if (ff_escale > 1.0) then
+              ff_escale_sec(ise1,imu) = 1.0/sqrt(ff_escale)
+          endif
+        endif
+      enddo
      enddo
-    enddo
     CatAngles: do imu=1,nmu
      cosm=cos(mu(imu)); sinm=sin(mu(imu))
      ome=om-waven*vs*cosm
@@ -3698,10 +3705,15 @@ Wavelengths: do iom=1,nom                                                       
        dx2=(x(min(ise1+1,nse))-x(max(ise1-1,1)))/2
        ! Recompute wave phase at this section for current heading
        czeta3(ise1)=exp(-ci*waven*x(ise1)*cosm)
-       ! Section heave damping b33 from stored catamaran amatr_sec
-       b33_sec = -aimag(amatr_sec_all(2,2,ise1,imu)) * abs(ome)**3
-       ! Section sway damping b22
-       b22_sec = -aimag(amatr_sec_all(1,1,ise1,imu)) * abs(ome)**3
+        ! Section heave damping b33 from stored catamaran amatr_sec
+        b33_sec = -aimag(amatr_sec_all(2,2,ise1,imu)) * abs(ome)**3
+        ! Section sway damping b22
+        b22_sec = -aimag(amatr_sec_all(1,1,ise1,imu)) * abs(ome)**3
+        ! Apply energy conservation scaling to damping (same as far-field amplitudes)
+        ! ff_escale_sec is 1/sqrt(|R|^2+|T|^2) when energy > 1, else 1.0
+        ! Damping ~ |amplitude|^2, so scale by escale^2
+        b33_sec = b33_sec * ff_escale_sec(ise1,imu)**2
+        b22_sec = b22_sec * ff_escale_sec(ise1,imu)**2
        ! Section draft
        draft_sec = tcross(ise1)
        ! Wave decay factor at section draft
@@ -3738,85 +3750,63 @@ Wavelengths: do iom=1,nom                                                       
       !--- end catamaran Maruo ---
 
       !--- Far-field (Kochin function) sway drift force ---
-       ! Uses scattered-only far-field amplitudes: F_y = rho*g/(2k) * [|A_prt|^2 - |A_stb|^2] * dx
-       !
-       ! At beam seas (sinm=±1), the full 2D momentum conservation gives a cross-term
-       ! 2*Re(A_stb) from incident-scattered interference, but this contributes only ~3%
-       ! change at beam seas and is INVALID at oblique headings (the interference oscillates
-       ! in y and averages to zero when sinm≠±1). The scattered-only quadratic gives
-       ! correct sign and reasonable magnitude at ALL headings.
-       !
-       ! Sign convention: 
-       !   sinm>0 (waves from +y): |A_stb|>|A_prt| → result negative = drift toward -y (lee) ✓
-       !   sinm<0 (waves from -y): |A_prt|>|A_stb| → result positive = drift toward +y (lee) ✓
-       !   sinm=0 (head/following): |A_prt|≈|A_stb| → ~0 ✓
-       !
-       ! A_total = A_diff*czeta3 + xi2*A_sway + xi3_local*A_heave + xi4*A_roll
-       feta_farfield = 0.
-       ff_energy_sum = 0.
-       do ise1=1,nse
-        dx2=(x(min(ise1+1,nse))-x(max(ise1-1,1)))/2.
-        ! Total far-field scattered amplitude = diffraction + radiation*motion
-        heave_local = motion(3,1) - x(ise1)*motion(5,1)
-        A_ff_stb = ffi_diff_sec(1,ise1,imu)*czeta3(ise1) &
-                 + motion(2,1)*ffi_rad_sec_all(1,1,ise1,imu) &
-                 + heave_local*ffi_rad_sec_all(1,2,ise1,imu) &
-                 + motion(4,1)*ffi_rad_sec_all(1,3,ise1,imu)
-         A_ff_prt = ffi_diff_sec(2,ise1,imu)*czeta3(ise1) &
-                  + motion(2,1)*ffi_rad_sec_all(2,1,ise1,imu) &
-                  + heave_local*ffi_rad_sec_all(2,2,ise1,imu) &
-                  + motion(4,1)*ffi_rad_sec_all(2,3,ise1,imu)
-         !--- Per-section energy conservation scaling ---
-         !At beam-like headings (|sinm|>0.3), enforce |R|^2+|T|^2 <= 1.
-         !sinm>0: waves from -y, stb=weather(R), prt=lee(T=1+A_prt)
-         !sinm<0: waves from +y, prt=weather(R), stb=lee(T=1+A_stb)
-         ff_escale = 1.0
-         if (abs(sinm) > 0.05) then
-          if (sinm > 0.) then
-           ff_escale = abs(A_ff_stb)**2 + abs(1.0+A_ff_prt)**2           !|R|^2+|T|^2
-          else
-           ff_escale = abs(A_ff_prt)**2 + abs(1.0+A_ff_stb)**2
-          endif
-          if (ff_escale > 1.0) then
-           ff_escale = 1.0/sqrt(ff_escale)
-           A_ff_stb = A_ff_stb * ff_escale
-           A_ff_prt = A_ff_prt * ff_escale
-          endif
-         endif
-        ! Far-field sway drift per section: scattered-only quadratic
-        ! The cross-term 2*Re(A_stb) from 2D momentum conservation only applies
-        ! at exact beam seas (sinm=±1) where incident and scattered waves share
-        ! the same y-wavenumber. At oblique headings (sinm≠±1), the cross-term
-        ! oscillates in y and averages to zero. The scattered quadratic
-        ! |A_prt|^2 - |A_stb|^2 gives correct sign at ALL headings:
-        !   sinm>0: A_stb side is lee → |A_stb|>|A_prt| → negative (toward lee) ✓
-        !   sinm<0: A_prt side is lee → |A_prt|>|A_stb| → positive (toward lee) ✓
-        !   sinm=0: |A_prt|≈|A_stb| → ~0 ✓
-        ! At beam seas the cross-term contributes only ~3% change (sigma 592→573).
-        feta_farfield = feta_farfield + rho*g/(2.*waven) * &
-           (abs(A_ff_prt)**2 - abs(A_ff_stb)**2) * dx2
-        ! Scattered energy diagnostic: |A_stb|^2 + |A_prt|^2 per section
-        ! (valid at all headings; at beam seas relates to energy balance via |R|^2+|T|^2-1)
-        ff_energy_stb = abs(A_ff_stb)**2
-        ff_energy_prt = abs(A_ff_prt)**2
-        ff_energy_sum = ff_energy_sum + (ff_energy_stb + ff_energy_prt) * dx2
-        ! Detailed per-section output at beam seas for selected frequencies
-        if (abs(mu(imu)-1.5708)<0.02 .and. (abs(om-0.921)<0.01 .or. abs(om-1.259)<0.01)) then
-         if (ise1==1 .or. ise1==nse/4 .or. ise1==nse/2 .or. ise1==3*nse/4 .or. ise1==nse) then
-          write(34,'(a,i3,a,f6.3,a,2g12.4,a,2g12.4,a,g12.4)') &
-           '  FF_DETAIL ise=',ise1,' om=',om, &
-           ' A_stb=',real(A_ff_stb),aimag(A_ff_stb), &
-           ' A_prt=',real(A_ff_prt),aimag(A_ff_prt), &
-           ' |Ap|2-|As|2=',ff_energy_prt-ff_energy_stb
-         endif
-        endif
-       enddo
-       ! Normalize energy sum by total length for per-section average
-       ff_energy_sum = ff_energy_sum / max(x(nse)-x(1), 1.0)
-       write(34,'(a,f8.3,a,f8.1,a,g14.6,a,g14.6)') &
-         'CAT_FF_SWAY omega=',om,' mu=',mu(imu)*180/3.14159265, &
-         ' feta_farfield=',feta_farfield,' energy_avg=',ff_energy_sum
-       !--- end far-field sway ---
+        ! Diffraction-only far-field sway drift (Maruo formula, restrained body)
+        !
+        ! Uses only diffraction far-field amplitudes (no radiation contribution).
+        ! Radiation amplitudes × strip-theory 3D motions violate 2D energy conservation
+        ! per section (|R|^2+|T|^2 >> 1), making the combined diff+rad formula unphysical.
+        ! The diffraction-only approach avoids this fundamental strip-theory limitation.
+        !
+        ! F_y = rho*g/(2k) * integral[|A_prt|^2 - |A_stb|^2] dx
+        !
+        ! czeta3 has unit magnitude so |A*czeta3|^2 = |A|^2; it cancels out.
+        ! We omit it for clarity.
+        !
+        ! Per-section energy conservation scaling: for the restrained body, the BEM
+        ! should satisfy |R|^2+|T|^2 <= 1 by construction. However, catamaran tunnel
+        ! trapping can violate this even for diffraction-only. Apply scaling as safety net.
+        !
+          feta_farfield = 0.
+          feta_diff_only = 0.
+          do ise1=1,nse
+           dx2=(x(min(ise1+1,nse))-x(max(ise1-1,1)))/2.
+           A_ff_stb = ffi_diff_sec(1,ise1,imu)
+           A_ff_prt = ffi_diff_sec(2,ise1,imu)
+           ! Raw (unscaled) contribution for diagnostic
+           feta_diff_only = feta_diff_only + rho*g/(2.*waven) * &
+              (abs(A_ff_prt)**2 - abs(A_ff_stb)**2) * dx2
+           !--- Per-section energy conservation scaling (diffraction-only) ---
+           if (abs(sinm) > 0.05) then
+            if (sinm > 0.) then
+             ff_escale = abs(A_ff_stb)**2 + abs(1.0+A_ff_prt)**2
+            else
+             ff_escale = abs(A_ff_prt)**2 + abs(1.0+A_ff_stb)**2
+            endif
+            if (ff_escale > 1.0) then
+             ff_escale = 1.0/sqrt(ff_escale)
+             A_ff_stb = A_ff_stb * ff_escale
+             A_ff_prt = A_ff_prt * ff_escale
+            endif
+           endif
+           feta_farfield = feta_farfield + rho*g/(2.*waven) * &
+              (abs(A_ff_prt)**2 - abs(A_ff_stb)**2) * dx2
+           ! Diagnostic at beam seas: print raw amplitudes for select sections
+           if (abs(mu(imu)-1.5708)<0.02) then
+            if (ise1==1 .or. ise1==nse/4 .or. ise1==nse/2 .or. ise1==3*nse/4 .or. ise1==nse) then
+             write(34,'(a,f7.3,a,i3,a,2g12.4,a,2g12.4,a,g12.4,a,g12.4,a,g12.4)') &
+              '  FF_DIFF ise=',om,' s=',ise1, &
+              ' As=',real(ffi_diff_sec(1,ise1,imu)),aimag(ffi_diff_sec(1,ise1,imu)), &
+              ' Ap=',real(ffi_diff_sec(2,ise1,imu)),aimag(ffi_diff_sec(2,ise1,imu)), &
+              ' |As|=',abs(ffi_diff_sec(1,ise1,imu)), &
+              ' |Ap|=',abs(ffi_diff_sec(2,ise1,imu)), &
+              ' E=',abs(ffi_diff_sec(1,ise1,imu))**2+abs(1.0+ffi_diff_sec(2,ise1,imu))**2
+            endif
+           endif
+          enddo
+          write(34,'(a,f8.3,a,f8.1,a,g14.6,a,g14.6)') &
+            'CAT_FF_SWAY omega=',om,' mu=',mu(imu)*180/3.14159265, &
+            ' feta_scaled=',feta_farfield,' feta_raw=',feta_diff_only
+        !--- end far-field sway ---
 
       !Restore current-angle motions for fin drift forces
       motion(:,1)=motion_all(:,imu)
@@ -3841,9 +3831,10 @@ Wavelengths: do iom=1,nom                                                       
      write(6,'(a,g14.6)')' Roll drift moment per wave amplitude squared                      ',mdrift(1)
      write(6,'(a,2f10.3)')' Long., transv. reduced water drift velocity per wave amplitude^2   ', &
       xdotdr*cosm,-xdotdr*sinm
-      write(34,'(a,g14.6,a,g14.6)') '  CAT_DRIFT_SWAY feta_pinkster=',feta,' feta_farfield=',feta_farfield
-      write(24,*)fxi,feta_farfield,xdotdr*cosm,-xdotdr*sinm
-      feta_stored(iv,imu,iom) = feta_farfield              !use far-field sway (replaces Pinkster)
+       write(34,'(a,g14.6,a,g14.6)') '  CAT_DRIFT_SWAY feta_pinkster=',feta,' feta_farfield=',feta_farfield
+       write(24,*)fxi,feta,xdotdr*cosm,-xdotdr*sinm
+        feta_stored(iv,imu,iom) = feta                        !use Pinkster sway (far-field abandoned)
+       fxi_stored(iv,imu,iom) = fxi                         !store Pinkster surge for trapping interpolation
      enddo CatAngles
     close(30)
    endif CatDriftForces
@@ -3852,10 +3843,11 @@ Wavelengths: do iom=1,nom                                                       
  enddo Wavelengths
 
  !--- Post-processing: interpolate sway drift through roll resonance ---
- ResonanceInterp: if (omega_roll > 0.1 .and. nom_stored > 0 .and. npres > 0) then
-  res_bw = 0.12 * omega_roll                        !half-width: ±12% of omega_roll
-  res_om_lo = omega_roll - res_bw
-  res_om_hi = omega_roll + res_bw
+  ResonanceInterp: if (.false. .and. omega_roll > 0.1 .and. nom_stored > 0 .and. npres > 0) then
+   !Asymmetric window: wider on low side to capture catamaran coupled roll resonance
+   !Catamaran coupled roll peak is typically at ~0.80*omega_roll (lower than uncoupled)
+    res_om_lo = 0.70 * omega_roll                     !low bound: 0.70*omega_roll
+    res_om_hi = 0.95 * omega_roll                     !high bound: 0.95*omega_roll
   !omega_stored is in DESCENDING order (high freq first)
   res_ilo = 0; res_ihi = 0
   do iom=1,nom_stored
@@ -3915,7 +3907,7 @@ Wavelengths: do iom=1,nom                                                       
  !  => omega_trap = sqrt(g * k_trap)  (deep water)
  !At these frequencies, 2D strip theory creates artificial resonance (no longitudinal escape).
  !Fix: detect trapping frequencies per heading and linearly interpolate feta_stored through them.
- CatTrappingInterp: if (catamaran .and. nom_stored > 0 .and. npres > 0 .and. hulld > 0) then
+  CatTrappingInterp: if (.false. .and. catamaran .and. nom_stored > 0 .and. npres > 0 .and. hulld > 0) then
   n_trap_fixed = 0
   write(6,'(/a)') ' === Catamaran wave-trapping interpolation ==='
   write(6,'(a,f8.3,a)') '  Hull CL-to-center distance hulld =', hulld, ' m'
@@ -3946,90 +3938,192 @@ Wavelengths: do iom=1,nom                                                       
      endif
      if (iom == nom_stored) trap_ihi = nom_stored
     enddo
-    if (trap_ilo > 0 .and. trap_ihi >= trap_ilo) then
-     trap_ileft = trap_ilo - 1              !higher-freq side (lower index)
-     trap_iright = trap_ihi + 1             !lower-freq side (higher index)
-     if (trap_ileft >= 1 .and. trap_iright <= nom_stored) then
-      write(6,'(a,i2,a,f6.1,a,f7.3,a,f7.3,a,f7.3,a,i3,a)') &
-       '  Mode n=',n_trap,' mu=',mu(imu)*180./pi,'deg: omega_trap=',trap_omega, &
-       ' window=[',omega_stored(trap_ihi),',',omega_stored(trap_ilo), &
-       '] (',trap_ihi-trap_ilo+1,' pts)'
-      do iv=1,nv
-       trap_feta_left = feta_stored(iv,imu,trap_ileft)
-       trap_feta_right = feta_stored(iv,imu,trap_iright)
-       do iom=trap_ilo,trap_ihi
-        !Linear interpolation in omega between boundary points
-        trap_wt = (omega_stored(iom) - omega_stored(trap_iright)) &
-               / (omega_stored(trap_ileft) - omega_stored(trap_iright))
-        feta_stored(iv,imu,iom) = trap_feta_right &
-               + trap_wt * (trap_feta_left - trap_feta_right)
-        n_trap_fixed = n_trap_fixed + 1
-       enddo
-      enddo
-      !Write diagnostic output
-      do iom=trap_ilo,trap_ihi
+     if (trap_ilo > 0 .and. trap_ihi >= trap_ilo) then
+      trap_ileft = trap_ilo - 1              !higher-freq side (lower index)
+      trap_iright = trap_ihi + 1             !lower-freq side (higher index)
+      !Handle edge cases: extend interpolation to frequency range boundary
+      if (trap_ileft < 1 .and. trap_iright <= nom_stored) then
+       !Trapping at high-freq edge: extend window to index 1 (highest freq)
+       !Use flat extrapolation from the low-freq boundary value
+       trap_ilo = 1
+       trap_ileft = 0  !flag: no high-freq boundary available
+       write(6,'(a,i2,a,f6.1,a,f7.3,a,f7.3,a,f7.3,a,i3,a)') &
+        '  Mode n=',n_trap,' mu=',mu(imu)*180./pi,'deg: omega_trap=',trap_omega, &
+        ' window=[',omega_stored(trap_ihi),',',omega_stored(trap_ilo), &
+        '] (',trap_ihi-trap_ilo+1,' pts, hi-edge flat)'
        do iv=1,nv
-        write(34,'(a,i2,a,f8.4,a,f8.1,a,i2,a,g14.6)') &
-         ' CAT_TRAP_INTERP n=',n_trap,' omega=',omega_stored(iom), &
-         ' mu=',mu(imu)*180./pi, &
-         ' iv=',iv,' feta_interp=',feta_stored(iv,imu,iom)
+        trap_feta_right = feta_stored(iv,imu,trap_iright)
+        trap_fxi_right = fxi_stored(iv,imu,trap_iright)
+        do iom=trap_ilo,trap_ihi
+         feta_stored(iv,imu,iom) = trap_feta_right
+         fxi_stored(iv,imu,iom) = trap_fxi_right
+         n_trap_fixed = n_trap_fixed + 1
+        enddo
        enddo
-      enddo
-     else
-      write(6,'(a,i2,a,f6.1,a,f7.3,a)') &
-       '  Mode n=',n_trap,' mu=',mu(imu)*180./pi,'deg: omega_trap=',trap_omega, &
-       ' — at edge of freq range, skipping'
-     endif
+      elseif (trap_ileft >= 1 .and. trap_iright > nom_stored) then
+       !Trapping at low-freq edge: extend window to nom_stored (lowest freq)
+       trap_ihi = nom_stored
+       trap_iright = 0  !flag: no low-freq boundary available
+       write(6,'(a,i2,a,f6.1,a,f7.3,a,f7.3,a,f7.3,a,i3,a)') &
+        '  Mode n=',n_trap,' mu=',mu(imu)*180./pi,'deg: omega_trap=',trap_omega, &
+        ' window=[',omega_stored(trap_ihi),',',omega_stored(trap_ilo), &
+        '] (',trap_ihi-trap_ilo+1,' pts, lo-edge flat)'
+       do iv=1,nv
+        trap_feta_left = feta_stored(iv,imu,trap_ileft)
+        trap_fxi_left = fxi_stored(iv,imu,trap_ileft)
+        do iom=trap_ilo,trap_ihi
+         feta_stored(iv,imu,iom) = trap_feta_left
+         fxi_stored(iv,imu,iom) = trap_fxi_left
+         n_trap_fixed = n_trap_fixed + 1
+        enddo
+       enddo
+      elseif (trap_ileft >= 1 .and. trap_iright <= nom_stored) then
+       !Normal case: both boundaries available — linear interpolation
+       write(6,'(a,i2,a,f6.1,a,f7.3,a,f7.3,a,f7.3,a,i3,a)') &
+        '  Mode n=',n_trap,' mu=',mu(imu)*180./pi,'deg: omega_trap=',trap_omega, &
+        ' window=[',omega_stored(trap_ihi),',',omega_stored(trap_ilo), &
+        '] (',trap_ihi-trap_ilo+1,' pts)'
+        do iv=1,nv
+         trap_feta_left = feta_stored(iv,imu,trap_ileft)
+         trap_feta_right = feta_stored(iv,imu,trap_iright)
+         trap_fxi_left = fxi_stored(iv,imu,trap_ileft)
+         trap_fxi_right = fxi_stored(iv,imu,trap_iright)
+         do iom=trap_ilo,trap_ihi
+          !Linear interpolation in omega between boundary points
+          trap_wt = (omega_stored(iom) - omega_stored(trap_iright)) &
+                 / (omega_stored(trap_ileft) - omega_stored(trap_iright))
+          feta_stored(iv,imu,iom) = trap_feta_right &
+                 + trap_wt * (trap_feta_left - trap_feta_right)
+          fxi_stored(iv,imu,iom) = trap_fxi_right &
+                 + trap_wt * (trap_fxi_left - trap_fxi_right)
+          n_trap_fixed = n_trap_fixed + 1
+         enddo
+        enddo
+      else
+       write(6,'(a,i2,a,f6.1,a,f7.3,a)') &
+        '  Mode n=',n_trap,' mu=',mu(imu)*180./pi,'deg: omega_trap=',trap_omega, &
+        ' — both edges out of range, skipping'
+      endif
+      !Write diagnostic output for all cases (except skip)
+      if (trap_ileft >= 0 .and. trap_iright >= 0) then
+       do iom=trap_ilo,trap_ihi
+        do iv=1,nv
+         write(34,'(a,i2,a,f8.4,a,f8.1,a,i2,a,g14.6,a,g14.6)') &
+          ' CAT_TRAP_INTERP n=',n_trap,' omega=',omega_stored(iom), &
+          ' mu=',mu(imu)*180./pi, &
+          ' iv=',iv,' feta_interp=',feta_stored(iv,imu,iom), &
+          ' fxi_interp=',fxi_stored(iv,imu,iom)
+        enddo
+       enddo
+      endif
     endif
    enddo  !n_trap
   enddo  !imu
-   write(6,'(a,i6,a)') '  Total: interpolated ', n_trap_fixed, ' (freq,heading,speed) points'
-   !--- Cleanup pass: cap any remaining extreme feta_stored values ---
-   !After mode-by-mode interpolation, some boundary points may still be contaminated
-   !(e.g., when a higher trapping mode is at the edge of the frequency range).
-   !Strategy: compute max |feta| at low frequencies (omega < lowest trapping omega)
-   !where no trapping occurs, then cap all values at 20x that reference.
-   !The lowest trapping frequency for any heading is n=1, mu=90° (beam seas):
-   !  k_trap_min = pi/(2*hulld)  =>  omega_trap_min = sqrt(g*pi/(2*hulld))
-   !Values below 0.75*omega_trap_min are safely below all trapping.
-   trap_omega = sqrt(g * pi / (2.0 * hulld))   !lowest possible trapping frequency
-   feta_cap = 0
-   do iom=1,nom_stored
-    if (omega_stored(iom) > 0.75 * trap_omega) cycle  !skip frequencies near/above trapping
-    do imu=1,nmu
-     do iv=1,nv
-      feta_cap = max(feta_cap, abs(feta_stored(iv,imu,iom)))
-     enddo
-    enddo
-   enddo
-   if (feta_cap < 1.0) then
-    !Fallback: if no frequencies below trapping, use the minimum |feta| across all data
-    feta_cap = huge(feta_cap)
-    do iom=1,nom_stored; do imu=1,nmu; do iv=1,nv
-     if (abs(feta_stored(iv,imu,iom)) > 0) &
-      feta_cap = min(feta_cap, abs(feta_stored(iv,imu,iom)))
-    enddo; enddo; enddo
-    feta_cap = max(feta_cap, 1.0)
-   endif
-   feta_cap = 5.0 * feta_cap              !allow 5x the low-frequency maximum
-   write(6,'(a,g14.6,a,g14.6)') '  Low-freq reference max |feta| = ', feta_cap/5., &
-    '  cap = ', feta_cap
-   n_capped = 0
-   do imu=1,nmu
-    do iom=1,nom_stored
-     do iv=1,nv
-      if (abs(feta_stored(iv,imu,iom)) > feta_cap) then
-       write(34,'(a,f8.4,a,f8.1,a,g14.6,a,g14.6)') &
-        ' CAT_TRAP_CAP omega=',omega_stored(iom),' mu=',mu(imu)*180./pi, &
-        ' raw=',feta_stored(iv,imu,iom),' cap=',sign(feta_cap,feta_stored(iv,imu,iom))
-       feta_stored(iv,imu,iom) = sign(feta_cap, feta_stored(iv,imu,iom))
-       n_capped = n_capped + 1
+    write(6,'(a,i6,a)') '  Total: interpolated ', n_trap_fixed, ' (freq,heading,speed) points'
+    endif CatTrappingInterp
+
+  !--- Outlier cap: clip extreme drift values using low-frequency reference ---
+  !Wave trapping and residual resonance can produce unphysical spikes.
+  !Strategy: compute max |feta| and |fxi| at low frequencies where both resonance
+  !and trapping are absent, then cap all values at 5x that reference.
+  OutlierCap: if (catamaran .and. nom_stored > 0 .and. npres > 0 .and. hulld > 0) then
+      trap_omega = sqrt(g * pi / (2.0 * hulld))   !lowest possible trapping frequency (beam seas)
+      !Determine clean frequency threshold — must be below both resonance and trapping
+      if (omega_roll > 0.1) then
+       res_om_lo = 0.70 * omega_roll              !match resonance window low bound
+       feta_cap = min(res_om_lo, 0.75 * trap_omega)  !temporary: reuse as threshold
+      else
+       feta_cap = 0.75 * trap_omega
       endif
+      write(6,'(/a)') ' === Catamaran outlier cap ==='
+      write(6,'(a,f7.4)') '  Cap reference: omega_max = ', feta_cap
+      !Now compute reference max from frequencies below threshold
+      trap_omega = feta_cap  !reuse trap_omega as the threshold
+      feta_cap = 0; fxi_cap = 0
+      do iom=1,nom_stored
+       if (omega_stored(iom) > trap_omega) cycle  !skip frequencies above clean threshold
+       do imu=1,nmu
+        do iv=1,nv
+         feta_cap = max(feta_cap, abs(feta_stored(iv,imu,iom)))
+         fxi_cap = max(fxi_cap, abs(fxi_stored(iv,imu,iom)))
+        enddo
+       enddo
+      enddo
+      if (feta_cap < 1.0) then
+       !Fallback: if no frequencies below threshold, use the minimum |feta| across all data
+       feta_cap = huge(feta_cap)
+       do iom=1,nom_stored; do imu=1,nmu; do iv=1,nv
+        if (abs(feta_stored(iv,imu,iom)) > 0) &
+         feta_cap = min(feta_cap, abs(feta_stored(iv,imu,iom)))
+       enddo; enddo; enddo
+       feta_cap = max(feta_cap, 1.0)
+      endif
+      if (fxi_cap < 1.0) then
+       fxi_cap = huge(fxi_cap)
+       do iom=1,nom_stored; do imu=1,nmu; do iv=1,nv
+        if (abs(fxi_stored(iv,imu,iom)) > 0) &
+         fxi_cap = min(fxi_cap, abs(fxi_stored(iv,imu,iom)))
+       enddo; enddo; enddo
+       fxi_cap = max(fxi_cap, 1.0)
+      endif
+      feta_cap = 5.0 * feta_cap              !allow 5x the low-frequency maximum
+      fxi_cap = 5.0 * fxi_cap               !allow 5x the low-frequency maximum
+      write(6,'(a,g14.6,a,g14.6)') '  Low-freq reference max |feta| = ', feta_cap/5., &
+       '  cap = ', feta_cap
+      write(6,'(a,g14.6,a,g14.6)') '  Low-freq reference max |fxi|  = ', fxi_cap/5., &
+       '  cap = ', fxi_cap
+     n_capped = 0
+     do imu=1,nmu
+      do iom=1,nom_stored
+       do iv=1,nv
+        if (abs(feta_stored(iv,imu,iom)) > feta_cap) then
+         write(34,'(a,f8.4,a,f8.1,a,g14.6,a,g14.6)') &
+          ' CAT_TRAP_CAP_SWAY omega=',omega_stored(iom),' mu=',mu(imu)*180./pi, &
+          ' raw=',feta_stored(iv,imu,iom),' cap=',sign(feta_cap,feta_stored(iv,imu,iom))
+         feta_stored(iv,imu,iom) = sign(feta_cap, feta_stored(iv,imu,iom))
+         n_capped = n_capped + 1
+        endif
+        if (abs(fxi_stored(iv,imu,iom)) > fxi_cap) then
+         write(34,'(a,f8.4,a,f8.1,a,g14.6,a,g14.6)') &
+          ' CAT_TRAP_CAP_SURGE omega=',omega_stored(iom),' mu=',mu(imu)*180./pi, &
+          ' raw=',fxi_stored(iv,imu,iom),' cap=',sign(fxi_cap,fxi_stored(iv,imu,iom))
+         fxi_stored(iv,imu,iom) = sign(fxi_cap, fxi_stored(iv,imu,iom))
+         n_capped = n_capped + 1
+        endif
+       enddo
+      enddo
      enddo
-    enddo
-   enddo
-   write(6,'(a,i4,a)') '  Capped ', n_capped, ' residual outlier values'
-  endif CatTrappingInterp
+      write(6,'(a,i4,a)') '  Capped ', n_capped, ' outlier values (sway + surge)'
+  endif OutlierCap
+
+  !--- Enforce antisymmetry: feta(mu) = -feta(-mu), fxi(mu) = fxi(-mu) ---
+  !The catamaran is geometrically symmetric about the centerplane, so sway drift
+  !must be antisymmetric and surge drift must be symmetric in heading angle.
+  !Numerical BEM + cap may break this. Enforce by averaging paired headings.
+  CatSymmetry: if (catamaran .and. nom_stored > 0 .and. npres > 0) then
+      write(6,'(/a)') ' === Catamaran antisymmetry enforcement ==='
+      n_capped = 0  !reuse counter for symmetrized points
+      do iom=1,nom_stored
+       do imu=1,nmu
+        jmu = imumirror(imu)
+        if (jmu <= imu) cycle    !process each pair only once; skip self-mirrors (0,180)
+        do iv=1,nv
+         !Sway: antisymmetric — average (feta(mu) - feta(-mu))/2
+         res_feta_left = feta_stored(iv,imu,iom)       !reuse as temporary
+         res_feta_right = feta_stored(iv,jmu,iom)      !reuse as temporary
+         feta_stored(iv,imu,iom) = 0.5*(res_feta_left - res_feta_right)
+         feta_stored(iv,jmu,iom) = -feta_stored(iv,imu,iom)
+         !Surge: symmetric — average (fxi(mu) + fxi(-mu))/2
+         res_feta_left = fxi_stored(iv,imu,iom)        !reuse as temporary
+         res_feta_right = fxi_stored(iv,jmu,iom)       !reuse as temporary
+         fxi_stored(iv,imu,iom) = 0.5*(res_feta_left + res_feta_right)
+         fxi_stored(iv,jmu,iom) = fxi_stored(iv,imu,iom)
+         n_capped = n_capped + 2
+        enddo
+       enddo
+      enddo
+      write(6,'(a,i6,a)') '  Symmetrized ', n_capped, ' (sway antisymm + surge symm) values'
+  endif CatSymmetry
 
 call signampl                       !calculate significant amplitudes in natural seaways if required
 end program pdstrip
