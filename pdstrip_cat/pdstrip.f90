@@ -2047,6 +2047,7 @@ integer:: imirr                   !mirror angle index for current angle
 integer:: jj                      !reversed pressure point index (npres+1-i)
 integer:: jmu                     !loop index for mirror angle search
 complex,allocatable:: pres_all(:,:,:) !stored pres(npres1,nsemax,nmumax) for all angles
+complex,allocatable:: pres_nopst_all(:,:,:) !stored pres_nopst(npres1,nsemax,nmumax) for all angles
 complex,allocatable:: pot_all(:,:,:)  !stored pot(npres1,nsemax,nmumax) for all angles
 complex:: motion_all(6,nmumax)    !stored motion amplitudes for all angles
 real:: yint_port(nprmax,nsemax)   !port hull y-coordinates of pressure points
@@ -2124,19 +2125,29 @@ real:: trap_bw                      !half-bandwidth around trapping frequency
 real:: trap_om_lo, trap_om_hi       !lower and upper bounds of trapping window
 integer:: trap_ilo, trap_ihi        !frequency indices bounding trapping window
 integer:: trap_ileft, trap_iright   !indices of interpolation endpoints (outside window)
+integer:: jom                       !inner loop variable for contaminated block interpolation
 integer:: n_trap                    !trapping mode number
 integer:: n_trap_max                !max number of trapping modes in frequency range
 integer:: n_trap_fixed              !counter for how many frequencies were interpolated
+logical:: trap_ilo_arr(nomma)       !per-heading mask: .true. if freq index already interpolated
 real:: trap_wt                      !interpolation weight
 real:: trap_feta_left, trap_feta_right !feta at interpolation endpoints
 real:: trap_fxi_left, trap_fxi_right   !fxi at interpolation endpoints (surge trapping interp)
 real:: feta_cap                     !maximum allowable |feta| for catamaran (outlier cap)
 real:: fxi_cap                      !maximum allowable |fxi| for catamaran (outlier cap)
 integer:: n_capped                  !counter for capped values
+real:: spike_factor                 !threshold multiplier for local spike detection
+real:: nbr_median_feta              !median of neighbor |feta| values
+real:: nbr_median_fxi               !median of neighbor |fxi| values
+real:: nbr4(10)                     !array for neighbor median computation (up to +-5 neighbors)
+integer:: n_median_pass             !loop counter for repeated median filter passes
 real:: fxi_pink, feta_pink         !unblended Pinkster values (saved before blending)
 real:: f_pink_wave, f_refl_wave    !wave-direction projections for blending comparison
 complex:: z_bow_complex            !complex bow vertical motion (heave + pitch*x_bow)
 real:: bow_ratio                   !|z_bow|/|wave_at_bow| — RAO-based blending ratio
+real:: med_work(nomma)             !work array for median filter (feta)
+real:: med_work2(nomma)            !work array for median filter (fxi)
+real:: med5(5)                     !5-element array for median computation
 
 open(5,file='pdstrip.inp',status='old')
 open(6,file='pdstrip.out',status='replace')
@@ -2164,17 +2175,18 @@ allocate(pres(npres1,1,nsemax),pres_nopst(npres1,1,nsemax),pres_norollpst(npres1
 allocate(pdsec(npres1,1,nmumax,nsemax,0:nfremax),pdsecv(npres1,1,nmumax),pri(npres1,3))
 allocate(prw(npres1,6,nsemax),dprw(npres1,6),dpw(npres1,1),phi0w(npres1,6),pst(npres1,6,nsemax))
 call sectiondata
-!--- Default viscous roll damping for catamarans (5% critical) ---
+!--- Default viscous roll damping ---
 ! Real vessels always have viscous roll damping from skin friction, eddy-making,
 ! and appendages (bilge keels, skegs). Without this, the potential-flow roll RAO
 ! goes to infinity at resonance, causing unphysical Pinkster drift force blow-up.
 ! 20% of critical is realistic for catamarans: hulls orbit at large radius (hulld)
 ! giving high velocities and strong viscous damping (drag ~ v^2, moment arm ~ hulld).
-if (catamaran .and. roll_damp_frac < 1e-6) then
+! 5% of critical is a lower bound for monohulls (bare hull eddy-making only).
+if (roll_damp_frac < 1e-6) then
   roll_damp_frac = 0.20
-  write(6,'(a,f6.3,a)') ' Catamaran roll damping: ',roll_damp_frac,' of critical (default)'
+  write(6,'(a,f6.3,a)') ' Roll damping: ',roll_damp_frac,' of critical (default)'
 endif
-if (catamaran) allocate(pres_all(npres1,nsemax,nmumax),pot_all(npres1,nsemax,nmumax))
+if (catamaran) allocate(pres_all(npres1,nsemax,nmumax),pres_nopst_all(npres1,nsemax,nmumax),pot_all(npres1,nsemax,nmumax))
 if(.not.ltrans.and..not.lsign) stop   
 write(6,'(131("-"))')                !calculation of transfer functions (responses in regular waves)
 rewind 20; rewind 24
@@ -2926,8 +2938,23 @@ Wavelengths: do iom=1,nom                                                       
        write(6,'(a,f8.4)') ' Natural roll frequency omega_roll = ', omega_roll
       endif
      endif
-     lineqmatr(:,1:6)=-ome**2*massmatr(:,:,1)+szw-addedmass(:,:,1)  !prepare coeff. matr. for motions
-                                            ! enlarge system for suspended weight. input coordinates!
+      lineqmatr(:,1:6)=-ome**2*massmatr(:,:,1)+szw-addedmass(:,:,1)  !prepare coeff. matr. for motions
+      !--- Debug: dump pitch EOM components ---
+      if (itz.eq.1) then
+        if (imu.eq.1) then
+          write(34,'(a,f8.4)') 'PITCH_EOM om=',om
+          write(34,'(a,g14.6,a,g14.6)') '  M55=',real(massmatr(5,5,1)),' C55=',real(szw(5,5))
+          write(34,'(a,g14.6,a,g14.6)') '  A55=',real(addedmass(5,5,1))/ome**2, &
+            ' B55=',-aimag(addedmass(5,5,1))/ome
+          write(34,'(a,g14.6,a,g14.6)') '  M33=',real(massmatr(3,3,1)),' C33=',real(szw(3,3))
+          write(34,'(a,g14.6,a,g14.6)') '  A33=',real(addedmass(3,3,1))/ome**2, &
+            ' B33=',-aimag(addedmass(3,3,1))/ome
+          write(34,'(a,g14.6,a,g14.6)') '  M35=',real(massmatr(3,5,1)),' A35=',real(addedmass(3,5,1))/ome**2
+        endif
+        write(34,'(a,f8.4,a,f8.1,a,2g14.6,a,2g14.6)') '  PITCH_EXC om=',om,' mu=',mu(imu)*180./pi, &
+          ' F5=',real(ex(5,1,1)),aimag(ex(5,1,1)),' F3=',real(ex(3,1,1)),aimag(ex(3,1,1))
+      endif
+                                             ! enlarge system for suspended weight. input coordinates!
      loadcol= &
      fillrealmatr(6,1,(/0.,-ome**2*rml,0.,-(g-ome**2*(-zl+cablelength))*rml,0.,-ome**2*xl*rml/))  
     do i=1,nforce                           !for external force depending on suspended weight motion
@@ -3039,7 +3066,8 @@ Wavelengths: do iom=1,nom                                                       
      enddo Sectns
        if (catamaran) then                                            !store for deferred drift force calc.
         do ise1=1,nse
-         pres_all(:,ise1,imu)=pres(:,1,ise1)
+          pres_all(:,ise1,imu)=pres(:,1,ise1)
+          pres_nopst_all(:,ise1,imu)=pres_nopst(:,1,ise1)
          pot_all(:,ise1,imu)=pot(:,ise1)
          amatr_sec_all(:,:,ise1,imu)=amatr_sec(:,:,ise1)            !store section added mass per heading for catamaran Maruo
          ffi_rad_sec_all(:,:,ise1,imu)=ffi_rad_sec(:,:,ise1)        !store far-field radiation per heading
@@ -3080,8 +3108,8 @@ Wavelengths: do iom=1,nom                                                       
        dystb=(yint(1,ise1+1)-yint(1,ise1-1))/2
        dyprt=(yint(npres,ise1+1)-yint(npres,ise1-1))/2
       endif
-           dfxistb= 0.25*abs(pres(    1,1,ise1))**2*dystb/rho/g    !WL drift: use full pres (incl. hydrostatic restoring pst)
-            dfxiprt=-0.25*abs(pres(npres,1,ise1))**2*dyprt/rho/g  !matches original pdstrip formulation
+            dfxistb= 0.25*abs(pres(    1,1,ise1))**2*dystb/rho/g    !WL drift: use full pres (with pst)
+             dfxiprt=-0.25*abs(pres(npres,1,ise1))**2*dyprt/rho/g  !pst needed for correct head-seas sign
             fxi=fxi+dfxistb+dfxiprt
             fxi_WL=fxi_WL+dfxistb+dfxiprt
             !--- No-pst WL test ---
@@ -3102,7 +3130,7 @@ Wavelengths: do iom=1,nom                                                       
               '  BOESE_WP sec=',ise1,' x=',x(ise1),' |zr|2=',abs(czeta_rel)**2, &
               ' dy=',dystb-dyprt,' dwp=',-rho*g*0.25*abs(czeta_rel)**2*(dystb-dyprt)
             !--- end Boese waterplane ---
-             dfeta=0.25*dx2*(-abs(pres(1,1,ise1))**2+abs(pres(npres,1,ise1))**2)/rho/g  !WL y-drift: use full pres (matches original)
+              dfeta=0.25*dx2*(-abs(pres(1,1,ise1))**2+abs(pres(npres,1,ise1))**2)/rho/g  !WL y-drift: use full pres (with pst)
           feta=feta+dfeta
           feta_WL=feta_WL+dfeta
           write(34,'(a,i3,a,f8.3,a,f8.4,a,f8.4,a,g14.6,a,g14.6,a,g14.6,a,g14.6,a,g14.6,a,g14.6)') &
@@ -3497,26 +3525,28 @@ Wavelengths: do iom=1,nom                                                       
     xdotdr=0.5*waven*om*(cosh(2*(waven*(zdrift-zwl)-kd))/sinh(kd)**2 &
      -1./(waven*(zbot-zwl)*tanh(waven*(zbot-zwl))))
      !--- Precompute per-section energy conservation scaling for Pinkster ---
-     !Uses diffraction-only amplitudes: |R|^2+|T|^2 <= 1 per section
-     !For restrained body, BEM should enforce this; scaling is safety net for tunnel trapping.
-     do imu=1,nmu
-      cosm=cos(mu(imu)); sinm=sin(mu(imu))
-      do ise1=1,nse
-       ff_escale_sec(ise1,imu) = 1.0
-        if (abs(sinm) > 0.05) then
-        A_ff_stb = ffi_diff_sec(1,ise1,imu)
-        A_ff_prt = ffi_diff_sec(2,ise1,imu)
-        if (sinm > 0.) then
-         ff_escale = abs(A_ff_stb)**2 + abs(1.0+A_ff_prt)**2
-        else
-         ff_escale = abs(A_ff_prt)**2 + abs(1.0+A_ff_stb)**2
-        endif
-             if (ff_escale > 1.0) then
-              ff_escale_sec(ise1,imu) = 1.0/sqrt(ff_escale)
-          endif
-        endif
+       !Uses diffraction-only amplitudes: |R|^2+|T|^2 <= 1 per section
+       !For restrained body, BEM should enforce this; scaling is safety net for tunnel trapping.
+       !escale = 1/sqrt(E) where E = |R|^2+|T|^2.  Applied as escale^3 on pres/pot.
+       !At beam seas E~1 (no correction); at oblique headings E~5 (suppresses tunnel blow-up).
+      do imu=1,nmu
+       cosm=cos(mu(imu)); sinm=sin(mu(imu))
+       do ise1=1,nse
+        ff_escale_sec(ise1,imu) = 1.0
+         if (abs(sinm) > 0.05) then
+         A_ff_stb = ffi_diff_sec(1,ise1,imu)
+         A_ff_prt = ffi_diff_sec(2,ise1,imu)
+         if (sinm > 0.) then
+          ff_escale = abs(A_ff_stb)**2 + abs(1.0+A_ff_prt)**2
+         else
+          ff_escale = abs(A_ff_prt)**2 + abs(1.0+A_ff_stb)**2
+         endif
+              if (ff_escale > 1.0) then
+               ff_escale_sec(ise1,imu) = 1.0/sqrt(ff_escale)
+           endif
+         endif
+       enddo
       enddo
-     enddo
     CatAngles: do imu=1,nmu
      cosm=cos(mu(imu)); sinm=sin(mu(imu))
      ome=om-waven*vs*cosm
@@ -3532,14 +3562,15 @@ Wavelengths: do iom=1,nom                                                       
       enddo
      enddo
       !--- Drift forces for catamaran: both hulls ---
-      !Load stb hull data for this angle, with energy conservation scaling
-        !Use escale^2: far-field energy gives escale for amplitudes, but near-field
-        !trapping amplification exceeds far-field by ~escale factor (cavity modes),
-        !so pressure/potential need escale^2 correction for physically consistent drift.
-        do ise1=1,nse
-         pres(:,1,ise1)=pres_all(:,ise1,imu) * ff_escale_sec(ise1,imu)**2
-         pot(:,ise1)=pot_all(:,ise1,imu) * ff_escale_sec(ise1,imu)**2
-        enddo
+       !Load stb hull data for this angle, with energy conservation scaling
+         !Use escale^1: linear correction for near-field pressures.
+          !(escale^3 on pressures: at beam seas E~1 so no effect; at oblique headings E~5 so
+          ! escale^3~0.09 which aggressively tames tunnel-trapping blow-up)
+          do ise1=1,nse
+            pres(:,1,ise1)=pres_all(:,ise1,imu) * ff_escale_sec(ise1,imu)**3
+            pres_nopst(:,1,ise1)=pres_nopst_all(:,ise1,imu) * ff_escale_sec(ise1,imu)**3
+            pot(:,ise1)=pot_all(:,ise1,imu) * ff_escale_sec(ise1,imu)**3
+          enddo
      motion(:,1)=motion_all(:,imu)
       fxi=0; feta=0; mdrift=0
       feta_stb_wl=0; feta_port_wl=0
@@ -3563,10 +3594,10 @@ Wavelengths: do iom=1,nom                                                       
        dystb=(yint(1,ise1+1)-yint(1,ise1-1))/2
        dyprt=(yint(npres,ise1+1)-yint(npres,ise1-1))/2
       endif
-       dfxistb= 0.25*abs(pres(1,1,ise1))**2*dystb/rho/g
-       dfxiprt=-0.25*abs(pres(npres,1,ise1))**2*dyprt/rho/g
-       fxi=fxi+dfxistb+dfxiprt
-        dfeta=0.25*dx2*(-abs(pres(1,1,ise1))**2+abs(pres(npres,1,ise1))**2)/rho/g
+        dfxistb= 0.25*abs(pres(1,1,ise1))**2*dystb/rho/g
+        dfxiprt=-0.25*abs(pres(npres,1,ise1))**2*dyprt/rho/g
+        fxi=fxi+dfxistb+dfxiprt
+         dfeta=0.25*dx2*(-abs(pres(1,1,ise1))**2+abs(pres(npres,1,ise1))**2)/rho/g
        feta=feta+dfeta
        feta_stb_wl=feta_stb_wl+dfeta
        fxi_stb_wl=fxi_stb_wl+dfxistb+dfxiprt
@@ -3588,13 +3619,13 @@ Wavelengths: do iom=1,nom                                                       
          flvec=0.5*(xtri(:,1)-xtri(:,3)).vprod.(xtri(:,2)-xtri(:,1))
          xn=flvec/sqrt(sum(flvec**2))
          gradvec=graddreieck(xtri)
-         vbody=ciome*(motion(1:3,1)+(motion(4:6,1).vprod.cmplx(xc,(/0.,0.,0./))))
-         vdotn=sum(vbody*xn)
-         gradpot=(pot(ip1,is1)-pot(ip3,is3))*gradvec(:,1)+(pot(ip2,is2)-pot(ip1,is1))*gradvec(:,2) &
-              +vdotn*xn
-             presaverage=(pres(ip1,1,is1)+pres(ip2,1,is2)+pres(ip3,1,is3))/3
-              df=-0.25*rho*sum((abs(gradpot)**2))*flvec &
-                   -0.5*real((presaverage*flvec).vprod.conjg((motion(4:6,1))))
+          vbody=ciome*(motion(1:3,1)+(motion(4:6,1).vprod.cmplx(xc,(/0.,0.,0./))))
+          vdotn=sum(vbody*xn)
+          gradpot=(pot(ip1,is1)-pot(ip3,is3))*gradvec(:,1)+(pot(ip2,is2)-pot(ip1,is1))*gradvec(:,2) &
+               +vdotn*xn
+              presaverage=(pres(ip1,1,is1)+pres(ip2,1,is2)+pres(ip3,1,is3))/3
+               df=-0.25*rho*sum((abs(gradpot)**2))*flvec &
+                    -0.5*real((presaverage*flvec).vprod.conjg((motion(4:6,1))))
           !--- Decompose into velocity and rotation for diagnostics ---
           df_vel_y = -0.25*rho*sum((abs(gradpot)**2))*flvec(2)
           df_rot_y = df(2) - df_vel_y
@@ -3616,12 +3647,13 @@ Wavelengths: do iom=1,nom                                                       
       !Port hull geometry: yint_port, zint_port (already computed, at y ~ +hulld)
       !Port hull motions: pres/pot use mirror heading (imirr); body velocity and
       !rotation drift term use current heading (imu) for physical rigid-body motion
-       !Load port hull pressures/potentials from mirror angle with reversed index, scaled
-        do ise1=1,nse; do i=1,npres
-         jj=npres+1-i
-         pres(i,1,ise1)=pres_all(jj,ise1,imirr) * ff_escale_sec(ise1,imirr)**2
-         pot(i,ise1)=pot_all(jj,ise1,imirr) * ff_escale_sec(ise1,imirr)**2
-        enddo; enddo
+        !Load port hull pressures/potentials from mirror angle with reversed index, scaled
+         do ise1=1,nse; do i=1,npres
+          jj=npres+1-i
+             pres(i,1,ise1)=pres_all(jj,ise1,imirr) * ff_escale_sec(ise1,imirr)**3
+             pres_nopst(i,1,ise1)=pres_nopst_all(jj,ise1,imirr) * ff_escale_sec(ise1,imirr)**3
+             pot(i,ise1)=pot_all(jj,ise1,imirr) * ff_escale_sec(ise1,imirr)**3
+         enddo; enddo
       motion(:,1)=motion_all(:,imirr)
       !--- Port hull WL integral + triangle integral ---
       CatPortSections: do ise1=1,nse
@@ -3663,13 +3695,13 @@ Wavelengths: do iom=1,nom                                                       
            flvec=0.5*(xtri(:,1)-xtri(:,3)).vprod.(xtri(:,2)-xtri(:,1))
            xn=flvec/sqrt(sum(flvec**2))
            gradvec=graddreieck(xtri)
-           vbody=ciome*(motion_all(1:3,imu)+(motion_all(4:6,imu).vprod.cmplx(xc,(/0.,0.,0./))))
-         vdotn=sum(vbody*xn)
-         gradpot=(pot(ip1,is1)-pot(ip3,is3))*gradvec(:,1)+(pot(ip2,is2)-pot(ip1,is1))*gradvec(:,2) &
-              +vdotn*xn
-            presaverage=(pres(ip1,1,is1)+pres(ip2,1,is2)+pres(ip3,1,is3))/3
-             df=-0.25*rho*sum((abs(gradpot)**2))*flvec &
-                  -0.5*real((presaverage*flvec).vprod.conjg(motion_all(4:6,imu)))
+            vbody=ciome*(motion_all(1:3,imu)+(motion_all(4:6,imu).vprod.cmplx(xc,(/0.,0.,0./))))
+          vdotn=sum(vbody*xn)
+          gradpot=(pot(ip1,is1)-pot(ip3,is3))*gradvec(:,1)+(pot(ip2,is2)-pot(ip1,is1))*gradvec(:,2) &
+               +vdotn*xn
+             presaverage=(pres(ip1,1,is1)+pres(ip2,1,is2)+pres(ip3,1,is3))/3
+              df=-0.25*rho*sum((abs(gradpot)**2))*flvec &
+                   -0.5*real((presaverage*flvec).vprod.conjg(motion_all(4:6,imu)))
           !--- Decompose into velocity and rotation for diagnostics ---
           df_vel_y = -0.25*rho*sum((abs(gradpot)**2))*flvec(2)
           df_rot_y = df(2) - df_vel_y
@@ -3713,8 +3745,8 @@ Wavelengths: do iom=1,nom                                                       
         ! Apply energy conservation scaling to damping (same as far-field amplitudes)
         ! ff_escale_sec is 1/sqrt(|R|^2+|T|^2) when energy > 1, else 1.0
         ! Damping ~ |amplitude|^2, so scale by escale^2
-        b33_sec = b33_sec * ff_escale_sec(ise1,imu)**2
-        b22_sec = b22_sec * ff_escale_sec(ise1,imu)**2
+        b33_sec = b33_sec * ff_escale_sec(ise1,imu)**3
+        b22_sec = b22_sec * ff_escale_sec(ise1,imu)**3
        ! Section draft
        draft_sec = tcross(ise1)
        ! Wave decay factor at section draft
@@ -3901,200 +3933,301 @@ Wavelengths: do iom=1,nom                                                       
   endif
  endif ResonanceInterp
 
- !--- Post-processing: interpolate catamaran sway drift through wave-trapping frequencies ---
- !Wave trapping between catamaran hulls occurs when transverse wavelength component matches hull gap:
- !  k_trap * 2*hulld * |sin(mu)| = n*pi,  n=1,2,3,...
- !  => k_trap = n*pi / (2*hulld*|sin(mu)|)
- !  => omega_trap = sqrt(g * k_trap)  (deep water)
+ !--- Post-processing: median filter catamaran drift through wave-trapping frequencies ---
+ !Wave trapping between catamaran hulls occurs when transverse wavelength component matches hull gap.
  !At these frequencies, 2D strip theory creates artificial resonance (no longitudinal escape).
- !Fix: detect trapping frequencies per heading and linearly interpolate feta_stored through them.
+ !Rather than interpolating through individual modes, apply a moving median filter in frequency
+ !to reject spikes while preserving gradual trends.  Applied in two passes for stronger smoothing.
   CatTrappingInterp: if (.false. .and. catamaran .and. nom_stored > 0 .and. npres > 0 .and. hulld > 0) then
   n_trap_fixed = 0
-  write(6,'(/a)') ' === Catamaran wave-trapping interpolation ==='
+  write(6,'(/a)') ' === Catamaran wave-trapping median filter ==='
   write(6,'(a,f8.3,a)') '  Hull CL-to-center distance hulld =', hulld, ' m'
   write(6,'(a,f8.3,a,f8.3)') '  Frequency range: ', omega_stored(nom_stored), &
    ' to ', omega_stored(1)
+  !Compute lowest trapping frequency (beam seas = maximum sin)
+  trap_omega = sqrt(g * pi / (2.0 * hulld))
+  write(6,'(a,f7.3,a)') '  Lowest trapping frequency (beam seas): ', trap_omega, ' rad/s'
+  !Two-pass median filter for stronger smoothing
+  do n_trap=1,2  !reuse n_trap as pass counter
   do imu=1,nmu
    if (abs(sin(mu(imu))) < 0.05) cycle    !skip near-axial headings (no transverse trapping)
-   !Compute trapping frequencies for this heading
-   n_trap_max = 10                          !check up to 10 modes
-   do n_trap=1,n_trap_max
-    trap_k = n_trap * pi / (2.0 * hulld * abs(sin(mu(imu))))
-    trap_omega = sqrt(g * trap_k)          !deep water dispersion
-    !Check if trapping frequency is within our computed range
-    if (trap_omega < omega_stored(nom_stored) * 0.9) cycle  !below range
-    if (trap_omega > omega_stored(1) * 1.1) exit            !above range, higher modes also above
-    !Define bandwidth: ±25% of trapping frequency (wide enough to catch the full spike)
-    trap_bw = 0.25 * trap_omega
-    trap_om_lo = trap_omega - trap_bw
-    trap_om_hi = trap_omega + trap_bw
-    !Find frequency indices within this window
-    !omega_stored is in DESCENDING order (index 1 = highest freq)
-    trap_ilo = 0; trap_ihi = 0
+   !Check if any trapping frequency falls within our range for this heading
+   trap_k = pi / (2.0 * hulld * abs(sin(mu(imu))))  !n=1 mode wavenumber
+   trap_omega = sqrt(g * trap_k)
+   if (trap_omega > omega_stored(1) * 1.5) cycle  !first mode well above range, skip
+   do iv=1,nv
+    !Copy current values to temporary array for median computation
     do iom=1,nom_stored
-     if (omega_stored(iom) <= trap_om_hi .and. trap_ilo == 0) trap_ilo = iom
-     if (omega_stored(iom) < trap_om_lo) then
-      trap_ihi = iom - 1
-      exit
-     endif
-     if (iom == nom_stored) trap_ihi = nom_stored
+     med_work(iom) = feta_stored(iv,imu,iom)
+     med_work2(iom) = fxi_stored(iv,imu,iom)
     enddo
-     if (trap_ilo > 0 .and. trap_ihi >= trap_ilo) then
-      trap_ileft = trap_ilo - 1              !higher-freq side (lower index)
-      trap_iright = trap_ihi + 1             !lower-freq side (higher index)
-      !Handle edge cases: extend interpolation to frequency range boundary
-      if (trap_ileft < 1 .and. trap_iright <= nom_stored) then
-       !Trapping at high-freq edge: extend window to index 1 (highest freq)
-       !Use flat extrapolation from the low-freq boundary value
-       trap_ilo = 1
-       trap_ileft = 0  !flag: no high-freq boundary available
-       write(6,'(a,i2,a,f6.1,a,f7.3,a,f7.3,a,f7.3,a,i3,a)') &
-        '  Mode n=',n_trap,' mu=',mu(imu)*180./pi,'deg: omega_trap=',trap_omega, &
-        ' window=[',omega_stored(trap_ihi),',',omega_stored(trap_ilo), &
-        '] (',trap_ihi-trap_ilo+1,' pts, hi-edge flat)'
-       do iv=1,nv
-        trap_feta_right = feta_stored(iv,imu,trap_iright)
-        trap_fxi_right = fxi_stored(iv,imu,trap_iright)
-        do iom=trap_ilo,trap_ihi
-         feta_stored(iv,imu,iom) = trap_feta_right
-         fxi_stored(iv,imu,iom) = trap_fxi_right
-         n_trap_fixed = n_trap_fixed + 1
-        enddo
-       enddo
-      elseif (trap_ileft >= 1 .and. trap_iright > nom_stored) then
-       !Trapping at low-freq edge: extend window to nom_stored (lowest freq)
-       trap_ihi = nom_stored
-       trap_iright = 0  !flag: no low-freq boundary available
-       write(6,'(a,i2,a,f6.1,a,f7.3,a,f7.3,a,f7.3,a,i3,a)') &
-        '  Mode n=',n_trap,' mu=',mu(imu)*180./pi,'deg: omega_trap=',trap_omega, &
-        ' window=[',omega_stored(trap_ihi),',',omega_stored(trap_ilo), &
-        '] (',trap_ihi-trap_ilo+1,' pts, lo-edge flat)'
-       do iv=1,nv
-        trap_feta_left = feta_stored(iv,imu,trap_ileft)
-        trap_fxi_left = fxi_stored(iv,imu,trap_ileft)
-        do iom=trap_ilo,trap_ihi
-         feta_stored(iv,imu,iom) = trap_feta_left
-         fxi_stored(iv,imu,iom) = trap_fxi_left
-         n_trap_fixed = n_trap_fixed + 1
-        enddo
-       enddo
-      elseif (trap_ileft >= 1 .and. trap_iright <= nom_stored) then
-       !Normal case: both boundaries available — linear interpolation
-       write(6,'(a,i2,a,f6.1,a,f7.3,a,f7.3,a,f7.3,a,i3,a)') &
-        '  Mode n=',n_trap,' mu=',mu(imu)*180./pi,'deg: omega_trap=',trap_omega, &
-        ' window=[',omega_stored(trap_ihi),',',omega_stored(trap_ilo), &
-        '] (',trap_ihi-trap_ilo+1,' pts)'
-        do iv=1,nv
-         trap_feta_left = feta_stored(iv,imu,trap_ileft)
-         trap_feta_right = feta_stored(iv,imu,trap_iright)
-         trap_fxi_left = fxi_stored(iv,imu,trap_ileft)
-         trap_fxi_right = fxi_stored(iv,imu,trap_iright)
-         do iom=trap_ilo,trap_ihi
-          !Linear interpolation in omega between boundary points
-          trap_wt = (omega_stored(iom) - omega_stored(trap_iright)) &
-                 / (omega_stored(trap_ileft) - omega_stored(trap_iright))
-          feta_stored(iv,imu,iom) = trap_feta_right &
-                 + trap_wt * (trap_feta_left - trap_feta_right)
-          fxi_stored(iv,imu,iom) = trap_fxi_right &
-                 + trap_wt * (trap_fxi_left - trap_fxi_right)
-          n_trap_fixed = n_trap_fixed + 1
-         enddo
-        enddo
-      else
-       write(6,'(a,i2,a,f6.1,a,f7.3,a)') &
-        '  Mode n=',n_trap,' mu=',mu(imu)*180./pi,'deg: omega_trap=',trap_omega, &
-        ' — both edges out of range, skipping'
-      endif
-      !Write diagnostic output for all cases (except skip)
-      if (trap_ileft >= 0 .and. trap_iright >= 0) then
-       do iom=trap_ilo,trap_ihi
-        do iv=1,nv
-         write(34,'(a,i2,a,f8.4,a,f8.1,a,i2,a,g14.6,a,g14.6)') &
-          ' CAT_TRAP_INTERP n=',n_trap,' omega=',omega_stored(iom), &
-          ' mu=',mu(imu)*180./pi, &
-          ' iv=',iv,' feta_interp=',feta_stored(iv,imu,iom), &
-          ' fxi_interp=',fxi_stored(iv,imu,iom)
-        enddo
-       enddo
-      endif
-    endif
-   enddo  !n_trap
-  enddo  !imu
-    write(6,'(a,i6,a)') '  Total: interpolated ', n_trap_fixed, ' (freq,heading,speed) points'
-    endif CatTrappingInterp
-
-  !--- Outlier cap: clip extreme drift values using low-frequency reference ---
-  !Wave trapping and residual resonance can produce unphysical spikes.
-  !Strategy: compute max |feta| and |fxi| at low frequencies where both resonance
-  !and trapping are absent, then cap all values at 5x that reference.
-  OutlierCap: if (catamaran .and. nom_stored > 0 .and. npres > 0 .and. hulld > 0) then
-      trap_omega = sqrt(g * pi / (2.0 * hulld))   !lowest possible trapping frequency (beam seas)
-      !Determine clean frequency threshold — must be below both resonance and trapping
-      if (omega_roll > 0.1) then
-       res_om_lo = 0.70 * omega_roll              !match resonance window low bound
-       feta_cap = min(res_om_lo, 0.75 * trap_omega)  !temporary: reuse as threshold
-      else
-       feta_cap = 0.75 * trap_omega
-      endif
-      write(6,'(/a)') ' === Catamaran outlier cap ==='
-      write(6,'(a,f7.4)') '  Cap reference: omega_max = ', feta_cap
-      !Now compute reference max from frequencies below threshold
-      trap_omega = feta_cap  !reuse trap_omega as the threshold
-      feta_cap = 0; fxi_cap = 0
-      do iom=1,nom_stored
-       if (omega_stored(iom) > trap_omega) cycle  !skip frequencies above clean threshold
-       do imu=1,nmu
-        do iv=1,nv
-         feta_cap = max(feta_cap, abs(feta_stored(iv,imu,iom)))
-         fxi_cap = max(fxi_cap, abs(fxi_stored(iv,imu,iom)))
-        enddo
-       enddo
-      enddo
-      if (feta_cap < 1.0) then
-       !Fallback: if no frequencies below threshold, use the minimum |feta| across all data
-       feta_cap = huge(feta_cap)
-       do iom=1,nom_stored; do imu=1,nmu; do iv=1,nv
-        if (abs(feta_stored(iv,imu,iom)) > 0) &
-         feta_cap = min(feta_cap, abs(feta_stored(iv,imu,iom)))
-       enddo; enddo; enddo
-       feta_cap = max(feta_cap, 1.0)
-      endif
-      if (fxi_cap < 1.0) then
-       fxi_cap = huge(fxi_cap)
-       do iom=1,nom_stored; do imu=1,nmu; do iv=1,nv
-        if (abs(fxi_stored(iv,imu,iom)) > 0) &
-         fxi_cap = min(fxi_cap, abs(fxi_stored(iv,imu,iom)))
-       enddo; enddo; enddo
-       fxi_cap = max(fxi_cap, 1.0)
-      endif
-      feta_cap = 5.0 * feta_cap              !allow 5x the low-frequency maximum
-      fxi_cap = 5.0 * fxi_cap               !allow 5x the low-frequency maximum
-      write(6,'(a,g14.6,a,g14.6)') '  Low-freq reference max |feta| = ', feta_cap/5., &
-       '  cap = ', feta_cap
-      write(6,'(a,g14.6,a,g14.6)') '  Low-freq reference max |fxi|  = ', fxi_cap/5., &
-       '  cap = ', fxi_cap
-     n_capped = 0
-     do imu=1,nmu
-      do iom=1,nom_stored
-       do iv=1,nv
-        if (abs(feta_stored(iv,imu,iom)) > feta_cap) then
-         write(34,'(a,f8.4,a,f8.1,a,g14.6,a,g14.6)') &
-          ' CAT_TRAP_CAP_SWAY omega=',omega_stored(iom),' mu=',mu(imu)*180./pi, &
-          ' raw=',feta_stored(iv,imu,iom),' cap=',sign(feta_cap,feta_stored(iv,imu,iom))
-         feta_stored(iv,imu,iom) = sign(feta_cap, feta_stored(iv,imu,iom))
-         n_capped = n_capped + 1
-        endif
-        if (abs(fxi_stored(iv,imu,iom)) > fxi_cap) then
-         write(34,'(a,f8.4,a,f8.1,a,g14.6,a,g14.6)') &
-          ' CAT_TRAP_CAP_SURGE omega=',omega_stored(iom),' mu=',mu(imu)*180./pi, &
-          ' raw=',fxi_stored(iv,imu,iom),' cap=',sign(fxi_cap,fxi_stored(iv,imu,iom))
-         fxi_stored(iv,imu,iom) = sign(fxi_cap, fxi_stored(iv,imu,iom))
-         n_capped = n_capped + 1
-        endif
-       enddo
+    !Apply 5-point median filter (2-point padding at edges)
+    do iom=1,nom_stored
+     !Gather 5-point stencil (clamp at boundaries)
+     med5(1) = med_work(max(1,iom-2))
+     med5(2) = med_work(max(1,iom-1))
+     med5(3) = med_work(iom)
+     med5(4) = med_work(min(nom_stored,iom+1))
+     med5(5) = med_work(min(nom_stored,iom+2))
+     !Sort 5 values (simple bubble sort) to find median
+     do jom=1,4
+      do trap_ilo=jom+1,5
+       if (med5(trap_ilo) < med5(jom)) then
+        trap_wt = med5(jom)
+        med5(jom) = med5(trap_ilo)
+        med5(trap_ilo) = trap_wt
+       endif
       enddo
      enddo
-      write(6,'(a,i4,a)') '  Capped ', n_capped, ' outlier values (sway + surge)'
+     feta_stored(iv,imu,iom) = med5(3)
+     !Same for fxi
+     med5(1) = med_work2(max(1,iom-2))
+     med5(2) = med_work2(max(1,iom-1))
+     med5(3) = med_work2(iom)
+     med5(4) = med_work2(min(nom_stored,iom+1))
+     med5(5) = med_work2(min(nom_stored,iom+2))
+     do jom=1,4
+      do trap_ilo=jom+1,5
+       if (med5(trap_ilo) < med5(jom)) then
+        trap_wt = med5(jom)
+        med5(jom) = med5(trap_ilo)
+        med5(trap_ilo) = trap_wt
+       endif
+      enddo
+     enddo
+     fxi_stored(iv,imu,iom) = med5(3)
+     n_trap_fixed = n_trap_fixed + 1
+    enddo
+   enddo
+  enddo  !imu
+  enddo  !pass
+    write(6,'(a,i6,a)') '  Total: median-filtered ', n_trap_fixed, ' (freq,heading,speed) points'
+    !Write diagnostic output for all filtered headings
+    do imu=1,nmu
+     if (abs(sin(mu(imu))) < 0.05) cycle
+     do iom=1,nom_stored
+      do iv=1,nv
+       write(34,'(a,f8.4,a,f8.1,a,i2,a,g14.6,a,g14.6)') &
+        ' CAT_TRAP_INTERP omega=',omega_stored(iom), &
+        ' mu=',mu(imu)*180./pi, &
+        ' iv=',iv,' feta_interp=',feta_stored(iv,imu,iom), &
+        ' fxi_interp=',fxi_stored(iv,imu,iom)
+      enddo
+     enddo
+    enddo
+    endif CatTrappingInterp
+
+  !--- Running median filter + spike detection for catamaran trapping ---
+  !Pass 1: Apply 5-point running median filter above the lowest trapping frequency.
+  !        Repeated 3 times to progressively smooth clusters of trapping-corrupted values.
+  !        The median preserves monotonic trends while removing spikes and small clusters.
+  !Pass 2: Neighbor-median spike detection catches any remaining isolated outliers.
+  OutlierCap: if (catamaran .and. nom_stored > 0 .and. npres > 0 .and. hulld > 0) then
+      spike_factor = 3.0  !for pass 2: point must exceed 3x neighbor median
+      write(6,'(/a)') ' === Catamaran running-median filter + spike detection ==='
+      write(6,'(a,f5.1,a)') '  Spike factor (pass 2): ', spike_factor, 'x neighbor median'
+     n_capped = 0
+     do imu=1,nmu
+      if (abs(sin(mu(imu))) < 0.05) cycle  !skip near-axial headings
+      do iv=1,nv
+       !--- Determine onset frequency: 75% of lowest trapping mode ---
+       trap_k = pi / (2.0 * hulld * abs(sin(mu(imu))))
+       trap_omega = sqrt(g * trap_k)
+       trap_om_lo = 0.75 * trap_omega
+       !--- Pass 1: Repeated 5-point running median filter ---
+       !Apply 3 passes. Each pass: for each freq above onset, replace with
+       !median of 5-point window [iom-2..iom+2]. At boundaries use fewer points.
+       !Read from med_work (snapshot), write to feta_stored.
+       do n_median_pass=1,3
+        do iom=1,nom_stored
+         med_work(iom) = feta_stored(iv,imu,iom)
+         med_work2(iom) = fxi_stored(iv,imu,iom)
+        enddo
+        do iom=1,nom_stored
+         if (omega_stored(iom) < trap_om_lo) cycle
+         !Build 5-point window for SWAY
+         jom = 0
+         if (iom-2 >= 1)          then; jom=jom+1; med5(jom) = med_work(iom-2); endif
+         if (iom-1 >= 1)          then; jom=jom+1; med5(jom) = med_work(iom-1); endif
+         jom=jom+1; med5(jom) = med_work(iom)  !center point always included
+         if (iom+1 <= nom_stored) then; jom=jom+1; med5(jom) = med_work(iom+1); endif
+         if (iom+2 <= nom_stored) then; jom=jom+1; med5(jom) = med_work(iom+2); endif
+         !Sort the window (bubble sort, max 5 elements)
+         do trap_ilo=1,jom-1
+          do trap_ihi=trap_ilo+1,jom
+           if (med5(trap_ihi) < med5(trap_ilo)) then
+            trap_wt = med5(trap_ilo); med5(trap_ilo) = med5(trap_ihi); med5(trap_ihi) = trap_wt
+           endif
+          enddo
+         enddo
+         !Median
+         if (mod(jom,2) == 1) then
+          feta_cap = med5((jom+1)/2)
+         else
+          feta_cap = 0.5*(med5(jom/2) + med5(jom/2+1))
+         endif
+         if (abs(feta_cap - feta_stored(iv,imu,iom)) > 0.1) then
+          if (n_median_pass == 1) then
+           write(34,'(a,f8.4,a,f8.1,a,g14.6,a,g14.6)') &
+            ' CAT_MEDFILT_SWAY omega=',omega_stored(iom),' mu=',mu(imu)*180./pi, &
+            ' raw=',feta_stored(iv,imu,iom),' med=',feta_cap
+          endif
+          n_capped = n_capped + 1
+         endif
+         feta_stored(iv,imu,iom) = feta_cap
+         !Build 5-point window for SURGE
+         jom = 0
+         if (iom-2 >= 1)          then; jom=jom+1; med5(jom) = med_work2(iom-2); endif
+         if (iom-1 >= 1)          then; jom=jom+1; med5(jom) = med_work2(iom-1); endif
+         jom=jom+1; med5(jom) = med_work2(iom)
+         if (iom+1 <= nom_stored) then; jom=jom+1; med5(jom) = med_work2(iom+1); endif
+         if (iom+2 <= nom_stored) then; jom=jom+1; med5(jom) = med_work2(iom+2); endif
+         do trap_ilo=1,jom-1
+          do trap_ihi=trap_ilo+1,jom
+           if (med5(trap_ihi) < med5(trap_ilo)) then
+            trap_wt = med5(trap_ilo); med5(trap_ilo) = med5(trap_ihi); med5(trap_ihi) = trap_wt
+           endif
+          enddo
+         enddo
+         if (mod(jom,2) == 1) then
+          fxi_cap = med5((jom+1)/2)
+         else
+          fxi_cap = 0.5*(med5(jom/2) + med5(jom/2+1))
+         endif
+         fxi_stored(iv,imu,iom) = fxi_cap
+        enddo  !iom
+       enddo  !n_median_pass
+       !--- Pass 2: neighbor-median spike detection on post-median values ---
+       !Catches any remaining outliers that survived the median filter
+       do iom=1,nom_stored
+        med_work(iom) = feta_stored(iv,imu,iom)
+        med_work2(iom) = fxi_stored(iv,imu,iom)
+       enddo
+       !Sway spike detection
+       do iom=1,nom_stored
+        trap_ilo_arr(iom) = .false.
+       enddo
+        do iom=1,nom_stored
+         if (omega_stored(iom) < trap_om_lo) cycle
+         jom = 0
+         if (iom-5 >= 1) then; jom=jom+1; nbr4(jom) = med_work(iom-5); endif
+         if (iom-4 >= 1) then; jom=jom+1; nbr4(jom) = med_work(iom-4); endif
+         if (iom-3 >= 1) then; jom=jom+1; nbr4(jom) = med_work(iom-3); endif
+         if (iom-2 >= 1) then; jom=jom+1; nbr4(jom) = med_work(iom-2); endif
+         if (iom-1 >= 1) then; jom=jom+1; nbr4(jom) = med_work(iom-1); endif
+         if (iom+1 <= nom_stored) then; jom=jom+1; nbr4(jom) = med_work(iom+1); endif
+         if (iom+2 <= nom_stored) then; jom=jom+1; nbr4(jom) = med_work(iom+2); endif
+         if (iom+3 <= nom_stored) then; jom=jom+1; nbr4(jom) = med_work(iom+3); endif
+         if (iom+4 <= nom_stored) then; jom=jom+1; nbr4(jom) = med_work(iom+4); endif
+         if (iom+5 <= nom_stored) then; jom=jom+1; nbr4(jom) = med_work(iom+5); endif
+        if (jom < 2) cycle
+        do trap_ilo=1,jom-1
+         do trap_ihi=trap_ilo+1,jom
+          if (abs(nbr4(trap_ihi)) < abs(nbr4(trap_ilo))) then
+           trap_wt = nbr4(trap_ilo); nbr4(trap_ilo) = nbr4(trap_ihi); nbr4(trap_ihi) = trap_wt
+          endif
+         enddo
+        enddo
+        if (mod(jom,2) == 1) then
+         nbr_median_feta = abs(nbr4((jom+1)/2))
+        else
+         nbr_median_feta = 0.5*(abs(nbr4(jom/2)) + abs(nbr4(jom/2+1)))
+        endif
+        if (nbr_median_feta > 0.1 .and. &
+            abs(med_work(iom)) > spike_factor * nbr_median_feta) then
+         trap_ilo_arr(iom) = .true.
+        endif
+       enddo
+       do iom=1,nom_stored
+        if (.not. trap_ilo_arr(iom)) cycle
+        trap_ileft = 0
+        do jom=iom-1,1,-1
+         if (.not. trap_ilo_arr(jom)) then; trap_ileft = jom; exit; endif
+        enddo
+        trap_iright = 0
+        do jom=iom+1,nom_stored
+         if (.not. trap_ilo_arr(jom)) then; trap_iright = jom; exit; endif
+        enddo
+        if (trap_ileft > 0 .and. trap_iright > 0) then
+         trap_wt = real(iom - trap_ileft) / real(trap_iright - trap_ileft)
+         feta_cap = med_work(trap_ileft) + trap_wt * (med_work(trap_iright) - med_work(trap_ileft))
+        elseif (trap_ileft > 0) then
+         feta_cap = med_work(trap_ileft)
+        elseif (trap_iright > 0) then
+         feta_cap = med_work(trap_iright)
+        else
+         cycle
+        endif
+        write(34,'(a,f8.4,a,f8.1,a,g14.6,a,g14.6)') &
+         ' CAT_SPIKE_SWAY omega=',omega_stored(iom),' mu=',mu(imu)*180./pi, &
+         ' raw=',feta_stored(iv,imu,iom),' repl=',feta_cap
+        feta_stored(iv,imu,iom) = feta_cap
+        n_capped = n_capped + 1
+       enddo
+       !Surge spike detection
+       do iom=1,nom_stored
+        trap_ilo_arr(iom) = .false.
+       enddo
+        do iom=1,nom_stored
+         if (omega_stored(iom) < trap_om_lo) cycle
+         jom = 0
+         if (iom-5 >= 1) then; jom=jom+1; nbr4(jom) = med_work2(iom-5); endif
+         if (iom-4 >= 1) then; jom=jom+1; nbr4(jom) = med_work2(iom-4); endif
+         if (iom-3 >= 1) then; jom=jom+1; nbr4(jom) = med_work2(iom-3); endif
+         if (iom-2 >= 1) then; jom=jom+1; nbr4(jom) = med_work2(iom-2); endif
+         if (iom-1 >= 1) then; jom=jom+1; nbr4(jom) = med_work2(iom-1); endif
+         if (iom+1 <= nom_stored) then; jom=jom+1; nbr4(jom) = med_work2(iom+1); endif
+         if (iom+2 <= nom_stored) then; jom=jom+1; nbr4(jom) = med_work2(iom+2); endif
+         if (iom+3 <= nom_stored) then; jom=jom+1; nbr4(jom) = med_work2(iom+3); endif
+         if (iom+4 <= nom_stored) then; jom=jom+1; nbr4(jom) = med_work2(iom+4); endif
+         if (iom+5 <= nom_stored) then; jom=jom+1; nbr4(jom) = med_work2(iom+5); endif
+        if (jom < 2) cycle
+        do trap_ilo=1,jom-1
+         do trap_ihi=trap_ilo+1,jom
+          if (abs(nbr4(trap_ihi)) < abs(nbr4(trap_ilo))) then
+           trap_wt = nbr4(trap_ilo); nbr4(trap_ilo) = nbr4(trap_ihi); nbr4(trap_ihi) = trap_wt
+          endif
+         enddo
+        enddo
+        if (mod(jom,2) == 1) then
+         nbr_median_fxi = abs(nbr4((jom+1)/2))
+        else
+         nbr_median_fxi = 0.5*(abs(nbr4(jom/2)) + abs(nbr4(jom/2+1)))
+        endif
+        if (nbr_median_fxi > 0.1 .and. &
+            abs(med_work2(iom)) > spike_factor * nbr_median_fxi) then
+         trap_ilo_arr(iom) = .true.
+        endif
+       enddo
+       do iom=1,nom_stored
+        if (.not. trap_ilo_arr(iom)) cycle
+        trap_ileft = 0
+        do jom=iom-1,1,-1
+         if (.not. trap_ilo_arr(jom)) then; trap_ileft = jom; exit; endif
+        enddo
+        trap_iright = 0
+        do jom=iom+1,nom_stored
+         if (.not. trap_ilo_arr(jom)) then; trap_iright = jom; exit; endif
+        enddo
+        if (trap_ileft > 0 .and. trap_iright > 0) then
+         trap_wt = real(iom - trap_ileft) / real(trap_iright - trap_ileft)
+         fxi_cap = med_work2(trap_ileft) + trap_wt * (med_work2(trap_iright) - med_work2(trap_ileft))
+        elseif (trap_ileft > 0) then
+         fxi_cap = med_work2(trap_ileft)
+        elseif (trap_iright > 0) then
+         fxi_cap = med_work2(trap_iright)
+        else
+         cycle
+        endif
+        write(34,'(a,f8.4,a,f8.1,a,g14.6,a,g14.6)') &
+         ' CAT_SPIKE_SURGE omega=',omega_stored(iom),' mu=',mu(imu)*180./pi, &
+         ' raw=',fxi_stored(iv,imu,iom),' repl=',fxi_cap
+        fxi_stored(iv,imu,iom) = fxi_cap
+        n_capped = n_capped + 1
+       enddo
+      enddo  !iv
+     enddo  !imu
+      write(6,'(a,i4,a)') '  Replaced ', n_capped, ' values (median filter + spike detection)'
   endif OutlierCap
 
   !--- Enforce antisymmetry: feta(mu) = -feta(-mu), fxi(mu) = fxi(-mu) ---
@@ -4125,6 +4258,23 @@ Wavelengths: do iom=1,nom                                                       
       enddo
       write(6,'(a,i6,a)') '  Symmetrized ', n_capped, ' (sway antisymm + surge symm) values'
   endif CatSymmetry
+
+  !--- Write cleaned drift forces to debug.out for external comparison ---
+  !After trapping interpolation, outlier cap, and antisymmetry enforcement,
+  !feta_stored/fxi_stored contain the best estimates of mean drift force.
+  !Write these so plotting scripts can compare cleaned values against Nemoh.
+  CatCleanedOutput: if (catamaran .and. nom_stored > 0) then
+   write(34,'(/a)') ' === CAT_CLEANED: post-processed drift forces ==='
+   do iom=1,nom_stored
+    do imu=1,nmu
+     do iv=1,nv
+      write(34,'(a,f8.4,a,f8.1,a,i2,a,g14.6,a,g14.6)') &
+       'CAT_CLEANED omega=',omega_stored(iom),' mu=',mu(imu)*180./pi, &
+       ' iv=',iv,' feta=',feta_stored(iv,imu,iom),' fxi=',fxi_stored(iv,imu,iom)
+     enddo
+    enddo
+   enddo
+  endif CatCleanedOutput
 
 call signampl                       !calculate significant amplitudes in natural seaways if required
 end program pdstrip
