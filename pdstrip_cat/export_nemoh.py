@@ -400,11 +400,15 @@ def convert_and_write(rao_records, drift_data, output_path, g=9.81):
             surge_d, sway_d, yaw_d, roll_d,
         ])
 
-    # Sort by angle (primary), then frequency (secondary)
+    # Sort by angle (primary), then frequency (secondary) for despiking
     rows.sort(key=lambda r: (r[2], r[0]))
 
     # Despike drift forces (irregular frequency removal)
     n_spikes = despike_drift(rows)
+
+    # Re-sort for output: frequency descending (primary), angle ascending (secondary)
+    # This matches PDStrip's native output ordering expected by downstream tools.
+    rows.sort(key=lambda r: (-r[0], r[2]))
 
     # Write TSV
     with open(output_path, 'w') as f:
