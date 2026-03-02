@@ -27,7 +27,7 @@ Usage:
 
   # Common options for all hull types:
   --omega-min 0.3 --omega-max 2.5 --n-omega 40
-  --beta-min 90 --beta-max 270 --n-beta 19
+  --beta-min 0 --beta-max 350 --n-beta 36
   --qtf-omega-min 0.3 --qtf-omega-max 2.5 --n-qtf-omega 40
   --depth 0  (0=infinite)
   --rho 1025 --g 9.81
@@ -1035,12 +1035,12 @@ def add_common_args(parser):
                         help='Number of first-order frequencies (default: 40)')
 
     # Wave headings
-    parser.add_argument('--beta-min', type=float, default=90.0,
-                        help='Min wave heading [deg] (default: 90)')
-    parser.add_argument('--beta-max', type=float, default=270.0,
-                        help='Max wave heading [deg] (default: 270)')
-    parser.add_argument('--n-beta', type=int, default=19,
-                        help='Number of headings (default: 19)')
+    parser.add_argument('--beta-min', type=float, default=0.0,
+                        help='Min wave heading [deg] (default: 0)')
+    parser.add_argument('--beta-max', type=float, default=350.0,
+                        help='Max wave heading [deg] (default: 350)')
+    parser.add_argument('--n-beta', type=int, default=36,
+                        help='Number of headings (default: 36)')
 
     # QTF frequency range
     parser.add_argument('--qtf-omega-min', type=float, default=None,

@@ -12,7 +12,7 @@ Coordinate convention mapping (applied automatically):
 
   - Headings:  angle = beta (same convention — both use meteorological-style
     angles where 0°=following seas, 90°=waves from stb, 180°=head seas).
-    Normalized to [-180, 360) to match PDStrip output range.
+    Normalized to [-90, 260] to match PDStrip output range.
   - The transform (x,y,z)→(x,-y,-z) is a 180° rotation about x.
     Translational DOFs: surge=same, sway=negate, heave=negate
     Rotational DOFs:    roll=same,  pitch=negate, yaw=negate
@@ -325,9 +325,10 @@ def convert_and_write(rao_records, drift_data, output_path, g=9.81):
 
         # Heading: Nemoh and PDStrip use the same convention
         # (0°=following, 90°=waves from stb, 180°=head seas).
-        # Only normalize to [-180, 360) to match PDStrip output range.
+        # Normalize to [-90, 260] to match PDStrip output range:
+        # Nemoh 270°..350° → PDStrip -90°..-10°
         angle = beta_deg
-        if angle > 270.0 + 1e-6:
+        if angle > 260.0 + 1e-6:
             angle -= 360.0
 
         # Encounter frequency = wave frequency at zero speed
@@ -495,7 +496,7 @@ def main():
     )
 
     # Map headings to PDStrip convention for display (same convention, just normalize)
-    pdstrip_angles = sorted(set(b if b <= 270.0 + 1e-6 else b - 360.0 for b in betas))
+    pdstrip_angles = sorted(set(b if b <= 260.0 + 1e-6 else b - 360.0 for b in betas))
     print(f'  {n_rows} rows ({len(omegas)} freq x {len(betas)} headings)')
     print(f'  PDStrip heading range: {pdstrip_angles[0]:.1f} to {pdstrip_angles[-1]:.1f} deg')
     if drift_data:
