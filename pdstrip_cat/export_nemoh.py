@@ -7,10 +7,20 @@ and produces a pdstrip.dat tab-separated file in the standard 20-column
 format used by the brucon/PDStrip toolchain.
 
 Coordinate convention mapping (applied automatically):
-  - Headings:  Nemoh 180°=head seas  →  PDStrip 0°=head seas  (angle = 180 - beta)
-  - Sway/Roll/Yaw signs negated:  Nemoh y=port  →  PDStrip y=starboard
-  - Heave sign negated:  Nemoh z=up  →  PDStrip z=down
+  Nemoh:   x=forward, y=port, z=up,   180°=head seas
+  PDStrip: x=forward, y=stb,  z=down, 180°=head seas
+
+  - Headings:  angle = beta (same convention — both use meteorological-style
+    angles where 0°=following seas, 90°=waves from stb, 180°=head seas).
+    Normalized to [-180, 360) to match PDStrip output range.
+  - The transform (x,y,z)→(x,-y,-z) is a 180° rotation about x.
+    Translational DOFs: surge=same, sway=negate, heave=negate
+    Rotational DOFs:    roll=same,  pitch=negate, yaw=negate
   - Rotational RAOs divided by wavenumber k to match PDStrip "Rotation/k" convention
+  - Drift force signs follow the same logic: surge_d=same, sway_d=negate,
+    roll_d=same, yaw_d=negate
+  - Spike detection: drift force outliers (>5× running median) are replaced
+    by linear interpolation over neighboring frequencies.
 
 Output columns (20, tab-separated):
   freq  enc  angle  speed  surge_r  surge_i  sway_r  sway_i  heave_r  heave_i
@@ -180,16 +190,110 @@ def _find_nearest_idx(arr, val, tol):
     return -1
 
 
+def despike_drift(rows, drift_cols=(16, 17, 18, 19), threshold=5.0, window=5):
+    """Detect and interpolate drift force spikes caused by irregular frequencies.
+
+    For each heading group (rows with same angle), and for each drift column,
+    compute a running median of |drift| over a sliding window. Any point where
+    |drift| exceeds threshold × local_median is flagged as a spike and replaced
+    by linear interpolation from the nearest non-flagged neighbors.
+
+    Args:
+        rows: list of row lists (mutated in place). Must be sorted by (angle, freq).
+        drift_cols: tuple of column indices for drift forces.
+        threshold: spike detection multiplier (default 5.0).
+        window: running median half-window size (default 5 → 11-point window).
+
+    Returns:
+        n_spikes: total number of spikes detected and interpolated.
+    """
+    # Group rows by angle (column index 2)
+    from collections import defaultdict
+    groups = defaultdict(list)
+    for i, row in enumerate(rows):
+        groups[row[2]].append(i)
+
+    n_spikes = 0
+
+    for angle, indices in groups.items():
+        if len(indices) < 3:
+            continue
+
+        for col in drift_cols:
+            vals = [rows[idx][col] for idx in indices]
+            abs_vals = [abs(v) for v in vals]
+            n = len(vals)
+
+            # Compute running median of |drift|
+            flagged = [False] * n
+            for i in range(n):
+                lo = max(0, i - window)
+                hi = min(n, i + window + 1)
+                neighborhood = sorted(abs_vals[lo:hi])
+                median = neighborhood[len(neighborhood) // 2]
+
+                # Flag if |drift| exceeds threshold × median (and median is nonzero)
+                if median > 1e-6 and abs_vals[i] > threshold * median:
+                    flagged[i] = True
+
+            # Interpolate flagged points from nearest non-flagged neighbors
+            for i in range(n):
+                if not flagged[i]:
+                    continue
+
+                n_spikes += 1
+
+                # Find nearest left non-flagged
+                left_j = None
+                for j in range(i - 1, -1, -1):
+                    if not flagged[j]:
+                        left_j = j
+                        break
+
+                # Find nearest right non-flagged
+                right_j = None
+                for j in range(i + 1, n):
+                    if not flagged[j]:
+                        right_j = j
+                        break
+
+                # Interpolate
+                if left_j is not None and right_j is not None:
+                    freq_i = rows[indices[i]][0]
+                    freq_l = rows[indices[left_j]][0]
+                    freq_r = rows[indices[right_j]][0]
+                    denom = freq_r - freq_l
+                    if abs(denom) > 1e-12:
+                        t = (freq_i - freq_l) / denom
+                        rows[indices[i]][col] = vals[left_j] + t * (vals[right_j] - vals[left_j])
+                    else:
+                        rows[indices[i]][col] = 0.5 * (vals[left_j] + vals[right_j])
+                elif left_j is not None:
+                    rows[indices[i]][col] = vals[left_j]
+                elif right_j is not None:
+                    rows[indices[i]][col] = vals[right_j]
+                else:
+                    rows[indices[i]][col] = 0.0
+
+    return n_spikes
+
+
 def convert_and_write(rao_records, drift_data, output_path, g=9.81):
     """Convert Nemoh data to PDStrip convention and write TSV.
 
+    Coordinate transform: Nemoh (x,y,z)=(fwd,port,up) → PDStrip (fwd,stb,down)
+    This is (x,-y,-z), a 180° rotation about x-axis (det=+1, proper rotation).
+
     Sign conventions applied:
-      - Heading: angle = 180 - beta_nemoh
-      - Sway (DOF 2): negate Re/Im   (y-flip: port → starboard)
-      - Heave (DOF 3): negate Re/Im   (z-flip: up → down)
-      - Roll (DOF 4): negate Re/Im   (coupled with y-flip)
-      - Yaw (DOF 6): negate Re/Im   (coupled with z-flip)
-      - Drift sway/roll/yaw: negate   (same y/z-flip)
+      - Heading: angle = beta (same convention: 0°=following, 90°=stb, 180°=head)
+        Normalized to [-180, 360) to match PDStrip output range.
+      - Surge:   same           (x preserved)
+      - Sway:    negate Re/Im   (y-flip)
+      - Heave:   negate Re/Im   (z-flip)
+      - Roll:    same           (axial vector about x; preserved under 180° rotation about x)
+      - Pitch:   negate Re/Im   (axial vector about y; y is negated)
+      - Yaw:     negate Re/Im   (axial vector about z; z is negated)
+      - Drift surge: same       Drift sway/yaw: negate       Drift roll: same
       - Rotational RAOs: convert deg→rad, divide by k
 
     QTF frequency matching uses nearest-neighbor with 5% tolerance,
@@ -219,8 +323,12 @@ def convert_and_write(rao_records, drift_data, output_path, g=9.81):
         # Wavenumber (deep water dispersion)
         k = omega * omega / g
 
-        # Map heading: PDStrip angle = 180 - Nemoh beta
-        angle = 180.0 - beta_deg
+        # Heading: Nemoh and PDStrip use the same convention
+        # (0°=following, 90°=waves from stb, 180°=head seas).
+        # Only normalize to [-180, 360) to match PDStrip output range.
+        angle = beta_deg
+        if angle > 270.0 + 1e-6:
+            angle -= 360.0
 
         # Encounter frequency = wave frequency at zero speed
         enc = omega
@@ -257,8 +365,8 @@ def convert_and_write(rao_records, drift_data, output_path, g=9.81):
         pitch_r, pitch_i = to_re_im(pitch_amp_over_k, phase_deg[4])
         yaw_r, yaw_i = to_re_im(yaw_amp_over_k, phase_deg[5])
 
-        # Negate roll (y-flip) and yaw (z-flip)
-        roll_r, roll_i = -roll_r, -roll_i
+        # Negate pitch (y-flip) and yaw (z-flip); roll is SAME (axial about x)
+        pitch_r, pitch_i = -pitch_r, -pitch_i
         yaw_r, yaw_i = -yaw_r, -yaw_i
 
         # --- Drift forces from QTF diagonal ---
@@ -274,7 +382,7 @@ def convert_and_write(rao_records, drift_data, output_path, g=9.81):
             n_qtf_found += 1
             surge_d = qtf_lookup[(oi, bi, 1)]
             sway_d = -qtf_lookup.get((oi, bi, 2), 0.0)   # negate (y-flip)
-            roll_d = -qtf_lookup.get((oi, bi, 4), 0.0)    # negate (y-flip)
+            roll_d = qtf_lookup.get((oi, bi, 4), 0.0)     # same (axial about x)
             yaw_d = -qtf_lookup.get((oi, bi, 6), 0.0)     # negate (z-flip)
         else:
             n_qtf_missing += 1
@@ -293,6 +401,9 @@ def convert_and_write(rao_records, drift_data, output_path, g=9.81):
 
     # Sort by angle (primary), then frequency (secondary)
     rows.sort(key=lambda r: (r[2], r[0]))
+
+    # Despike drift forces (irregular frequency removal)
+    n_spikes = despike_drift(rows)
 
     # Write TSV
     with open(output_path, 'w') as f:
@@ -317,7 +428,7 @@ def convert_and_write(rao_records, drift_data, output_path, g=9.81):
                         parts.append(f'{x:.3f}')
             f.write('\t'.join(parts) + '\n')
 
-    return len(rows), n_qtf_found, n_qtf_missing
+    return len(rows), n_qtf_found, n_qtf_missing, n_spikes
 
 
 def main():
@@ -379,16 +490,18 @@ def main():
 
     # --- Convert and write ---
     print(f'Writing {output_path}')
-    n_rows, n_qtf_found, n_qtf_missing = convert_and_write(
+    n_rows, n_qtf_found, n_qtf_missing, n_spikes = convert_and_write(
         rao_records, drift_data, output_path, g=args.g,
     )
 
-    # Map headings to PDStrip convention for display
-    pdstrip_angles = sorted(set(180.0 - b for b in betas))
+    # Map headings to PDStrip convention for display (same convention, just normalize)
+    pdstrip_angles = sorted(set(b if b <= 270.0 + 1e-6 else b - 360.0 for b in betas))
     print(f'  {n_rows} rows ({len(omegas)} freq x {len(betas)} headings)')
     print(f'  PDStrip heading range: {pdstrip_angles[0]:.1f} to {pdstrip_angles[-1]:.1f} deg')
     if drift_data:
         print(f'  QTF matched: {n_qtf_found}, missing: {n_qtf_missing}')
+    if n_spikes > 0:
+        print(f'  Drift spikes removed: {n_spikes} (irregular frequency interpolation)')
     print('Done.')
 
 

@@ -827,11 +827,13 @@ def cmd_geomet(args):
         C55 = rho * g * V * GM_L
 
     # C35: heave-pitch coupling
+    # Nemoh convention: C35 = -rho*g * integral(x dA) = -rho*g * S_x
+    # See Nemoh/Mesh/hydre.f90 VOLELMT subroutine, line ~585:
+    #   KH(3,5) = -RHO*G*SF*P0G(1)
     if args.c35:
         C35 = args.c35
     elif wp is not None:
-        # C35 = rho*g * S_x  (first moment of waterplane about y-axis)
-        C35 = rho * g * wp['S_x']
+        C35 = -rho * g * wp['S_x']
     else:
         C35 = 0.0
 
