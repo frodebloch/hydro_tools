@@ -55,6 +55,7 @@ real:: zs(0:nsemax+1)            !z coordinate of center of gravity of section a
 real:: zdrift                    !z coordinate for water particle drift velocity
 real:: hulld                     !catamaran: transverse distance from CL to demihull center (>=0)
 real:: omega_roll = 0.0          !natural roll frequency sqrt(C44/I44), set in Phase 1
+real:: roll_damp_frac = -1.0    !external roll damping as fraction of critical (-1 = auto)
 real:: feta_stored(nvmax,nmumax,nomma) !stored sway drift per wave ampl^2 for resonance interpolation
 real:: fxi_stored(nvmax,nmumax,nomma)  !stored surge drift per wave ampl^2 for trapping interpolation
 real:: omega_stored(nomma)       !wave frequencies corresponding to feta_stored/fxi_stored
@@ -77,6 +78,7 @@ integer:: im1                    !i-1 except for i=1
 integer:: nfre=52                !number of frequencies
 integer:: ios                    !iostat for backward-compatible input parsing
 character(200):: catline         !buffer for catamaran input line
+character(200):: physline        !buffer for physics parameters line (g rho zwl zbot zdrift [roll_damp_frac])
 real:: fp(nfremax)               !wave frequency parameter omega^2*t/g
 real:: om(nfremax)               !circular wave frequency
 real:: da                        !section area increment
@@ -95,12 +97,19 @@ fp=(/0.01,0.015, 0.020,.025,.031,.04,.05,.063,.08,.10,.12,.15,.19,.24,.31,.39, &
 read(5,'(a)')text
 write(6,'(/1x,1a80)')text
 write(6,'(a)')' In the following input data x,y,z are directed forward, to port side, up'
-read(5,*)g,rho,zwl,zbot,zdrift
+! Read physics line — backward compatible: 'g rho zwl zbot zdrift [roll_damp_frac]'
+read(5,'(a)') physline
+read(physline,*,iostat=ios) g,rho,zwl,zbot,zdrift,roll_damp_frac
+if (ios /= 0) then
+  roll_damp_frac = -1.0  ! sentinel: auto-select later based on catamaran flag
+  read(physline,*) g,rho,zwl,zbot,zdrift
+endif
 write(6,'(/'' Gravity acceleration          '',f 8.3)')g
 write(6,'( '' Water density                 '',f 8.3)')rho
 write(6,'( '' z of still waterline          '',f 8.3)')zwl
 write(6,'( '' z of water bottom             '',g12.3)')zbot
 write(6,'( '' z for water drift velocity    '',f 8.3)')zdrift
+if (roll_damp_frac >= 0.0) write(6,'( '' Roll damping (frac critical)  '',f 8.3)')roll_damp_frac
 read(5,*)nmu,wangl(1:nmu)
 write(6,'( '' Wave encounter angles         '',(10f8.3))')wangl(1:nmu)
 read(5,*)offsetfile
@@ -1839,7 +1848,6 @@ real:: xl,yl,zl                 !coordinates of suspension point
 real:: cablelength              !cable length of suspended weight
 real:: testnumber               !used to test whether stored section data fit to input data 
 real:: waveheight               !wave height for nonlinearities in transfer functions
-real:: roll_damp_frac = 0.0    !external roll damping as fraction of critical (debug tool)
 real:: b44ext                   !external roll damping coefficient
 real:: a44, c44, b44crit       !roll inertia+added mass, restoring, critical damping
 real:: vs                       !ship speed
@@ -2175,16 +2183,23 @@ allocate(pres(npres1,1,nsemax),pres_nopst(npres1,1,nsemax),pres_norollpst(npres1
 allocate(pdsec(npres1,1,nmumax,nsemax,0:nfremax),pdsecv(npres1,1,nmumax),pri(npres1,3))
 allocate(prw(npres1,6,nsemax),dprw(npres1,6),dpw(npres1,1),phi0w(npres1,6),pst(npres1,6,nsemax))
 call sectiondata
-!--- Default viscous roll damping ---
-! Real vessels always have viscous roll damping from skin friction, eddy-making,
+!--- Viscous roll damping ---
+! Real vessels have viscous roll damping from skin friction, eddy-making,
 ! and appendages (bilge keels, skegs). Without this, the potential-flow roll RAO
 ! goes to infinity at resonance, causing unphysical Pinkster drift force blow-up.
 ! 20% of critical is realistic for catamarans: hulls orbit at large radius (hulld)
 ! giving high velocities and strong viscous damping (drag ~ v^2, moment arm ~ hulld).
-! 5% of critical is a lower bound for monohulls (bare hull eddy-making only).
-if (roll_damp_frac < 1e-6) then
-  roll_damp_frac = 0.20
-  write(6,'(a,f6.3,a)') ' Roll damping: ',roll_damp_frac,' of critical (default)'
+! Monohulls: default 0% (user should specify based on appendages/bilge keels).
+! Can be set as 6th value on physics line: g rho zwl zbot zdrift roll_damp_frac
+if (roll_damp_frac < -0.5) then
+  if (catamaran) then
+    roll_damp_frac = 0.20
+  else
+    roll_damp_frac = 0.00
+  endif
+  write(6,'(a,f6.3,a)') ' Roll damping: ',roll_damp_frac,' of critical (auto-default)'
+else
+  write(6,'(a,f6.3,a)') ' Roll damping: ',roll_damp_frac,' of critical (from input)'
 endif
 if (catamaran) allocate(pres_all(npres1,nsemax,nmumax),pres_nopst_all(npres1,nsemax,nmumax),pot_all(npres1,nsemax,nmumax))
 if(.not.ltrans.and..not.lsign) stop   
@@ -2919,7 +2934,7 @@ Wavelengths: do iom=1,nom                                                       
     endif FirstItn
     if (itz.eq.1.and.nforce>0) addedmass(:,:,1)=addedmass(:,:,1)+sum(bforcematr(:,:,1:nforce),3)
                          !correction for motion-dependent force; no influence on intersection forces
-    !--- External linear roll damping (debug tool) ---
+    !--- External linear roll damping ---
     if (itz.eq.1 .and. roll_damp_frac > 0.0 .and. abs(ome) > 1e-6) then
      c44 = real(szw(4,4))                               !roll restoring coefficient
      a44 = real(massmatr(4,4,1)) + real(addedmass(4,4,1))/ome**2  !total roll inertia (mass + added mass)
