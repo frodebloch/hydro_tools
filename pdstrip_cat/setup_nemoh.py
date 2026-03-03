@@ -149,9 +149,11 @@ def mesh_from_geomet(sections, min_pts=20):
     p1, p2, p4 = [np.array(nodes[n-1]) for n in (p[0], p[1], p[3])]
     normal = np.cross(p2 - p1, p4 - p1)
 
+    side_reversed = False
     if normal[1] < 0:
         # Reverse all panels: swap n2<->n4
         panels = [(n1, n4, n3, n2) for n1, n2, n3, n4 in panels]
+        side_reversed = True
         print("  Normal check: reversed panel winding (now outward)")
     else:
         print("  Normal check: winding correct (outward)")
@@ -163,6 +165,64 @@ def mesh_from_geomet(sections, min_pts=20):
     normal_bot = np.cross(p2 - p1, p4 - p1)
     if normal_bot[2] > 0:
         print(f"  WARNING: bottom panel normal points upward ({normal_bot[2]:.3f})")
+
+    # --- Stern transom closure panels ---
+    # Close the stern (section 0) with a "curtain" of quad panels that
+    # fill the flat transom rectangle from the hull profile up to z=0.
+    # This ensures waterline segments exist at the transom, closing the
+    # waterline contour for Nemoh's QTF waterline integral (DUOK Term 3).
+    # The bow is NOT capped — bulbous/fine bows taper naturally.
+
+    n_side_panels = len(panels)
+    x_stern = half_hull[0]['x']
+
+    # For each stern profile node below z=0, create a corresponding
+    # node at (x_stern, same_y, 0). Build a mapping: j -> z0_node_id.
+    z0_node_id = {}  # profile point index -> 1-indexed node ID at z=0
+    for j in range(npts_per_sec):
+        pnode = nodes[node_id(0, j) - 1]
+        if abs(pnode[2]) < 1e-6:
+            # Already at z=0 — use the existing profile node
+            z0_node_id[j] = node_id(0, j)
+        else:
+            # Below waterline — add new node at (x_stern, y_j, 0)
+            nodes.append((x_stern, pnode[1], 0.0))
+            z0_node_id[j] = len(nodes)  # 1-indexed
+
+    # Create quad panels between consecutive profile segments and z=0.
+    # Each quad: profile[j] -> profile[j+1] -> z0[j+1] -> z0[j]
+    # All lie in the x=x_stern plane.
+    stern_cap_panels = []
+    for j in range(npts_per_sec - 1):
+        bot_lo = node_id(0, j)       # profile node j (lower)
+        bot_hi = node_id(0, j + 1)   # profile node j+1 (higher)
+        top_hi = z0_node_id[j + 1]   # z=0 node above j+1
+        top_lo = z0_node_id[j]       # z=0 node above j
+
+        # Skip degenerate panels where nodes coincide
+        # (e.g. both profile nodes already at z=0)
+        unique_ids = set([bot_lo, bot_hi, top_hi, top_lo])
+        if len(unique_ids) < 4:
+            continue
+
+        stern_cap_panels.append((bot_lo, bot_hi, top_hi, top_lo))
+
+    # Verify stern cap normal direction (-x = outward/aft)
+    if len(stern_cap_panels) > 0:
+        sp = stern_cap_panels[len(stern_cap_panels) // 2]
+        sp1, sp2, sp4 = [np.array(nodes[n-1]) for n in (sp[0], sp[1], sp[3])]
+        stern_normal = np.cross(sp2 - sp1, sp4 - sp1)
+        if stern_normal[0] > 0:
+            # Wrong direction, reverse winding: swap n2<->n4
+            stern_cap_panels = [(a, d, c, b) for a, b, c, d in stern_cap_panels]
+            print("  Stern cap: reversed winding (now -x normal)")
+        else:
+            print(f"  Stern cap: winding correct (-x normal)")
+
+    panels.extend(stern_cap_panels)
+    n_extra_nodes = len(nodes) - nsec * npts_per_sec
+    print(f"  Stern transom: {len(stern_cap_panels)} closure panels, "
+          f"{n_extra_nodes} extra node(s) at z=0")
 
     return nodes, panels
 
