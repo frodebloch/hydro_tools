@@ -56,7 +56,10 @@ Author: xfoil_cav project
 from __future__ import annotations
 
 import argparse
+import subprocess
 import sys
+import tempfile
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -756,6 +759,396 @@ def write_dat(filepath: str | Path, x: NDArray, y: NDArray,
 
 
 # ===================================================================
+#  XFOIL batch runner
+# ===================================================================
+
+def _find_xfoil_binary(xfoil_bin: str | None = None) -> Path:
+    """Locate the XFOIL executable.
+
+    Search order:
+        1. Explicit *xfoil_bin* path (if given).
+        2. ``bin/xfoil`` relative to this script.
+        3. ``xfoil`` on the system PATH.
+
+    Raises FileNotFoundError if nothing is found.
+    """
+    if xfoil_bin is not None:
+        p = Path(xfoil_bin)
+        if p.is_file():
+            return p
+        raise FileNotFoundError(f"XFOIL binary not found at {xfoil_bin}")
+
+    # Relative to this script
+    script_dir = Path(__file__).resolve().parent
+    p = script_dir / "bin" / "xfoil"
+    if p.is_file():
+        return p
+
+    # System PATH
+    found = shutil.which("xfoil")
+    if found:
+        return Path(found)
+
+    raise FileNotFoundError(
+        "XFOIL binary not found.  Provide --xfoil-bin or place xfoil in "
+        f"{script_dir / 'bin'} or on PATH.")
+
+
+def _run_xfoil(commands: str, xfoil_bin: str | Path | None = None,
+               timeout: float = 60) -> str:
+    """Run XFOIL with piped commands and return stdout.
+
+    Parameters
+    ----------
+    commands : str
+        Newline-separated XFOIL commands (must end with QUIT).
+    xfoil_bin : str or Path, optional
+        Path to the XFOIL executable.
+    timeout : float
+        Maximum wall-clock seconds before the process is killed.
+
+    Returns
+    -------
+    str
+        XFOIL stdout.
+    """
+    xfoil = _find_xfoil_binary(xfoil_bin)
+    proc = subprocess.run(
+        [str(xfoil)],
+        input=commands,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+    return proc.stdout
+
+
+def xfoil_cp(x: NDArray, y: NDArray, alpha: float = 0.0,
+             xfoil_bin: str | None = None,
+             timeout: float = 30) -> tuple[NDArray, NDArray]:
+    """Run XFOIL inviscid analysis and return Cp(x) at a given alpha.
+
+    Parameters
+    ----------
+    x, y : ndarray
+        Airfoil coordinates in Selig format.
+    alpha : float
+        Angle of attack in degrees.
+    xfoil_bin : str, optional
+        Path to XFOIL binary.
+
+    Returns
+    -------
+    x_cp, cp : ndarray
+        Cp distribution (Selig order: upper TE→LE, lower LE→TE).
+    """
+    with tempfile.TemporaryDirectory(prefix="bisym_xfoil_") as tmpdir:
+        dat_path = Path(tmpdir) / "foil.dat"
+        cp_path = Path(tmpdir) / "cp.dat"
+
+        write_dat(dat_path, x, y, name="bisym_foil")
+
+        commands = f"""\
+LOAD {dat_path}
+PANE
+OPER
+ALFA {alpha:.4f}
+CPWR {cp_path}
+
+QUIT
+"""
+        _run_xfoil(commands, xfoil_bin=xfoil_bin, timeout=timeout)
+
+        if not cp_path.exists():
+            raise RuntimeError(
+                f"XFOIL did not write Cp file at alpha={alpha:.2f}")
+
+        data = np.loadtxt(cp_path, skiprows=1)
+        return data[:, 0], data[:, 1]
+
+
+def xfoil_cavitation_bucket(
+        x: NDArray, y: NDArray,
+        alpha_start: float = 0.0,
+        alpha_end: float = 6.0,
+        alpha_step: float = 0.25,
+        xfoil_bin: str | None = None,
+        timeout: float = 120) -> tuple[NDArray, NDArray, NDArray]:
+    """Compute inviscid cavitation bucket: sigma_i(alpha) = -Cp_min(alpha).
+
+    Uses a single XFOIL session, sweeping from *alpha_start* upward in
+    small steps (then mirroring for negative alpha by symmetry).
+
+    Parameters
+    ----------
+    x, y : ndarray
+        Airfoil coordinates in Selig format.
+    alpha_start, alpha_end, alpha_step : float
+        Sweep range in degrees.  Negative alphas are obtained by symmetry
+        (Cp_min at -alpha equals Cp_min at +alpha for a symmetric section
+        at the mirrored surface).
+    xfoil_bin : str, optional
+        Path to XFOIL binary.
+
+    Returns
+    -------
+    alphas : ndarray
+        Angles of attack (includes negative mirror).
+    sigma_i : ndarray
+        Cavitation inception number sigma_i = -Cp_min at each alpha.
+    cp_min : ndarray
+        Minimum Cp at each alpha.
+    """
+    alphas_pos = np.arange(alpha_start, alpha_end + alpha_step * 0.5,
+                           alpha_step)
+
+    with tempfile.TemporaryDirectory(prefix="bisym_xfoil_") as tmpdir:
+        dat_path = Path(tmpdir) / "foil.dat"
+        write_dat(dat_path, x, y, name="bisym_foil")
+
+        # Build command string: one ALFA + CPWR per alpha
+        cmd_lines = [
+            f"LOAD {dat_path}",
+            "PANE",
+            "OPER",
+        ]
+        cp_paths = {}
+        for i, a in enumerate(alphas_pos):
+            cp_file = Path(tmpdir) / f"cp_{i:03d}.dat"
+            cp_paths[i] = cp_file
+            cmd_lines.append(f"ALFA {a:.4f}")
+            cmd_lines.append(f"CPWR {cp_file}")
+
+        cmd_lines.append("")
+        cmd_lines.append("QUIT")
+        commands = "\n".join(cmd_lines) + "\n"
+
+        _run_xfoil(commands, xfoil_bin=xfoil_bin, timeout=timeout)
+
+        # Parse Cp files, extract min Cp
+        alphas_out = []
+        cpmin_out = []
+        for i, a in enumerate(alphas_pos):
+            if cp_paths[i].exists():
+                data = np.loadtxt(cp_paths[i], skiprows=1)
+                alphas_out.append(a)
+                cpmin_out.append(np.min(data[:, 1]))
+
+    alphas_out = np.array(alphas_out)
+    cpmin_out = np.array(cpmin_out)
+
+    # Mirror for negative alpha (symmetric section):
+    # At -alpha, the suction/pressure sides swap, so Cp_min is the same
+    # as at +alpha but on the opposite surface.  For the full bucket we
+    # need both sides.  For a perfectly symmetric section the bucket is
+    # symmetric, but at nonzero alpha the LE suction peak is stronger on
+    # the suction side.  We already compute both surfaces in one CPWR, so
+    # Cp_min captures the worst-case surface automatically.
+    if alpha_start == 0.0 and len(alphas_out) > 0:
+        neg_alpha = -alphas_out[1:][::-1]  # skip 0
+        neg_cpmin = cpmin_out[1:][::-1]
+        alphas_out = np.concatenate([neg_alpha, alphas_out])
+        cpmin_out = np.concatenate([neg_cpmin, cpmin_out])
+
+    sigma_i = -cpmin_out
+
+    return alphas_out, sigma_i, cpmin_out
+
+
+def xfoil_cavity(
+        x: NDArray, y: NDArray,
+        alpha: float, sigma: float,
+        xfoil_bin: str | None = None,
+        timeout: float = 30) -> dict:
+    """Run XFOIL inviscid cavitation analysis at given alpha and sigma.
+
+    Uses the CAVE command to enable cavitation, then solves at the given
+    alpha and dumps cavity data via CDMP.
+
+    Parameters
+    ----------
+    x, y : ndarray
+        Airfoil coordinates in Selig format.
+    alpha : float
+        Angle of attack in degrees.
+    sigma : float
+        Cavitation number.
+    xfoil_bin : str, optional
+        Path to XFOIL binary.
+
+    Returns
+    -------
+    dict with keys:
+        'sigma', 'alpha' : operating point
+        'has_cavity' : bool
+        'x_cav', 'y_cav', 'h_cav', 'cp_cav' : ndarray (cavity stations)
+        'cavity_length', 'max_thickness', 'cd_cav' : float
+        'stdout' : raw XFOIL output for further parsing
+    """
+    with tempfile.TemporaryDirectory(prefix="bisym_xfoil_") as tmpdir:
+        dat_path = Path(tmpdir) / "foil.dat"
+        cav_path = Path(tmpdir) / "cav.dat"
+        cp_path = Path(tmpdir) / "cp.dat"
+
+        write_dat(dat_path, x, y, name="bisym_foil")
+
+        commands = f"""\
+LOAD {dat_path}
+PANE
+OPER
+CAVE {sigma:.4f}
+ALFA {alpha:.4f}
+CDMP {cav_path}
+CPWR {cp_path}
+
+QUIT
+"""
+        stdout = _run_xfoil(commands, xfoil_bin=xfoil_bin, timeout=timeout)
+
+        result = {
+            'sigma': sigma,
+            'alpha': alpha,
+            'has_cavity': False,
+            'x_cav': np.array([]),
+            'y_cav': np.array([]),
+            'h_cav': np.array([]),
+            'cp_cav': np.array([]),
+            'cavity_length': 0.0,
+            'max_thickness': 0.0,
+            'cd_cav': 0.0,
+            'x_cp': np.array([]),
+            'cp': np.array([]),
+            'stdout': stdout,
+        }
+
+        # Parse Cp
+        if cp_path.exists():
+            data = np.loadtxt(cp_path, skiprows=1)
+            result['x_cp'] = data[:, 0]
+            result['cp'] = data[:, 1]
+
+        # Parse cavity dump
+        if cav_path.exists():
+            try:
+                data = np.loadtxt(cav_path, comments='#')
+                if data.size > 0:
+                    if data.ndim == 1:
+                        data = data.reshape(1, -1)
+                    result['has_cavity'] = True
+                    result['x_cav'] = data[:, 0]
+                    result['y_cav'] = data[:, 1]
+                    result['h_cav'] = data[:, 2]
+                    result['cp_cav'] = data[:, 3]
+                    result['cavity_length'] = (data[-1, 0] - data[0, 0])
+                    result['max_thickness'] = np.max(data[:, 2])
+            except (ValueError, IndexError):
+                pass
+
+        # Parse summary from stdout
+        for line in stdout.splitlines():
+            if 'Total cavity CDcav' in line:
+                try:
+                    result['cd_cav'] = float(line.split('=')[1].strip())
+                except (ValueError, IndexError):
+                    pass
+
+        return result
+
+
+def xfoil_viscous_polar(
+        x: NDArray, y: NDArray,
+        re: float = 1.0e6,
+        alpha_start: float = 0.0,
+        alpha_end: float = 4.0,
+        alpha_step: float = 0.25,
+        iter_limit: int = 200,
+        xfoil_bin: str | None = None,
+        timeout: float = 120) -> dict:
+    """Run XFOIL viscous polar sweep with small alpha steps.
+
+    Starts from *alpha_start* and steps upward in small increments so the
+    BL solver can use the previous converged solution as initial guess.
+    Bisymmetric sections have blunt TEs that challenge the BL solver, so
+    small steps and high iteration limits are essential.
+
+    Parameters
+    ----------
+    x, y : ndarray
+        Airfoil coordinates in Selig format (should have finite TE gap
+        for viscous analysis).
+    re : float
+        Reynolds number.
+    alpha_start, alpha_end, alpha_step : float
+        Sweep range in degrees.
+    iter_limit : int
+        XFOIL VISCAL iteration limit per alpha point.
+    xfoil_bin : str, optional
+        Path to XFOIL binary.
+
+    Returns
+    -------
+    dict with keys:
+        'alpha', 'cl', 'cd', 'cdp', 'cm' : ndarray
+        'top_xtr', 'bot_xtr' : ndarray (transition locations)
+        'converged_count' : int
+        'stdout' : raw XFOIL output
+    """
+    with tempfile.TemporaryDirectory(prefix="bisym_xfoil_") as tmpdir:
+        dat_path = Path(tmpdir) / "foil.dat"
+        pol_path = Path(tmpdir) / "polar.dat"
+
+        write_dat(dat_path, x, y, name="bisym_foil")
+
+        commands = f"""\
+LOAD {dat_path}
+PANE
+OPER
+VISC {re:.4E}
+ITER {iter_limit}
+PACC
+{pol_path}
+
+ASEQ {alpha_start:.4f} {alpha_end:.4f} {alpha_step:.4f}
+PACC
+
+QUIT
+"""
+        stdout = _run_xfoil(commands, xfoil_bin=xfoil_bin, timeout=timeout)
+
+        result = {
+            'alpha': np.array([]),
+            'cl': np.array([]),
+            'cd': np.array([]),
+            'cdp': np.array([]),
+            'cm': np.array([]),
+            'top_xtr': np.array([]),
+            'bot_xtr': np.array([]),
+            'converged_count': 0,
+            're': re,
+            'stdout': stdout,
+        }
+
+        if pol_path.exists():
+            try:
+                data = np.loadtxt(pol_path, skiprows=12)
+                if data.size > 0:
+                    if data.ndim == 1:
+                        data = data.reshape(1, -1)
+                    result['alpha'] = data[:, 0]
+                    result['cl'] = data[:, 1]
+                    result['cd'] = data[:, 2]
+                    result['cdp'] = data[:, 3]
+                    result['cm'] = data[:, 4]
+                    result['top_xtr'] = data[:, 5]
+                    result['bot_xtr'] = data[:, 6]
+                    result['converged_count'] = len(data)
+            except (ValueError, IndexError):
+                pass
+
+        return result
+
+
+# ===================================================================
 #  Plotting / comparison
 # ===================================================================
 
@@ -920,6 +1313,174 @@ def plot_rle_sweep(method_fn, tc: float, rle_values: list[float],
         plt.show()
 
 
+def plot_cp_comparison(results: list[tuple[NDArray, NDArray, dict]],
+                       alpha: float = 0.0,
+                       xfoil_bin: str | None = None,
+                       savefile: str | None = None) -> None:
+    """Plot Cp distributions for multiple methods at a given alpha.
+
+    Runs XFOIL inviscid on each result and overlays the Cp(x) curves.
+    """
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+    # --- Cp distribution ---
+    ax = axes[0]
+    cp_data = []
+    for x, y, info in results:
+        try:
+            x_cp, cp = xfoil_cp(x, y, alpha=alpha, xfoil_bin=xfoil_bin)
+            ax.plot(x_cp, cp, label=info['method'], linewidth=1.0)
+            cp_data.append((x_cp, cp, info))
+        except (RuntimeError, FileNotFoundError) as e:
+            print(f"  Warning: XFOIL Cp failed for {info['method']}: {e}")
+    ax.set_xlabel('x/c')
+    ax.set_ylabel('Cp')
+    ax.invert_yaxis()
+    ax.set_title(f'Cp distribution (alpha = {alpha:.1f} deg, inviscid)')
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3)
+
+    # --- Cp near LE ---
+    ax = axes[1]
+    for x_cp, cp, info in cp_data:
+        ax.plot(x_cp, cp, label=info['method'], linewidth=1.0)
+    ax.set_xlabel('x/c')
+    ax.set_ylabel('Cp')
+    ax.invert_yaxis()
+    ax.set_xlim(-0.01, 0.15)
+    ax.set_title('Cp -- LE detail')
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3)
+
+    tc = results[0][2]['tc_target']
+    rle = results[0][2]['rle_target']
+    fig.suptitle(
+        f"Cp comparison -- t/c = {tc:.3f}, r_LE/c = {rle:.4f}, "
+        f"alpha = {alpha:.1f} deg",
+        fontsize=12, fontweight='bold')
+
+    plt.tight_layout()
+    if savefile:
+        plt.savefig(savefile, dpi=150, bbox_inches='tight')
+        print(f"  Cp plot saved to {savefile}")
+    else:
+        plt.show()
+
+
+def plot_cavitation_bucket(bucket_data: list[tuple[NDArray, NDArray, str]],
+                           sigma_op: float | None = None,
+                           savefile: str | None = None) -> None:
+    """Plot cavitation bucket: sigma_i vs alpha.
+
+    Parameters
+    ----------
+    bucket_data : list of (alphas, sigma_i, label)
+        Each entry is one curve to plot.
+    sigma_op : float, optional
+        Operating sigma — draw a horizontal line.
+    """
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(9, 6))
+
+    for alphas, sigma_i, label in bucket_data:
+        ax.plot(alphas, sigma_i, 'o-', label=label, linewidth=1.2,
+                markersize=3)
+
+    if sigma_op is not None:
+        ax.axhline(sigma_op, color='r', linestyle='--', linewidth=1.0,
+                   label=f'sigma_op = {sigma_op:.2f}')
+
+    ax.set_xlabel('Angle of attack (deg)')
+    ax.set_ylabel('sigma_i = -Cp_min')
+    ax.set_title('Cavitation bucket (inviscid)')
+    ax.legend(fontsize=9)
+    ax.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    if savefile:
+        plt.savefig(savefile, dpi=150, bbox_inches='tight')
+        print(f"  Bucket plot saved to {savefile}")
+    else:
+        plt.show()
+
+
+def plot_cavity_overlay(x: NDArray, y: NDArray, cav_result: dict,
+                        savefile: str | None = None) -> None:
+    """Plot airfoil profile with cavity thickness overlaid.
+
+    Parameters
+    ----------
+    x, y : ndarray
+        Airfoil coordinates (Selig format).
+    cav_result : dict
+        Output from xfoil_cavity().
+    """
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(2, 1, figsize=(12, 7),
+                             gridspec_kw={'height_ratios': [2, 1]})
+
+    # --- Airfoil + cavity ---
+    ax = axes[0]
+    ax.plot(x, y, 'k-', linewidth=1.0, label='Airfoil')
+
+    if cav_result['has_cavity']:
+        xc = cav_result['x_cav']
+        yc = cav_result['y_cav']
+        hc = cav_result['h_cav']
+        # Cavity sits on the suction surface; plot it as filled region
+        ax.fill_between(xc, yc, yc + hc, alpha=0.3, color='C0',
+                        label='Cavity')
+        ax.plot(xc, yc + hc, 'C0-', linewidth=1.0)
+
+    sigma = cav_result['sigma']
+    alpha = cav_result['alpha']
+    ax.set_xlabel('x/c')
+    ax.set_ylabel('y/c')
+    ax.set_title(f'Cavity overlay (alpha = {alpha:.1f} deg, '
+                 f'sigma = {sigma:.2f})')
+    ax.set_aspect('equal')
+    ax.legend(fontsize=9)
+    ax.grid(True, alpha=0.3)
+
+    # --- Cp distribution with cavity ---
+    ax = axes[1]
+    if len(cav_result['x_cp']) > 0:
+        ax.plot(cav_result['x_cp'], cav_result['cp'], 'k-',
+                linewidth=0.8, label='Cp')
+    ax.axhline(-sigma, color='r', linestyle='--', linewidth=0.8,
+               label=f'-sigma = {-sigma:.2f}')
+    ax.set_xlabel('x/c')
+    ax.set_ylabel('Cp')
+    ax.invert_yaxis()
+    ax.set_title('Cp distribution with cavitation')
+    ax.legend(fontsize=9)
+    ax.grid(True, alpha=0.3)
+
+    if cav_result['has_cavity']:
+        length = cav_result['cavity_length']
+        hmax = cav_result['max_thickness']
+        cd = cav_result['cd_cav']
+        fig.text(0.02, 0.01,
+                 f"Cavity length/c = {length:.4f},  "
+                 f"max h/c = {hmax:.5f},  "
+                 f"CDcav = {cd:.5f}",
+                 fontsize=9, family='monospace')
+    else:
+        fig.text(0.02, 0.01, "No cavity at this operating point.",
+                 fontsize=9)
+
+    plt.tight_layout()
+    if savefile:
+        plt.savefig(savefile, dpi=150, bbox_inches='tight')
+        print(f"  Cavity plot saved to {savefile}")
+    else:
+        plt.show()
+
+
 # ===================================================================
 #  CLI
 # ===================================================================
@@ -974,14 +1535,19 @@ Examples:
   %(prog)s --method cst --tc 0.08 --rle 0.015 --cst-order 6
   %(prog)s --compare --tc 0.06 --rle 0.010
   %(prog)s --method modified_naca --tc 0.06 --rle-sweep 0.005,0.010,0.015,0.020
-  %(prog)s --method modified_naca --tc 0.06 --rle 0.010 --rle-multiplier 1.5
-  %(prog)s --method modified_naca --tc 0.06 --rle 0.010 --yte 0.005
+  %(prog)s --compare --tc 0.06 --rle 0.010 --plot-cp
+  %(prog)s --cav-bucket --tc 0.06 --rle 0.010 --alpha-range 0,6,0.25
+  %(prog)s --sigma 0.5 --alpha 4.0 --tc 0.06 --rle 0.010
 
 Notes:
   All methods produce profiles symmetric about x/c = 0.5 with G2 continuity
   at the midchord join.  Default TE gap is 0 (sharp, symmetric TE).
   Use --yte to add a finite TE gap for XFOIL panel analysis, or apply it
   in XFOIL via GDES -> TGAP after loading the foil.
+
+  XFOIL analysis (--plot-cp, --cav-bucket, --sigma) uses inviscid mode.
+  The XFOIL binary is auto-detected at bin/xfoil relative to this script,
+  or provide --xfoil-bin explicitly.
         """)
 
     parser.add_argument('--method',
@@ -1027,6 +1593,28 @@ Notes:
                         help='Suppress info output')
     parser.add_argument('--check-symmetry', action='store_true',
                         help='Run and report fore-aft symmetry and G2 checks')
+
+    # XFOIL analysis options
+    xfoil_group = parser.add_argument_group('XFOIL analysis')
+    xfoil_group.add_argument('--xfoil-bin', type=str, default=None,
+                             help='Path to XFOIL binary (auto-detected if omitted)')
+    xfoil_group.add_argument('--alpha', type=float, default=0.0,
+                             help='Angle of attack for Cp extraction (default: 0)')
+    xfoil_group.add_argument('--plot-cp', action='store_true',
+                             help='Run XFOIL and plot Cp distribution')
+    xfoil_group.add_argument('--cav-bucket', action='store_true',
+                             help='Compute and plot cavitation bucket '
+                                  '(sigma_i vs alpha)')
+    xfoil_group.add_argument('--alpha-range', type=str, default='0,6,0.25',
+                             help='Alpha sweep: start,end,step in degrees '
+                                  '(default: 0,6,0.25)')
+    xfoil_group.add_argument('--sigma', type=float, default=None,
+                             help='Cavitation number for cavity analysis')
+    xfoil_group.add_argument('--re', type=float, default=None,
+                             help='Reynolds number for viscous polar '
+                                  '(omit for inviscid-only analysis)')
+    xfoil_group.add_argument('--viscous-polar', action='store_true',
+                             help='Run viscous polar sweep (requires --re)')
 
     args = parser.parse_args()
 
@@ -1113,6 +1701,16 @@ Notes:
 
         plot_comparison(results, savefile=args.plot_save)
 
+        # Cp comparison overlay
+        if args.plot_cp:
+            cp_save = None
+            if args.plot_save:
+                stem = Path(args.plot_save).stem
+                cp_save = str(Path(args.plot_save).parent /
+                              f"{stem}_cp{Path(args.plot_save).suffix}")
+            plot_cp_comparison(results, alpha=args.alpha,
+                               xfoil_bin=args.xfoil_bin, savefile=cp_save)
+
         if args.output:
             for x, y, info in results:
                 stem = Path(args.output).stem
@@ -1159,6 +1757,92 @@ Notes:
 
     if args.plot or args.plot_save:
         plot_comparison([(x, y, info)], savefile=args.plot_save)
+
+    # --- XFOIL Cp plot ---
+    if args.plot_cp:
+        cp_save = None
+        if args.plot_save:
+            stem = Path(args.plot_save).stem
+            cp_save = str(Path(args.plot_save).parent /
+                          f"{stem}_cp{Path(args.plot_save).suffix}")
+        plot_cp_comparison([(x, y, info)], alpha=args.alpha,
+                           xfoil_bin=args.xfoil_bin, savefile=cp_save)
+
+    # --- Cavitation bucket ---
+    if args.cav_bucket:
+        a_parts = [float(v.strip()) for v in args.alpha_range.split(',')]
+        a_start, a_end, a_step = a_parts[0], a_parts[1], a_parts[2]
+        if not args.quiet:
+            print(f"\n  Computing cavitation bucket "
+                  f"(alpha {a_start:.1f} to {a_end:.1f} step {a_step:.2f}) ...")
+        alphas, sigma_i, cp_min = xfoil_cavitation_bucket(
+            x, y, alpha_start=a_start, alpha_end=a_end, alpha_step=a_step,
+            xfoil_bin=args.xfoil_bin)
+        if not args.quiet:
+            print(f"  {'alpha':>7s}  {'sigma_i':>8s}  {'Cp_min':>8s}")
+            for a, s, c in zip(alphas, sigma_i, cp_min):
+                print(f"  {a:7.2f}  {s:8.4f}  {c:8.4f}")
+        label = f"{info['method']} tc={args.tc:.3f} rle={rle:.4f}"
+        bkt_save = None
+        if args.plot_save:
+            stem = Path(args.plot_save).stem
+            bkt_save = str(Path(args.plot_save).parent /
+                           f"{stem}_bucket{Path(args.plot_save).suffix}")
+        plot_cavitation_bucket(
+            [(alphas, sigma_i, label)],
+            sigma_op=args.sigma,
+            savefile=bkt_save)
+
+    # --- Cavity analysis at given sigma ---
+    if args.sigma is not None and not args.cav_bucket:
+        if not args.quiet:
+            print(f"\n  Running cavity analysis: "
+                  f"alpha={args.alpha:.1f}, sigma={args.sigma:.3f} ...")
+        cav = xfoil_cavity(x, y, alpha=args.alpha, sigma=args.sigma,
+                           xfoil_bin=args.xfoil_bin)
+        if not args.quiet:
+            if cav['has_cavity']:
+                print(f"  Cavity detected:")
+                print(f"    Length/c     = {cav['cavity_length']:.5f}")
+                print(f"    Max h/c      = {cav['max_thickness']:.6f}")
+                print(f"    CDcav        = {cav['cd_cav']:.6f}")
+            else:
+                print(f"  No cavity at sigma={args.sigma:.3f}, "
+                      f"alpha={args.alpha:.1f}")
+        cav_save = None
+        if args.plot_save:
+            stem = Path(args.plot_save).stem
+            cav_save = str(Path(args.plot_save).parent /
+                           f"{stem}_cavity{Path(args.plot_save).suffix}")
+        plot_cavity_overlay(x, y, cav, savefile=cav_save)
+
+    # --- Viscous polar ---
+    if args.viscous_polar:
+        if args.re is None:
+            print("  Error: --viscous-polar requires --re", file=sys.stderr)
+            sys.exit(1)
+        a_parts = [float(v.strip()) for v in args.alpha_range.split(',')]
+        a_start, a_end, a_step = a_parts[0], a_parts[1], a_parts[2]
+        if not args.quiet:
+            print(f"\n  Running viscous polar at Re={args.re:.2E} "
+                  f"(alpha {a_start:.1f} to {a_end:.1f} step {a_step:.2f}) ...")
+        polar = xfoil_viscous_polar(
+            x, y, re=args.re,
+            alpha_start=a_start, alpha_end=a_end, alpha_step=a_step,
+            xfoil_bin=args.xfoil_bin)
+        if not args.quiet:
+            n_conv = polar['converged_count']
+            print(f"  Converged points: {n_conv}")
+            if n_conv > 0:
+                print(f"  {'alpha':>7s}  {'CL':>8s}  {'CD':>9s}  "
+                      f"{'CDp':>9s}  {'CM':>8s}  {'Xtr_top':>7s}")
+                for i in range(n_conv):
+                    print(f"  {polar['alpha'][i]:7.2f}  "
+                          f"{polar['cl'][i]:8.4f}  "
+                          f"{polar['cd'][i]:9.5f}  "
+                          f"{polar['cdp'][i]:9.5f}  "
+                          f"{polar['cm'][i]:8.4f}  "
+                          f"{polar['top_xtr'][i]:7.4f}")
 
 
 if __name__ == '__main__':
