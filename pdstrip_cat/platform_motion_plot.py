@@ -527,10 +527,22 @@ def main():
 
     # ---- Panel 3: Surge component breakdown (bottom left) ----
     ax3 = fig.add_subplot(gs[2, 0])
-    # Show a 5-minute window to see wave-frequency detail
-    t_start_detail = 10  # minutes
-    t_end_detail = 15    # minutes
+    # Find the 5-minute window with the largest surge peak-to-peak motion
+    # (sliding window search, 0.5 min steps)
+    window_dur = 5.0  # minutes
+    best_pp = 0.0
+    best_t_start = 0.0
+    for t_try in np.arange(0, duration/60 - window_dur, 0.5):
+        m = (t_min >= t_try) & (t_min <= t_try + window_dur)
+        pp = np.max(surge_1st[m]) - np.min(surge_1st[m])
+        if pp > best_pp:
+            best_pp = pp
+            best_t_start = t_try
+    t_start_detail = best_t_start
+    t_end_detail = best_t_start + window_dur
     mask = (t_min >= t_start_detail) & (t_min <= t_end_detail)
+    print(f"  Detail window: {t_start_detail:.1f}–{t_end_detail:.1f} min "
+          f"(largest 1st-order pp = {best_pp:.2f} m)")
 
     ax3.plot(t_min[mask], surge_1st[mask], 'C0-', lw=0.8,
              label=f'1st-order (σ={np.std(surge_1st):.2f} m)', alpha=0.8)
@@ -562,12 +574,12 @@ def main():
 
     # ---- Panel 5: Sway component breakdown (bottom row left) ----
     ax5 = fig.add_subplot(gs[3, 0])
-    mask2 = (t_min >= t_start_detail) & (t_min <= t_end_detail)
-    ax5.plot(t_min[mask2], sway_vim[mask2], 'C2-', lw=1.0,
+    # Use same detail window as surge
+    ax5.plot(t_min[mask], sway_vim[mask], 'C2-', lw=1.0,
              label=f'VIM (σ={np.std(sway_vim):.2f} m)', alpha=0.8)
-    ax5.plot(t_min[mask2], sway_1st[mask2], 'C0-', lw=0.8,
+    ax5.plot(t_min[mask], sway_1st[mask], 'C0-', lw=0.8,
              label=f'1st-order (σ={np.std(sway_1st):.2f} m)', alpha=0.7)
-    ax5.plot(t_min[mask2], sway_slow[mask2], 'C4-', lw=1.2,
+    ax5.plot(t_min[mask], sway_slow[mask], 'C4-', lw=1.2,
              label=f'Slow drift (σ={np.std(sway_slow):.2f} m)')
     ax5.set_xlabel('Time [min]', fontsize=11)
     ax5.set_ylabel('Sway component [m]', fontsize=11)
