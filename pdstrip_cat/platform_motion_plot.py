@@ -21,6 +21,13 @@ VIM is modeled as a narrow-band oscillation at ω_n with amplitude modulation
 to capture intermittent lock-in/unlock behavior typical of post-critical
 Re flow around deep-draft spars.
 
+IMPORTANT: All spectral synthesis uses GEOMETRICALLY spaced frequencies
+to avoid artificial repetition. With linear spacing Δω, the signal repeats
+after T_repeat = 2π/Δω (e.g., 628 s for Δω=0.01). Geometric spacing
+breaks this common-divisor relationship, giving effectively infinite
+repeat time. The RAO and QTF data (on Nemoh's linear grid) are
+interpolated onto the geometric grid before synthesis.
+
 The resulting plot shows the chaotic, multi-frequency character of the
 platform motion that a DP vessel must track during alongside operations.
 
@@ -56,6 +63,31 @@ from combined_motion import bimodal_spectrum
 
 # Compatibility
 trapz = np.trapezoid if hasattr(np, 'trapezoid') else np.trapz
+
+
+def make_geometric_omega(omega_min, omega_max, n):
+    """
+    Create a geometrically spaced frequency vector.
+
+    With geometric spacing, consecutive frequency ratios are constant:
+        ω_{i+1} / ω_i = r = (omega_max/omega_min)^(1/(n-1))
+
+    This breaks the common-divisor relationship between frequencies that
+    causes synthesized signals to repeat after T = 2π/Δω with linear
+    spacing. The result is an effectively infinite repeat time.
+
+    Parameters
+    ----------
+    omega_min : float, lowest frequency [rad/s]
+    omega_max : float, highest frequency [rad/s]
+    n : int, number of frequencies
+
+    Returns
+    -------
+    omega : 1D array, geometrically spaced frequencies [rad/s]
+    """
+    return np.geomspace(omega_min, omega_max, n)
+
 
 # ============================================================
 # File paths
@@ -123,6 +155,7 @@ def synthesize_narrowband(omega_center, bandwidth, sigma, t, rng=None):
     Synthesize a narrow-band process centered at omega_center.
 
     Models slow-drift or VIM as a narrow-band Gaussian process.
+    Uses geometric frequency spacing to avoid artificial repetition.
 
     Parameters
     ----------
@@ -141,11 +174,11 @@ def synthesize_narrowband(omega_center, bandwidth, sigma, t, rng=None):
     if sigma <= 0:
         return np.zeros_like(t)
 
-    # Create narrow Gaussian spectrum
+    # Create narrow Gaussian spectrum on GEOMETRIC frequency grid
     n_freq = 200
-    omega = np.linspace(max(1e-4, omega_center - 3*bandwidth),
-                        omega_center + 3*bandwidth, n_freq)
-    dw = omega[1] - omega[0]
+    omega_lo = max(1e-4, omega_center - 3*bandwidth)
+    omega_hi = omega_center + 3*bandwidth
+    omega = make_geometric_omega(omega_lo, omega_hi, n_freq)
 
     # Gaussian spectral shape
     S = np.exp(-0.5 * ((omega - omega_center) / bandwidth)**2)
@@ -282,9 +315,28 @@ def main():
     # ============================================================
     print("  Loading QTF and RAO data...")
     qtf_omegas, qtf_T = parse_qtf_total(QTF_FILE, dof=1, beta=0.0)
-    omega_rao, surge_amp, surge_ph, pitch_amp_deg, pitch_ph = \
+    omega_rao_lin, surge_amp_lin, surge_ph_lin, pitch_amp_deg_lin, pitch_ph_lin = \
         parse_rao_surge_pitch(RAO_FILE)
-    pitch_amp_rad = np.radians(pitch_amp_deg)
+    pitch_amp_rad_lin = np.radians(pitch_amp_deg_lin)
+
+    # ============================================================
+    # Create GEOMETRIC frequency grid for first-order synthesis
+    # ============================================================
+    # With Nemoh's linear Δω=0.01 rad/s, signals repeat after 2π/Δω=628 s.
+    # Geometric spacing breaks this: ω_{i+1}/ω_i = const → no common divisor.
+    N_GEO = 200  # more points than original 80 for good spectral resolution
+    omega_geo = make_geometric_omega(omega_rao_lin[0], omega_rao_lin[-1], N_GEO)
+    print(f"  Geometric frequency grid: {N_GEO} points, "
+          f"ω = [{omega_geo[0]:.4f}, {omega_geo[-1]:.3f}] rad/s, "
+          f"ratio = {omega_geo[1]/omega_geo[0]:.6f}")
+
+    # Interpolate RAO data onto geometric grid
+    # (amplitude and phase interpolated separately to avoid complex wrapping issues)
+    surge_amp = np.interp(omega_geo, omega_rao_lin, surge_amp_lin)
+    surge_ph = np.interp(omega_geo, omega_rao_lin, surge_ph_lin)
+    pitch_amp_rad = np.interp(omega_geo, omega_rao_lin, pitch_amp_rad_lin)
+    pitch_ph = np.interp(omega_geo, omega_rao_lin, pitch_ph_lin)
+    omega_rao = omega_geo  # use geometric grid for all first-order work
 
     # ============================================================
     # SURGE COMPONENTS
@@ -304,25 +356,26 @@ def main():
           f"+ drift {x_mean_drift:.3f})")
 
     # --- 2. First-order surge (bimodal spectrum × apparent surge RAO) ---
-    # Complex RAOs for apparent surge at z
+    # Complex RAOs for apparent surge at z (on geometric grid)
     X_surge = surge_amp * np.exp(1j * surge_ph)
     Theta = pitch_amp_rad * np.exp(1j * pitch_ph)
     X_app = X_surge + z_above_swl * Theta
     RAO_app = np.abs(X_app)
     phase_app = np.angle(X_app)
 
-    # Bimodal wave spectrum at RAO frequencies
+    # Bimodal wave spectrum at geometric frequencies
     S_wave = bimodal_spectrum(omega_rao, Hs_ws, Tp_ws, gamma_ws,
                               Hs_sw, Tp_sw, gamma_sw)
 
-    # Response spectrum
+    # Response spectrum (for σ target on geometric grid)
     S_surge_1st = RAO_app**2 * S_wave
     sigma_1st = np.sqrt(trapz(S_surge_1st, omega_rao))
 
-    # Synthesize first-order with CORRECT RAO phase
-    # x(t) = Σ |RAO| * sqrt(2 * S_wave * dω) * cos(ωt + φ_wave + angle(RAO))
+    # Synthesize first-order with CORRECT RAO phase on GEOMETRIC grid
+    # x(t) = Σ |RAO| * sqrt(2 * S_wave * Δω_i) * cos(ω_i*t + φ_wave + angle(RAO))
+    # For geometric spacing, Δω varies — use per-frequency spacing
     dw = np.diff(omega_rao)
-    dw = np.append(dw, dw[-1])
+    dw = np.append(dw, dw[-1])  # extend to match length
     A_1st = RAO_app * np.sqrt(2 * S_wave * dw)
     phi_wave = master_rng.uniform(0, 2 * np.pi, size=len(omega_rao))
     surge_1st = np.zeros(n_t)
@@ -339,12 +392,24 @@ def main():
           f"(target {sigma_1st:.3f})")
 
     # --- 3. Slow-drift surge (from QTF) ---
-    mu, S_F = compute_slow_drift_force_spectrum(qtf_omegas, qtf_T, S_total_qtf)
-    H = surge_transfer_function(mu, MASS, A11_LOW, B_EXT, K_SURGE)
-    S_sd = np.abs(H)**2 * S_F
-    sigma_sd = np.sqrt(trapz(S_sd, mu))
+    mu_lin, S_F = compute_slow_drift_force_spectrum(qtf_omegas, qtf_T, S_total_qtf)
+    H_lin = surge_transfer_function(mu_lin, MASS, A11_LOW, B_EXT, K_SURGE)
+    S_sd_lin = np.abs(H_lin)**2 * S_F
+    sigma_sd = np.sqrt(trapz(S_sd_lin, mu_lin))
 
-    surge_sd = synthesize_from_spectrum(mu, S_sd, t,
+    # Interpolate slow-drift response spectrum onto geometric mu grid
+    # (mu is difference-frequency, typically 0 to ~0.2 rad/s)
+    mu_pos = mu_lin[mu_lin > 0]
+    S_sd_pos = S_sd_lin[mu_lin > 0]
+    if len(mu_pos) > 2:
+        N_MU_GEO = 150
+        mu_geo = make_geometric_omega(mu_pos[0], mu_pos[-1], N_MU_GEO)
+        S_sd_geo = np.interp(mu_geo, mu_pos, S_sd_pos)
+    else:
+        mu_geo = mu_pos
+        S_sd_geo = S_sd_pos
+
+    surge_sd = synthesize_from_spectrum(mu_geo, S_sd_geo, t,
                                         rng=np.random.default_rng(master_rng.integers(1e9)))
     print(f"    Slow-drift surge: σ={np.std(surge_sd):.3f} m "
           f"(target {sigma_sd:.3f})")
