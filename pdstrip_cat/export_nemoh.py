@@ -278,6 +278,129 @@ def despike_drift(rows, drift_cols=(16, 17, 18, 19), threshold=5.0, window=5):
     return n_spikes
 
 
+def replicate_axisymmetric(rao_records, drift_data, step_deg=10.0):
+    """Replicate single-heading data across all headings for an axisymmetric body.
+
+    For a body of revolution (e.g. spar platform), the response to waves from
+    heading β can be derived from the 0° response by rotation:
+
+      Nemoh convention: 0° = waves propagating in +x direction (following seas).
+      For body of revolution with axis along z (vertical), if we know the
+      in-line (surge) and heave responses at 0°, then at heading β:
+
+        surge(β) = surge(0) · cos(β)     (projection onto wave direction)
+        sway(β)  = surge(0) · sin(β)     (transverse projection)
+        heave(β) = heave(0)              (axial symmetry)
+        pitch(β) = pitch(0) · cos(β)     (follows surge)
+        roll(β)  = pitch(0) · sin(β)     (follows sway, with sign from right-hand rule)
+        yaw(β)   = 0                     (by symmetry)
+
+    The same rotation applies to drift forces:
+        surge_drift(β) = surge_drift(0) · cos(β)
+        sway_drift(β)  = surge_drift(0) · sin(β)
+        yaw_drift(β)   = 0
+        roll_drift(β)  = 0
+
+    Args:
+        rao_records: list of RAO dicts from parse_rao_tec (single heading).
+        drift_data: QTF drift dict from parse_qtfm_duok (single heading).
+        step_deg: heading step in degrees (default 10.0 → 36 headings).
+
+    Returns:
+        (new_rao_records, new_drift_data) with replicated headings.
+    """
+    # Verify single heading
+    betas = set(r['beta_deg'] for r in rao_records)
+    if len(betas) != 1:
+        raise ValueError(f'--axisymmetric requires exactly 1 heading, got {len(betas)}: {betas}')
+
+    ref_beta = list(betas)[0]
+    headings = [i * step_deg for i in range(int(360.0 / step_deg))]
+
+    new_records = []
+    for rec in rao_records:
+        for beta in headings:
+            # Angle difference from reference heading
+            delta = (beta - ref_beta) * math.pi / 180.0
+            c = math.cos(delta)
+            s = math.sin(delta)
+
+            # Original amplitudes and phases
+            amp = list(rec['amp'])
+            phase = list(rec['phase_deg'])
+
+            # In-line response (surge at ref heading)
+            surge_amp = amp[0]
+            surge_phase = phase[0]
+
+            # Heave is unchanged
+            heave_amp = amp[2]
+            heave_phase = phase[2]
+
+            # Pitch at ref heading (in-line rotational)
+            pitch_amp = amp[4]
+            pitch_phase = phase[4]
+
+            # New DOFs by rotation:
+            # surge(β) = surge(0) · |cos(δ)|, with phase flip if cos < 0
+            # sway(β)  = surge(0) · |sin(δ)|, with phase flip if sin < 0
+            new_amp = [0.0] * 6
+            new_phase = [0.0] * 6
+
+            # Surge
+            new_amp[0] = surge_amp * abs(c)
+            new_phase[0] = surge_phase + (180.0 if c < 0 else 0.0)
+
+            # Sway
+            new_amp[1] = surge_amp * abs(s)
+            new_phase[1] = surge_phase + (180.0 if s < 0 else 0.0)
+
+            # Heave (unchanged)
+            new_amp[2] = heave_amp
+            new_phase[2] = heave_phase
+
+            # Roll (from pitch, follows sway)
+            new_amp[3] = pitch_amp * abs(s)
+            # Roll phase: pitch_phase for the magnitude, but roll is rotation about x
+            # When sway is positive (waves from port), roll follows pitch convention
+            new_phase[3] = pitch_phase + (180.0 if s < 0 else 0.0)
+
+            # Pitch (follows surge direction)
+            new_amp[4] = pitch_amp * abs(c)
+            new_phase[4] = pitch_phase + (180.0 if c < 0 else 0.0)
+
+            # Yaw = 0 by symmetry
+            new_amp[5] = 0.0
+            new_phase[5] = 0.0
+
+            new_records.append({
+                'omega': rec['omega'],
+                'beta_deg': beta,
+                'amp': new_amp,
+                'phase_deg': new_phase,
+            })
+
+    # Replicate drift data
+    new_drift = {}
+    for (omega, beta_rad, dof), val in drift_data.items():
+        for beta_deg in headings:
+            new_beta_rad = round(beta_deg * math.pi / 180.0, 3)
+            delta = (beta_deg - ref_beta) * math.pi / 180.0
+            c = math.cos(delta)
+            s = math.sin(delta)
+
+            if dof == 1:    # surge drift
+                new_drift[(omega, new_beta_rad, 1)] = val * c
+                new_drift[(omega, new_beta_rad, 2)] = val * s
+            elif dof == 4:  # roll drift — zero for axisymmetric
+                pass
+            elif dof == 6:  # yaw drift — zero for axisymmetric
+                pass
+            # DOFs 2, 4, 6 at ref heading should be ~0 for axisymmetric; skip
+
+    return new_records, new_drift
+
+
 def convert_and_write(rao_records, drift_data, output_path, g=9.81):
     """Convert Nemoh data to PDStrip convention and write TSV.
 
@@ -449,6 +572,9 @@ def main():
                         help='Gravitational acceleration (default: 9.81)')
     parser.add_argument('--no-qtf', action='store_true',
                         help='Skip QTF reading; output zeros for drift columns')
+    parser.add_argument('--axisymmetric', action='store_true',
+                        help='Replicate single-heading data across 36 headings '
+                             '(10° steps) for axisymmetric bodies (e.g. spar)')
 
     args = parser.parse_args()
 
@@ -492,6 +618,13 @@ def main():
     else:
         print(f'Warning: QTF file not found: {qtf_path}', file=sys.stderr)
         print('  Drift columns will be zero.', file=sys.stderr)
+
+    # --- Axisymmetric replication ---
+    if args.axisymmetric:
+        print('Replicating axisymmetric body across 36 headings (0° to 350°, 10° step)')
+        rao_records, drift_data = replicate_axisymmetric(rao_records, drift_data)
+        betas = sorted(set(r['beta_deg'] for r in rao_records))
+        print(f'  Now {len(betas)} headings: {betas[0]:.1f} - {betas[-1]:.1f} deg')
 
     # --- Convert and write ---
     print(f'Writing {output_path}')
