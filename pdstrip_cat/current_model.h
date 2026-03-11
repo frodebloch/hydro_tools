@@ -269,6 +269,11 @@ class CurrentEnvironment {
   /// Access settings (read-only).
   const CurrentEnvironmentSettings& Settings() const { return settings_; }
 
+  /// Apply depth profile factor at a given depth.
+  /// @param depth  Depth below SWL [m] (positive downward).
+  /// @return Fraction of surface speed at the given depth (0–1).
+  double DepthFactor(double depth) const;
+
  private:
   CurrentEnvironmentSettings settings_;
   bool initialized_ = false;
@@ -296,10 +301,6 @@ class CurrentEnvironment {
 
   /// Interpolate the pre-computed direction at an arbitrary time.
   double InterpolateDirection(double time) const;
-
-  /// Apply depth profile factor at a given depth.
-  /// @return Fraction of surface speed at the given depth (0–1).
-  double DepthFactor(double depth) const;
 };
 
 // ============================================================

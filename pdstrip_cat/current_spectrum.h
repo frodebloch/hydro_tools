@@ -21,7 +21,6 @@
 
 namespace brucon {
 namespace simulator {
-namespace floating_platform {
 
 // ============================================================
 // Free functions — spectrum generation
@@ -242,6 +241,5 @@ inline std::vector<double> SynthesizeFromSpectrum(
   return x;
 }
 
-}  // namespace floating_platform
 }  // namespace simulator
 }  // namespace brucon

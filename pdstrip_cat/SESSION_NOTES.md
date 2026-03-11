@@ -1681,8 +1681,8 @@ Key integration points:
 
 ### Validation Plan
 
-1. **Static drag**: `CurrentDrag::Force(0.5)` should match Python `compute_current_drag(0.5)` = 30.7 kN
-2. **Sensitivity**: `CurrentDrag::Sensitivity(0.5)` ≈ 122.7 kN/(m/s), matches `dFdU` from Python
+1. **Static drag**: `CurrentDrag::Force(0.5)` should match Python `compute_current_drag(0.5)` = 148.1 kN (**CORRECTED**: session notes originally said 30.7 kN — that was wrong)
+2. **Sensitivity**: `CurrentDrag::Sensitivity(0.5)` ≈ 592.4 kN/(m/s), matches `dFdU` from Python (**CORRECTED** from 122.7)
 3. **Spectrum shape**: `GenericCurrentSpectrum` output should match `current_spectrum_generic` from Python
 4. **Time series statistics**: synthesized σ should match target σ_Uc to within ~5%
 5. **Surge response**: for σ_Uc = 0.10 m/s, T_peak = 1800s, the nonlinear time-domain σ_surge should approximate the Python spectral result of 1.85 m
@@ -1712,5 +1712,36 @@ spar_force.relative_velocity = true;
 spar_force.nonlinear_drag = true;
 spar_force.include_rectification = true;  // only used if nonlinear_drag=false
 ```
+
+### Session 60 Continued — Implementation and Validation
+
+**Namespace refactoring:**
+- Moved `current_spectrum.h` and `current_drag.h` from `brucon::simulator::floating_platform` to `brucon::simulator`. Rationale: `CurrentEnvironment` (at `simulator` level) needs to call `GenericCurrentSpectrum`, `SynthesizeFromSpectrum`, etc. And `HullSection`/`CurrentDrag` are general-purpose (could be used for any body, not just the FWT).
+- Only `CurrentForceModel` remains in `floating_platform` namespace.
+- Made `DepthFactor()` public on `CurrentEnvironment` — needed by `CurrentForceModel::ComputeForceDepthIntegrated()`.
+
+**Implementation (`current_model.cpp`, 431 lines):**
+- `CurrentEnvironment`: constructor (RNG init), `Initialize()`, `Speed/Direction/Velocity` queries with linear interpolation, `SynthesizeTimeSeries()` (spectrum generation + random-phase superposition), `LoadTimeSeries()` (CSV/whitespace file reader), `DepthFactor()` (uniform/power-law/bilinear/custom profiles).
+- `CurrentForceModel`: `ComputeForce()` (body-frame resolution + NED rotation), `ComputeForceDepthIntegrated()` (depth profile via `ForceWithProfile`), linearized quantities (`MeanDragForce`, `DragSensitivity`, `DragSecondDerivative`, `RectificationOffset`).
+
+**Validation test (`test_current_model.cpp`, 47 tests, all pass):**
+- Static drag: C++ 148.24 kN vs Python 148.10 kN (0.1% diff — taper discretization)
+- Sensitivity: dF/dU matches to 0.1%
+- All spectrum types integrate to correct variance
+- Synthesis sigma matches target within 0.24%
+- Environment mean/sigma from time series correct
+- Force model: heading rotation, relative velocity, depth integration all correct
+- Correlation: shared environment returns identical values to both bodies
+
+**Corrected validation targets:**
+- `Force(0.5)` = 148.1 kN (session notes previously said 30.7 kN — that was wrong)
+- `Sensitivity(0.5)` = 592.4 kN/(m/s) (previously said 122.7 kN/(m/s))
+
+**Design decision — wave-current interaction placement:**
+Wave-current interaction (current modifying wave drift QTF) belongs in the **force model**, not the environment. Rationale:
+1. The environment's job is to provide the physical current field — it should not know about waves.
+2. Wave drift QTF is a per-body concern (depends on hull geometry, wave spectrum, heading).
+3. The coupling is one-way: `WaveDriftForceModel` queries `CurrentEnvironment::Speed(t)` to adjust its QTF for current effects (Doppler shift, modified wave kinematics).
+4. This keeps the environment as a pure data provider and avoids circular dependencies.
 
 ---

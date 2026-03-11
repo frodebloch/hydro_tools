@@ -18,7 +18,6 @@
 
 namespace brucon {
 namespace simulator {
-namespace floating_platform {
 
 // ============================================================
 // Hull section geometry (shared with MorisonDamping)
@@ -252,6 +251,5 @@ class CurrentDrag {
   }
 };
 
-}  // namespace floating_platform
 }  // namespace simulator
 }  // namespace brucon
