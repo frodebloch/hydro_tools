@@ -43,6 +43,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from slow_drift_swell import (
     parse_qtf_total, compute_slow_drift_force_spectrum,
     surge_transfer_function, compute_statistics, compute_mean_drift,
+    compute_current_variability_surge,
     RHOG,
 )
 
@@ -280,6 +281,104 @@ def parse_rao_surge_pitch(filepath, beta_target=0.0):
             np.radians(np.array(surge_phase_list)),
             np.array(pitch_amp_list),
             np.radians(np.array(pitch_phase_list)))
+
+
+def parse_rao_heave_pitch(filepath, beta_target=0.0):
+    """
+    Parse Nemoh RAO.tec and extract heave + pitch RAOs at given heading.
+
+    Returns:
+      omega: array of frequencies [rad/s]
+      heave_amp: |Z| [m/m]
+      heave_phase: phase of Z [rad]
+      pitch_amp: |theta| [deg/m]
+      pitch_phase: phase of theta [rad]
+    """
+    omega_list = []
+    heave_amp_list, heave_phase_list = [], []
+    pitch_amp_list, pitch_phase_list = [], []
+    found_zone = False
+    with open(filepath) as f:
+        for line in f:
+            line = line.strip()
+            if line.startswith('ZONE') or line.startswith('zone'):
+                beta_str = line.split('beta=')[1].split('(deg)')[0].strip()
+                beta = float(beta_str)
+                if abs(beta - beta_target) < 0.1:
+                    found_zone = True
+                    omega_list = []
+                    heave_amp_list, heave_phase_list = [], []
+                    pitch_amp_list, pitch_phase_list = [], []
+                else:
+                    if found_zone:
+                        break
+                continue
+            if line.startswith('VARIABLES'):
+                continue
+            if found_zone:
+                parts = line.split()
+                omega_list.append(float(parts[0]))
+                heave_amp_list.append(float(parts[3]))     # |Z| [m/m]
+                pitch_amp_list.append(float(parts[5]))      # |theta| [deg/m]
+                heave_phase_list.append(float(parts[9]))    # ang(z) [deg]
+                pitch_phase_list.append(float(parts[11]))   # ang(theta) [deg]
+
+    return (np.array(omega_list),
+            np.array(heave_amp_list),
+            np.radians(np.array(heave_phase_list)),
+            np.array(pitch_amp_list),
+            np.radians(np.array(pitch_phase_list)))
+
+
+def parse_radiation_coefficients(filepath, dof_i, dof_j):
+    """
+    Parse Nemoh RadiationCoefficients.tec for a specific DOF pair (i,j).
+
+    The file contains zones for each DOF being excited (i=1..6).
+    Within each zone, columns are: omega, A_i1, B_i1, A_i2, B_i2, ..., A_i6, B_i6
+
+    Parameters
+    ----------
+    filepath : str
+        Path to RadiationCoefficients.tec
+    dof_i : int
+        DOF being excited (1-based: 1=surge, 2=sway, 3=heave, 4=roll, 5=pitch, 6=yaw)
+    dof_j : int
+        Response DOF (1-based)
+
+    Returns
+    -------
+    omega : 1D array, frequencies [rad/s]
+    A : 1D array, added mass (kg for translational, kg·m for coupled, kg·m² for rotational)
+    B : 1D array, radiation damping (same units × s⁻¹)
+    """
+    omega_list, A_list, B_list = [], [], []
+    # Column indices for A_ij and B_ij within the zone
+    col_A = 1 + 2 * (dof_j - 1)  # 0-indexed after omega
+    col_B = col_A + 1
+
+    target_zone = f"DoF   {dof_i}"
+    found_zone = False
+    with open(filepath) as f:
+        for line in f:
+            line = line.strip()
+            if line.startswith('VARIABLES'):
+                continue
+            if line.startswith('Zone') or line.startswith('zone'):
+                if target_zone in line:
+                    found_zone = True
+                    omega_list, A_list, B_list = [], [], []
+                else:
+                    if found_zone:
+                        break  # moved past our zone
+                continue
+            if found_zone:
+                parts = line.split()
+                omega_list.append(float(parts[0]))
+                A_list.append(float(parts[col_A]))
+                B_list.append(float(parts[col_B]))
+
+    return np.array(omega_list), np.array(A_list), np.array(B_list)
 
 
 def compute_first_order_surge(rao_file, hs, tp, gamma=3.3):
@@ -1003,6 +1102,56 @@ def main():
     print()
 
     # ============================================================
+    # Part 3c: Current variability — slowly varying surge
+    # ============================================================
+    print("-" * 80)
+    print("3c. CURRENT VARIABILITY — slowly varying surge from current fluctuations")
+    print("-" * 80)
+    print()
+    print("   Ocean currents fluctuate due to tidal, inertial, and internal wave")
+    print("   processes. Since drag F ~ U², even small current fluctuations produce")
+    print("   large force variations that drive slowly varying platform motions.")
+    print()
+
+    cv_sigma_Uc_values = [0.05, 0.10, 0.15, 0.20, 0.30]
+    cv_T_peak = 1800.0  # 30 min
+    cv_Uc_mean = 0.5
+
+    print(f"   Mean current: {cv_Uc_mean} m/s, variability peak period: "
+          f"{cv_T_peak:.0f} s ({cv_T_peak/60:.0f} min)")
+    print()
+    print(f"   {'σ_Uc':>6s} {'σ_surge':>8s} {'x_sig':>8s} {'x_max':>8s} "
+          f"{'Δx_mean':>8s} {'pp_exact':>9s} {'%_QS':>6s}")
+    print(f"   {'[m/s]':>6s} {'[m]':>8s} {'[m]':>8s} {'[m]':>8s} "
+          f"{'[m]':>8s} {'[m]':>9s} {'':>6s}")
+    print(f"   {'-'*6} {'-'*8} {'-'*8} {'-'*8} "
+          f"{'-'*8} {'-'*9} {'-'*6}")
+
+    sigma_cv_ref = 0.0  # will be set for reference σ_Uc
+    x_mean_cv_ref = 0.0
+    for sigma_Uc in cv_sigma_Uc_values:
+        cv = compute_current_variability_surge(
+            cv_Uc_mean, sigma_Uc, cv_T_peak, verbose=False)
+        if cv is None:
+            print(f"   {sigma_Uc:6.2f}  — MOORING CAPACITY EXCEEDED")
+            continue
+        pp = cv['x_range_exact']
+        pp_str = f"{pp:9.2f}" if pp < float('inf') else "    >17.5"
+        print(f"   {sigma_Uc:6.2f} {cv['sigma']:8.3f} {cv['x_sig']:8.3f} "
+              f"{cv['x_max']:8.3f} {cv['x_mean_shift']:8.3f} "
+              f"{pp_str} {cv['pct_quasi_static']:5.1f}%")
+        # Store reference value (σ_Uc = 0.10 m/s)
+        if abs(sigma_Uc - 0.10) < 0.001:
+            sigma_cv_ref = cv['sigma']
+            x_mean_cv_ref = cv['x_mean_shift']
+
+    print()
+    print(f"   Reference value for budget: σ_Uc = 0.10 m/s → "
+          f"σ_surge = {sigma_cv_ref:.3f} m")
+    print(f"   (conservative: actual North Sea current σ_Uc likely 0.05–0.20 m/s)")
+    print()
+
+    # ============================================================
     # Part 4: First-order wave-frequency surge
     # ============================================================
     print("-" * 80)
@@ -1152,6 +1301,9 @@ def main():
           f"{'—':>8s} {sigma_drift_windsea:8.3f} {2*sigma_drift_windsea:8.3f}")
     print(f"   {'2nd-order drift, swell [{0}]'.format(src):<42s} "
           f"{'—':>8s} {sigma_drift_swell:8.3f} {2*sigma_drift_swell:8.3f}")
+    cv_label = f'Current variability (σ_Uc={0.10} m/s)'
+    print(f"   {cv_label:<42s} "
+          f"{'—':>8s} {sigma_cv_ref:8.3f} {2*sigma_cv_ref:8.3f}")
     if have_qtf and K_eq != K_SURGE:
         print()
         print(f"   --- With nonlinear mooring (K={K_eq/1e3:.1f} kN/m at Uc={Uc_ref} m/s) ---")
@@ -1169,20 +1321,30 @@ def main():
     # Combined (assume independent, RSS for dynamic components)
     # Use linearized slow-drift (conservative: nonlinear mooring reduces it)
     for blade_label, w in [('feathered', w_feath), ('parked', w_parked)]:
-        x_mean_total = w['x_mean'] + c_ref['x_mean']
-        sigma_total = np.sqrt(
+        x_mean_total = w['x_mean'] + c_ref['x_mean'] + x_mean_cv_ref
+        sigma_total_no_cv = np.sqrt(
             w['sigma']**2 +
             sigma_wave_ws**2 +
             sigma_wave_sw**2 +
             sigma_drift_windsea**2 +
             sigma_drift_swell**2
         )
+        sigma_total = np.sqrt(
+            w['sigma']**2 +
+            sigma_wave_ws**2 +
+            sigma_wave_sw**2 +
+            sigma_drift_windsea**2 +
+            sigma_drift_swell**2 +
+            sigma_cv_ref**2
+        )
         x_95 = x_mean_total + 2 * sigma_total
 
         print(f"   COMBINED ({blade_label} blades):")
         print(f"     Mean offset:         {x_mean_total:8.3f} m "
-              f"(wind {w['x_mean']:.3f} + current {c_ref['x_mean']:.3f})")
-        print(f"     Dynamic sigma (RSS): {sigma_total:8.3f} m")
+              f"(wind {w['x_mean']:.3f} + current {c_ref['x_mean']:.3f}"
+              f" + rect {x_mean_cv_ref:.3f})")
+        print(f"     Dynamic sigma (RSS): {sigma_total:8.3f} m"
+              f"  (without current var: {sigma_total_no_cv:.3f})")
         print(f"     x_sig (2*sigma):     {2*sigma_total:8.3f} m")
         print(f"     ~95th pctl excursion: {x_95:8.2f} m (mean + 2*sigma)")
         print()

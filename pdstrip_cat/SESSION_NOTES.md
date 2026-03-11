@@ -1,6 +1,6 @@
 # PDStrip Drift Force Validation — Session Continuation Notes
 
-**Last updated:** 2026-02-27
+**Last updated:** 2026-03-09
 **Project location:** `/home/blofro/src/pdstrip_test`
 
 ---
@@ -702,3 +702,751 @@ Compare excitation forces, added mass, and damping between equilibrium no-transo
 
 - **Repo root:** `/home/blofro/src/hydro_tools` (remote: `git@github.com:frodebloch/hydro_tools.git`, branch `main`)
 - **PDStrip subdir:** `pdstrip_cat/`
+
+---
+
+## OC3 HYWIND SPAR — PLATFORM MOTION DURING DP ALONGSIDE OPS (Sessions 32-56)
+
+### Motivation
+
+Analyze platform motion of the OC3 Hywind spar floating wind turbine during **DP (Dynamic Positioning) alongside operations** with the turbine **stopped/feathered**. The goal is to synthesize realistic time-domain motion at deck level that a DP vessel must track, including surge, sway, and vertical (heave + pitch coupling).
+
+### Input Data: Nemoh BEM Results
+
+Located at `/home/blofro/src/pdstrip_test/hywind_nemoh_fine/`:
+- **RAO:** `Motion/RAO.tec` — 80 frequencies x 13 columns per heading
+- **Radiation:** `results/RadiationCoefficients.tec` — 6 zones x 80 freq x 13 columns
+- **QTF:** `results/QTF/OUT_QTFM_N.dat` — mean drift QTF
+
+### Reference Sea State
+
+- Wind-sea: Hs=2.5m, Tp=8s, gamma=3.3 (JONSWAP)
+- Swell: Hs=1.5m, Tp=19s, gamma=5.0 (JONSWAP)
+- Wind: U10=10 m/s (10-min mean)
+- Current: Uc=0.5 m/s
+- Evaluation height: z=15m above SWL (deck level)
+- Turbine state: stopped/feathered
+
+### Key Physical Parameters (OC3 Hywind)
+
+- **Mass:** 1.40179e7 kg, **Draft:** 120m, **CG at z=-78m** below SWL
+- **Spar geometry:**
+  - Upper: D=6.5m (SWL to -4m)
+  - Taper: 6.5→9.4m (-4m to -12m)
+  - Lower: D=9.4m (-12m to -120m)
+- **Mooring:** 3 catenary lines at 120 deg apart, 902.2m long, fairleads at -70m, anchors at 853.87m radius
+- **Pitch:** I55=2.02e10 kg·m², A55=3.99e10 kg·m², K55=4.38e9 N·m/rad, T_n=23.3s (omega_n=0.270 rad/s)
+- **B55_crit** = 3.25e10 N·m·s/rad (critical pitch damping)
+- **Surge:** T_n≈147s, Q-factor≈9.6, K_surge=4.118e4 N/m
+- **Heave:** C33_hydrostatic=333.7 kN/m, T_n≈27-31s
+- **I_drag** = 8.51e7 m^5 (Morison drag integral for pitch: ∫ D(z)|r(z)|^3 dz)
+
+### Core Scripts
+
+All in `/home/blofro/src/hydro_tools/pdstrip_cat/`:
+
+| Script | Lines | Purpose |
+|--------|-------|---------|
+| `platform_motion_plot.py` | ~1090 | Main script: time-domain synthesis + plotting |
+| `slow_drift_swell.py` | ~1500 | QTF parsing, JONSWAP, slow-drift, catenary mooring, current drag, current variability spectra |
+| `surge_budget.py` | ~300 | RAO parsing (surge/pitch/heave), radiation coefficients, wind/current |
+| `combined_motion.py` | ~200 | Bimodal spectrum, extreme value analysis |
+| `shutdown_transient.py` | ~200 | Turbine shutdown transient simulation |
+
+### What platform_motion_plot.py Synthesizes (10 Components)
+
+**SURGE:**
+1. Mean offset (current + wind + wave drift) → ~4.8m
+2. First-order wave response (bimodal spectrum x apparent surge+pitch RAO) → σ≈2.35m
+3. Slow-drift from QTF (near surge natural frequency) → σ≈0.13m
+4. Wind turbulence response (Froya spectrum) → σ≈0.28m
+
+**SWAY:**
+5. VIM (vortex-induced motion) with intermittent lock-in → σ≈0.44m
+6. First-order sway from directional spreading → σ≈0.23m
+7. Slow random sway drift → σ≈0.04m
+
+**VERTICAL (at deck level z above SWL):**
+8. First-order heave (bimodal spectrum x heave RAO) → σ≈0.08m
+9. First-order pitch with viscous damping correction → σ≈1.39 deg
+10. Combined vertical = heave + z_above_swl x pitch(t) → σ≈0.39m at z=15m
+
+### Key Technical Details
+
+**Geometric frequency spacing:** All spectral synthesis uses geometrically spaced frequencies (N=200) instead of linear spacing to avoid artificial signal repetition. With linear Δω=0.01, signals repeat after T=2π/Δω=628s. Geometric spacing breaks this common-divisor relationship.
+
+**Shared wave phases:** Heave, pitch, and surge share the SAME wave phase realization (phi_wave) to preserve correct inter-DOF phase correlations from the RAOs.
+
+**Self-consistent Morison pitch damping (implemented Session 56):**
+The pitch viscous damping is computed from first-principles Morison drag linearization on the spar hull, NOT from an empirical damping ratio. The stochastic linearization (Borgman 1967) gives:
+```
+B55_visc = (8/(3π)) × 0.5 × ρ × Cd × σ_θ̇ × I_drag
+```
+where I_drag = ∫ D(z) × |r(z)|^3 dz over the draft, and r(z) is the moment arm from the pitch axis (CG at z=-78m). Since σ_θ̇ depends on the damping, the code iterates to self-consistency (~4 iterations):
+
+```
+Converged: B55_visc = 2.945e8, ζ_visc = 0.91%, ζ_rad = 0.03%, ζ_total = 0.94%
+Hull velocity at SWL (r=78m): u_rms = 0.62 m/s, u_3σ = 1.86 m/s
+```
+
+**Why ζ=0.94% not 5-8%:** Literature values of 5-8% (Skaare et al. 2007, Robertson et al. 2014) are for the OPERATING turbine where aerodynamic damping from the rotor adds 3-5%. For a stopped/feathered turbine, ~1% total is physically correct. Morison body-only drag gives ζ≈0.9%, and we are not missing significant sources (mooring line damping adds maybe 0.1-0.5%, structural ~0.1-0.2%).
+
+**Pitch response is quasi-static dominated:** The swell peak (ω=0.331) and wind-sea peak (ω=0.785) are both away from pitch resonance (ω_n=0.270), so changing damping from 1% to 6% barely affects total pitch σ (1.39 deg vs 1.14 deg, only 22% difference). The resonance peak gets hammered but contains little energy for this sea state.
+
+### Current Output (Self-Consistent ζ=0.94%)
+
+```
+SURGE: mean=4.8m, σ=2.37m, range=[-1.5, 11.6]m
+  1st-order σ=2.35m, slow-drift σ=0.13m, wind σ=0.28m
+SWAY: σ=0.50m, range=[-1.2, 1.2]m
+  VIM σ=0.44m, 1st-order σ=0.23m
+VERTICAL at z=15m: σ=0.39m, pp=2.13m
+  Heave σ=0.08m, Pitch contribution σ=0.36m
+VELOCITY:
+  Surge: σ=0.79 m/s, max=2.57 m/s (5.0 kn)
+  Sway: σ=0.08 m/s, max=0.30 m/s
+  Vert: σ=0.13 m/s, max=0.43 m/s
+```
+
+### Functions Added to Supporting Modules
+
+**`surge_budget.py`:**
+- `parse_rao_heave_pitch(filepath, beta_target=0.0)` — Parses RAO.tec for heave (|Z| col 3) and pitch (|θ| col 5) with phases. Returns omega, heave_amp, heave_phase [rad], pitch_amp [deg/m], pitch_phase [rad].
+- `parse_radiation_coefficients(filepath, dof_i, dof_j)` — Generic parser for RadiationCoefficients.tec. Column indexing: col_A = 1 + 2*(dof_j-1), col_B = col_A + 1. Returns omega, A(ω), B(ω) arrays.
+
+**`slow_drift_swell.py`:**
+- `solve_catenary_vertical(dx, dz)` — Computes total vertical mooring force from all 3 lines for given surge offset dx and heave dz.
+- `mooring_heave_stiffness(dx)` — Computes mooring heave stiffness via central differences. Result: ~-1143 N/m (slightly destabilizing, negligible vs C33=333.7 kN/m).
+
+### Plot Outputs
+
+- `platform_motion.png` — Detailed 10-panel (8x2 GridSpec): surge+vel, sway+vel, vertical+vel, component breakdowns, XY trajectory, summary stats
+- `platform_motion_clean.png` — Clean 6-panel: surge+vel, sway+vel, vertical+vel
+
+### Possible Future Work
+
+1. **Relative-velocity Morison formulation** — include wave orbital velocities in the drag linearization for slightly higher damping (~1.1% vs 0.9%)
+2. **Parametric sea state sweep** — run for different Hs/Tp combinations to build operability envelopes
+3. **DP capability analysis** — map platform velocity demands against DP vessel thruster capacity
+4. **Roll motion** — currently not included; probably small for head seas but relevant for beam swell
+5. **Second-order heave** — slow-drift heave from QTF (DOF 3); probably small for spar
+6. **Multi-body interaction** — wave shielding/amplification between spar and DP vessel
+
+---
+
+## NEMOH GEOMETRIC FREQUENCY SPACING — FreqType=4 (Session 57)
+
+### Motivation
+
+With linear frequency spacing (Δω constant), time-domain signals synthesized from RAO/QTF data repeat after T_repeat = 2π/Δω. For Δω=0.01 rad/s, T=628s (~10 min). Geometric spacing breaks this common-divisor relationship, giving effectively infinite repeat time.
+
+Previously, `platform_motion_plot.py` worked around this by interpolating Nemoh's linearly-spaced output onto a geometric grid post-hoc (200 points via `make_geometric_omega()`). The new FreqType=4 makes Nemoh produce geometrically-spaced output natively, eliminating the interpolation step and ensuring RAOs and QTFs are computed directly at the desired frequencies.
+
+### Implementation: FreqType=4
+
+**Formula:** `w(j) = wmin * r^(j-1)` where `r = (wmax/wmin)^(1/(N-1))` for j=1..N.
+
+#### Fortran Changes (in `/home/blofro/src/Nemoh/`)
+
+| File | What Changed |
+|------|-------------|
+| `Common/MNemohCal.f90` | Added `INTEGER, PARAMETER :: IdGeomRadFreq=4`. Added geometric branch to `Discretized_Omega_and_Beta`: when `FreqType==4`, builds geometric grid. |
+| `QTF/Solver/MQSolverPreparation.f90` | Added `FreqType` argument to `Discretized_omega_wavenumber_for_QTF`. Added geometric grid branch. Replaced old `InterpPotSwitch` logic (exact `dw` equality test) with robust `grids_match` check using 0.1% relative tolerance on actual frequency values. |
+| `QTF/Solver/Main.f90` | Updated call to pass `FreqType` argument. |
+| `Common/Results.f90` | `FreqType==4` treated same as `==1` (output in rad/s). |
+| `postProcessor/MPP_Compute_RAOs.f90` | `FreqType==4` treated same as `==1` in RAO output. |
+| `QTF/PostProcessor/MQpostproc.f90` | `FreqType==4` treated same as `==1` in QTF header labels and data conversion. |
+| `preProcessor/Main.f90` | Added `IdGeomRadFreq` to `USE MNemohCal` import. |
+
+#### Python Changes (in `/home/blofro/src/hydro_tools/pdstrip_cat/`)
+
+| File | What Changed |
+|------|-------------|
+| `setup_nemoh.py` | Added `geometric=False` parameter to `write_nemoh_cal()`. `freq_type = 4 if geometric else 1`. Updated frequency line, output freq type, and QTF output freq type. Added `--geometric` CLI flag. |
+| `setup_hywind.py` | Same changes as setup_nemoh.py. |
+
+#### No Changes Needed
+
+| File | Why |
+|------|-----|
+| `export_nemoh.py` | Already reads frequencies as-is from .tec files. QTF matching uses 5% tolerance nearest-neighbor. Despike interpolation uses actual frequency values. All safe with non-uniform spacing. |
+| `platform_motion_plot.py` | Already uses `make_geometric_omega()` to create a geometric grid and interpolates linearly-spaced Nemoh data onto it. Still works with geometric input (interpolation becomes near-identity). When using `--geometric` Nemoh output directly, this interpolation step becomes unnecessary but harmless. |
+
+### Validation
+
+Tested with `setup_hywind.py --geometric --n-omega 20 --omega-min 0.05 --omega-max 2.0`:
+
+1. **Build:** Nemoh compiled cleanly with `ninja` (no errors, only pre-existing warnings).
+2. **Full pipeline:** All 8 steps completed successfully (preProc → hydrosCal → solver → postProc → QTFpreProc → QTFsolver → QTFpostProc).
+3. **Frequency verification:** Output frequencies match `w(j) = 0.05 * 1.21428^(j-1)` to within 3-decimal-place rounding. Consecutive ratios: mean=1.21428, std=2.4e-3 (from display truncation only).
+4. **QTF grid matching:** `InterpPotSwitch=0` (direct copy, no interpolation) correctly detected when first-order and QTF grids match.
+5. **QTF solver output** shows non-uniform difference frequencies (`w1-w2` varies from 0.011 to 1.939 rad/s) as expected for geometric spacing.
+
+### Usage
+
+```bash
+# Hywind spar with geometric frequencies
+python3 setup_hywind.py -o hywind_geom --geometric --n-omega 40
+
+# Generic Nemoh case with geometric frequencies
+python3 setup_nemoh.py geomet --geometric --n-omega 40 --omega-min 0.05 --omega-max 2.0
+
+# Linear spacing (default, unchanged behavior)
+python3 setup_hywind.py -o hywind_linear --n-omega 40
+```
+
+---
+
+## FLOATING WIND TURBINE SIMULATOR — DESIGN PLAN (Session 58)
+
+### Purpose
+
+Simulate a floating wind turbine (starting with OC3 Hywind spar) to produce realistic time-domain motions for DP vessels working alongside with walk-to-work systems. The simulator will be a new library in the brucon project (`libs/simulator/floating_platform/`), following the same two-timescale architecture as the existing vessel simulator.
+
+### Use Case
+
+A DP vessel approaches a floating wind turbine for crew transfer or maintenance. The vessel must track the FWT's motion at the gangway connection point. The simulator provides the FWT's position, velocity, and acceleration time series that the DP system (or a coupled simulation) uses as a moving reference. The turbine may be operating or shut down during the approach — the transition (shutdown transient) is an important scenario.
+
+### Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────┐
+│              FloatingPlatformSimulator                   │
+│                                                         │
+│  LF dynamics (3-DOF: surge, sway, yaw)                 │
+│  ├─ Wind force (tower/nacelle/rotor drag + thrust)      │
+│  ├─ Current drag                                        │
+│  ├─ Mean wave drift (from QTF diagonal)                 │
+│  ├─ Slow-drift forces (Newman's approximation)          │
+│  ├─ Mooring restoring (quasi-static catenary or         │
+│  │   lumped-mass line model — pluggable)                 │
+│  └─ LF radiation damping (linear, from BEM)             │
+│                                                         │
+│  WF response (6-DOF superposition)                      │
+│  ├─ Surge, sway, yaw: from RAOs                         │
+│  ├─ Heave: from RAOs                                    │
+│  └─ Pitch, roll: dynamic 1-DOF equations with:          │
+│       ├─ Wave excitation (from excitation force RAO)     │
+│       ├─ Radiation damping (frequency-dependent, BEM)    │
+│       ├─ Viscous damping (nonlinear Morison drag on      │
+│       │   spar hull, integrated in time domain)          │
+│       ├─ Aerodynamic damping (from turbine thrust model) │
+│       └─ Hydrostatic restoring                           │
+│                                                         │
+│  Turbine thrust model                                   │
+│  ├─ Ct(U) lookup table (e.g., NREL 5MW)                │
+│  ├─ Operating: T = 0.5 ρ_air A Ct(U_hub) U_hub²        │
+│  ├─ Feathered: T = 0.5 ρ_air A Cd_tower U²  (drag only)│
+│  └─ Shutdown transient: ramp Ct → Cd over 10-30s        │
+│                                                         │
+│  Cross-flow VIM (vortex-induced motion)                  │
+│  ├─ Sway oscillation at/near sway natural frequency      │
+│  ├─ Intermittent lock-in envelope (duty cycle model)     │
+│  ├─ Amplitude A/D ≈ 0.1-0.15 (post-critical Re)         │
+│  └─ Lock-in range: Vr = U/(f_n × D) = 4-12              │
+│                                                         │
+│  Output: position, velocity, acceleration at any point   │
+│          on the platform (deck, crane tip, gangway)      │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Two-Timescale Separation
+
+Same principle as the existing `VesselSimulatorWithWaves`:
+
+**Low-frequency (LF):** Surge, sway, yaw solved with RK4 integration at dt=0.1s. Forces: wind (mean + turbulence), current drag, mean wave drift, slow-drift (Newman), mooring restoring, VIM excitation. The spar has very long natural periods in these DOFs (surge ~147s, sway similar, yaw ~slow) so they are clearly LF.
+
+**Wave-frequency (WF):** Superposed on LF solution.
+- Surge, sway, heave, yaw: linear RAO-based superposition (same as existing vessel sim)
+- **Pitch and roll: dynamic 1-DOF equations** (not RAO superposition). This is necessary because:
+  1. Pitch resonance (~23s) is in the swell band — response is damping-controlled at resonance
+  2. Viscous damping (Morison drag on spar) is nonlinear — quadratic in velocity
+  3. Aerodynamic damping from the turbine adds 3-5% critical when operating, ~0% when stopped
+  4. Shutdown transients require time-domain dynamics, not frequency-domain transfer functions
+  5. The existing vessel sim already does dynamic roll this way
+
+**Total motion:** `x_total(t) = x_LF(t) + R(heading) × x_WF(t)` (WF rotated from body to NED frame)
+
+### Cross-Flow VIM (Vortex-Induced Motion)
+
+VIM is a significant sway excitation for deep-draft spars in current. DP operators report it as particularly challenging because the oscillation is persistent, nearly sinusoidal, and unpredictable in its intermittency — the DP vessel must continuously track a ~0.5-1m amplitude sway oscillation at the spar's sway natural period (~147s for Hywind).
+
+**Physics:** Current flowing past the spar sheds vortices at the Strouhal frequency f_s = St × U / D. When f_s is near the spar's sway natural frequency f_n, lock-in occurs and the spar oscillates at f_n with amplitudes A/D ≈ 0.1-0.15 (post-critical Reynolds number regime, Re > 5×10⁵).
+
+**Key parameters for OC3 Hywind:**
+- Upper cylinder: D = 6.5m (SWL to -4m)
+- Lower cylinder: D = 9.4m (-12m to -120m)
+- Strouhal number: St ≈ 0.20 (post-critical)
+- Sway natural period: T_n ≈ 147s (f_n ≈ 0.0068 Hz)
+- Lock-in range: Vr = U/(f_n × D) = 4-12
+  - For upper cylinder: U_lock = 0.18-0.53 m/s
+  - For lower cylinder: U_lock = 0.25-0.77 m/s
+- Typical A/D ≈ 0.12 → A_lock ≈ 0.8m (using upper D)
+
+**Intermittent lock-in model:** VIM is not continuous — wave-induced velocity fluctuations and turbulence cause the shedding to drift in and out of the lock-in band. This is modeled as:
+
+```
+y_vim(t) = A(t) × sin(ω_n × t × (1 + ε(t)) + φ)
+```
+
+where:
+- `A(t)`: amplitude envelope switching between lock-in (A ≈ A_lock) and unlocked (A ≈ 0.1×A_lock) states with exponentially distributed burst durations (~600s mean) and a configurable duty cycle (~55%)
+- `ε(t)`: small frequency wandering (±3%) from a narrow-band process — the shedding frequency is not perfectly constant
+- Envelope is smoothed over ~2 natural periods to avoid discontinuities
+
+**Implementation in FloatingPlatformSimulator:**
+- VIM sway force is added to the LF sway dynamics (it's at/near the sway natural frequency, clearly LF)
+- The VIM model generates a sway excitation force, not a displacement — the LF dynamics then produce the displacement response including mooring restoring and damping
+- Alternative: directly superpose VIM displacement (as in `platform_motion_plot.py`) if LF sway dynamics are simplified
+- Lock-in state depends on current speed (updated when environment changes)
+- When current drops below lock-in range, VIM amplitude decays to residual level
+
+**Why VIM matters for DP alongside operations:**
+- At Uc = 0.5 m/s (typical operational current), σ_VIM ≈ 0.44m with peaks up to ±1.2m
+- This is comparable to first-order wave sway (σ ≈ 0.23m) and dominates the sway motion budget
+- The ~147s period is slow enough that the DP vessel can track it, but the intermittent on/off behavior creates sudden changes in sway velocity demand
+- VIM velocity σ ≈ 0.02 m/s (slow), but the abrupt amplitude changes create transient velocity spikes
+
+### Dynamic Pitch Equation
+
+```
+(I55 + A55(ω)) × θ̈ + B55_rad(ω) × θ̇ + B55_visc(θ̇) + B55_aero(θ̇) + C55 × θ = M_wave(t)
+```
+
+Where:
+- `I55 + A55`: platform + added moment of inertia (from Nemoh)
+- `B55_rad`: radiation damping (from Nemoh, frequency-dependent — use value at pitch resonance or convolution)
+- `B55_visc(θ̇)`: nonlinear Morison drag `∝ θ̇|θ̇|` integrated over spar hull
+- `B55_aero(θ̇)`: aerodynamic damping from turbine thrust derivative
+- `C55`: hydrostatic + mooring pitch restoring
+- `M_wave(t)`: wave excitation moment, synthesized from excitation force RAO and wave spectrum
+
+At dt=0.1s and pitch period ~23s, we get ~230 steps per cycle — ample resolution for RK4.
+
+Roll equation is analogous but typically less important for head-sea operations.
+
+### Aerodynamic Pitch Damping Model
+
+When the turbine is operating, platform pitch velocity θ̇ changes the apparent wind speed at the rotor:
+
+```
+U_apparent = U_wind - z_hub × θ̇  (for small angles)
+```
+
+The thrust force derivative gives aerodynamic damping:
+
+```
+B55_aero = z_hub² × dT/dU × (evaluated at mean wind speed)
+```
+
+where `dT/dU = 0.5 × ρ_air × A × d(Ct×U²)/dU` from the Ct(U) lookup table.
+
+For an operating NREL 5MW at rated wind (~11 m/s): B55_aero ≈ 3-5% of critical pitch damping.
+For a stopped/feathered turbine: B55_aero ≈ 0 (negligible tower drag contribution).
+
+This is the primary mechanism that changes platform motions between operating and stopped states.
+
+### Turbine Thrust Model
+
+Simple Ct(U) lookup table approach:
+
+```
+T(U) = 0.5 × ρ_air × A_rotor × Ct(U) × U²
+```
+
+- **Operating (below rated):** Ct increases with U (optimal tip-speed ratio tracking)
+- **Operating (above rated):** Ct decreases as blades pitch to limit power; T ≈ constant ≈ rated thrust
+- **Feathered/stopped:** Ct ≈ Cd_tower × A_frontal/A_rotor (small — just tower+nacelle drag)
+- **Shutdown transient:** Ramp Ct from operating to feathered over user-specified time (10-30s)
+
+The thrust acts at hub height (z_hub ≈ 90m above SWL for Hywind), creating both:
+- LF surge force (added to LF dynamics)
+- Pitch moment = T × z_hub (added to dynamic pitch equation)
+- Aerodynamic pitch damping (as described above)
+
+### Mooring System — Pluggable Interface
+
+Design for two mooring implementations behind a common interface:
+
+```cpp
+class MooringModel {
+public:
+    virtual ~MooringModel() = default;
+    virtual void Step(double dt, const PlatformState& state) = 0;
+    virtual Eigen::Vector3d Forces() const = 0;   // surge, sway, yaw
+    virtual Eigen::Vector3d Restoring() const = 0; // linearized stiffness for LF damping
+};
+```
+
+**Phase 1: Quasi-static catenary** (`CatenaryMooring`)
+- 3 catenary lines at 120° apart
+- Static catenary equation solved at each timestep for given fairlead position
+- Already implemented in Python (`slow_drift_swell.py`) — port to C++
+- Fast, no inner timestep needed
+
+**Phase 2: Dynamic line model** (`DynamicMooring`)
+- Wrap the existing brucon `LineModel` / upcoming improved line model
+- 3 instances, one per line
+- Captures line dynamics (snap loads, damping from drag on lines)
+- Requires small inner timestep (~0.001s)
+
+### Hydrodynamic Data Pipeline
+
+```
+Nemoh BEM run  →  export_nemoh.py  →  pdstrip.dat  →  FloatingPlatformSimulator
+  (RAO.tec,         (already             (20-col         (ResponseFunctions::
+   QTF files)        exists)              TSV)            ReadExportedPdStripDatFile)
+```
+
+The existing `export_nemoh.py` already converts Nemoh output to the 20-column PdStrip .dat format. The existing `ResponseFunctions` reader in brucon already parses this format. No new data format needed.
+
+**Additional data not in pdstrip.dat** (needed for dynamic pitch/roll):
+- Radiation added mass A55(ω), A44(ω) — from Nemoh `RadiationCoefficients.tec`
+- Radiation damping B55(ω), B44(ω) — same file
+- Wave excitation moment M5(ω), M4(ω) — from Nemoh `DiffractionForce.tec` or `ExcitationForce.tec`
+
+These will be provided in a supplementary config file (or extend export_nemoh.py to produce them).
+
+### Viscous Damping — Nonlinear Morison in Time Domain
+
+At dt=0.1s we can integrate the nonlinear drag directly:
+
+```
+M_visc(t) = -∫₀ᴴ 0.5 × ρ × Cd × D(z) × r(z) × |v(z,t)| × v(z,t) dz
+```
+
+where `v(z,t) = r(z) × θ̇(t)` is the hull velocity at depth z due to pitch, and `r(z) = z - z_CG` is the moment arm from the pitch axis.
+
+For the Hywind spar with CG at z=-78m:
+- `I_drag = ∫ D(z) × |r(z)|³ dz = 8.51e7 m⁵` (pre-computed from spar geometry)
+- The integral is discretized over ~10-20 segments matching the spar geometry (upper cylinder, taper, lower cylinder)
+
+### Wind Model
+
+Reuse the existing brucon `WindModel` (mean + Davenport spectrum turbulence) and `WindForceModel`. The wind force on the FWT combines:
+
+1. **Turbine thrust** (from Ct model above) — dominant when operating
+2. **Tower + nacelle drag** — always present, uses frontal area and Cd
+3. **Blade drag when feathered** — included in the feathered Ct value
+
+For LF dynamics, only the surge component of wind force matters (head-on wind assumed for simplicity, or resolve by relative direction).
+
+### File Structure in brucon
+
+```
+libs/simulator/floating_platform/
+├── CMakeLists.txt
+├── include/brucon/simulator/floating_platform/
+│   ├── floating_platform_simulator.h    # Main simulator class
+│   ├── platform_model.h                 # Platform physical properties
+│   ├── turbine_thrust_model.h           # Ct(U) lookup + aero damping
+│   ├── vim_model.h                      # Cross-flow VIM with lock-in
+│   ├── mooring_model.h                  # Interface
+│   ├── catenary_mooring.h               # Quasi-static catenary
+│   └── morison_damping.h               # Spar viscous pitch/roll damping
+├── floating_platform_simulator.cpp
+├── platform_model.cpp
+├── turbine_thrust_model.cpp
+├── vim_model.cpp
+├── catenary_mooring.cpp
+├── morison_damping.cpp
+└── test/
+    ├── floating_platform_tests.cpp
+    └── config/
+        └── hywind_spar.dat              # Nemoh-exported RAOs for OC3 Hywind
+```
+
+### Class Design
+
+```cpp
+class FloatingPlatformSimulator {
+public:
+    FloatingPlatformSimulator(
+        double timestep,
+        const PlatformModel& platform,
+        std::unique_ptr<MooringModel> mooring,
+        const TurbineThrustModel& turbine
+    );
+
+    void SetWaveModel(WaveResponse wave_model);
+    void SetWindModel(WindModel wind_model);
+
+    // Main integration step
+    void Step(double surge_ext_force, double sway_ext_force,
+              double yaw_ext_moment);
+
+    // State output — position/velocity at arbitrary point
+    Eigen::Vector3d PositionAt(const Eigen::Vector3d& body_point) const;
+    Eigen::Vector3d VelocityAt(const Eigen::Vector3d& body_point) const;
+
+    // Component access
+    double SurgePosition() const;    // LF + WF
+    double SwayPosition() const;
+    double HeavePosition() const;    // WF only
+    double RollAngle() const;        // Dynamic
+    double PitchAngle() const;       // Dynamic
+    double YawAngle() const;         // LF + WF
+
+    // Turbine state
+    void SetTurbineOperating(bool operating);
+    void InitiateShutdown(double ramp_time_s = 20.0);
+
+private:
+    // LF state (surge, sway, yaw in NED)
+    double lf_north_, lf_east_, lf_heading_;
+    double lf_surge_vel_, lf_sway_vel_, lf_yaw_rate_;
+
+    // Dynamic pitch/roll state
+    double pitch_, pitch_rate_;
+    double roll_, roll_rate_;
+
+    // WF state (6-DOF from RAOs, pitch/roll overridden by dynamic)
+    std::array<double, 6> wf_displacement_;
+    std::array<double, 6> wf_velocity_;
+
+    // Sub-models
+    PlatformModel platform_;
+    std::unique_ptr<MooringModel> mooring_;
+    TurbineThrustModel turbine_;
+    VimModel vim_;
+    WaveResponse wave_model_;
+    WindModel wind_model_;
+    MorisonDamping morison_;
+
+    // Integration
+    void IntegrateLF(double dt, double Fx, double Fy, double Mz);
+    void IntegratePitch(double dt, double M_wave, double M_aero);
+    void IntegrateRoll(double dt, double M_wave);
+    void ComputeWaveFrequencyResponse(double time);
+};
+```
+
+### VimModel — Cross-Flow Vortex-Induced Motion
+
+```cpp
+class VimModel {
+public:
+    VimModel(double sway_natural_freq,    // ω_n [rad/s]
+             double upper_diameter,        // D at SWL [m]
+             double lower_diameter,        // D of main column [m]
+             double strouhal = 0.20);
+
+    // Call each timestep — returns sway force [N]
+    double Step(double dt, double current_speed, double sway_velocity);
+
+    // Lock-in state (for logging/diagnostics)
+    bool IsLockedIn() const { return locked_in_; }
+    double Amplitude() const { return envelope_; }
+
+private:
+    // Parameters
+    double omega_n_;          // sway natural frequency
+    double D_upper_, D_lower_;
+    double St_;
+
+    // State
+    double phase_;            // VIM oscillation phase
+    double envelope_;         // current amplitude envelope
+    bool locked_in_;          // current lock-in state
+    double time_in_state_;    // time since last lock-in transition
+    double next_transition_;  // time of next state switch
+
+    // Lock-in logic
+    bool InLockInRange(double Uc) const;
+    void UpdateLockInState(double dt);
+
+    // Random state (for intermittent lock-in)
+    std::mt19937 rng_;
+};
+```
+
+The VIM model generates a sway excitation force at each timestep:
+1. Check if current speed puts the reduced velocity Vr = U/(f_n×D) in the lock-in range (4-12)
+2. Update the intermittent lock-in state (random exponential burst durations, ~600s mean, ~55% duty cycle)
+3. Compute smoothed amplitude envelope (ramp between lock-in amplitude A_lock ≈ 0.12×D and residual ≈ 0.01×D)
+4. Apply small frequency wandering (±3%) to prevent perfect periodicity
+5. Return force = `(m + A22) × ω_n² × A(t) × sin(ω_n×t + ε(t))` — i.e., the force that would produce the desired displacement through the sway dynamics
+
+### PlatformModel — Key Parameters
+
+```cpp
+struct PlatformModel {
+    // Mass properties
+    double mass;              // kg
+    double Ixx, Iyy, Izz;    // kg·m² (moments of inertia about CG)
+    Eigen::Vector3d cg;       // CG position [x,y,z] relative to SWL origin
+
+    // Added mass at low frequency (for LF dynamics)
+    double A11, A22, A66;     // surge, sway, yaw added mass
+
+    // Added mass/damping at pitch/roll resonance (for dynamic pitch/roll)
+    double A44, A55;          // roll, pitch added inertia
+    double B44_rad, B55_rad;  // radiation damping at resonance frequency
+
+    // Hydrostatic restoring
+    double C33;               // heave (N/m)
+    double C44;               // roll (N·m/rad)
+    double C55;               // pitch (N·m/rad)
+
+    // Spar geometry for Morison damping
+    struct Section {
+        double z_top, z_bottom;  // depth range (negative = below SWL)
+        double diameter;
+        double Cd;               // drag coefficient (~1.0-1.2)
+    };
+    std::vector<Section> hull_sections;
+
+    // Tower/nacelle for wind force
+    double hub_height;         // m above SWL
+    double rotor_diameter;     // m
+    double tower_Cd;           // ~0.6-0.8
+    double tower_frontal_area; // m²
+
+    // Reference point for output (e.g., deck level)
+    Eigen::Vector3d deck_point;  // body-frame coordinates
+};
+```
+
+### Implementation Phases
+
+**Phase 1 — Core simulator (MVP):**
+- FloatingPlatformSimulator with 3-DOF LF + 6-DOF WF
+- Dynamic pitch with Morison damping (nonlinear, time-domain)
+- Ct(U) turbine thrust with aerodynamic pitch damping
+- Quasi-static catenary mooring
+- Reuse existing WaveResponse, WaveSpectrum, WindModel from vessel_model
+- Hardcoded OC3 Hywind parameters
+- Unit tests comparing against platform_motion_plot.py output
+
+**Phase 2 — Integration:**
+- FloatingPlatformSimulatorWrapper (analogous to VesselSimulatorWrapper)
+- Configuration from protobuf (platform geometry, mooring, turbine)
+- FMU wrapper for co-simulation with DP vessel
+- Connection to DpRunfastSimulator as an external reference target
+
+**Phase 3 — Extensions:**
+- Dynamic mooring (wrap brucon LineModel, 3 lines)
+- Dynamic roll (same approach as pitch)
+- Multiple platform types (semi-sub config)
+- Operability envelope computation
+- Multi-body hydrodynamic interaction (wave shielding between FWT and DP vessel)
+
+### Validation Strategy
+
+1. **Static equilibrium:** Zero waves/wind/current → platform at rest, mooring forces balance
+2. **Free decay:** Release from offset → check natural periods match Hywind data (surge ~147s, pitch ~23s, heave ~28s)
+3. **RAO comparison:** White noise wave input → compare response spectrum against Nemoh RAOs
+4. **Damping comparison:** Compare pitch damping ratio (operating vs stopped) against literature (Skaare et al. 2007: 5-8% operating, ~1% stopped)
+5. **Cross-check with Python:** Compare time series statistics (σ_surge, σ_pitch, etc.) against existing platform_motion_plot.py output for same sea state
+6. **Shutdown transient:** Verify pitch amplitude increases realistically when turbine shuts down (expect ~2-3× increase in pitch σ)
+
+### Dependencies
+
+- `vessel_model` library: WaveSpectrum, WindModel, WindForceModel, ResponseFunctions, WaveResponse
+- `line_model` library: (Phase 2/3 only) for dynamic mooring
+- Eigen: matrix/vector math
+- Nemoh + export_nemoh.py: for generating hydrodynamic input data
+
+### Key Differences from Existing Vessel Simulator
+
+| Aspect | VesselSimulator (ship) | FloatingPlatformSimulator (spar) |
+|--------|----------------------|--------------------------------|
+| Hydrodynamic model | Brix strip theory (maneuvering) | BEM coefficients from Nemoh |
+| LF DOFs | surge, sway, yaw + quasi-static roll | surge, sway, yaw |
+| WF pitch | From RAO (superposed) | Dynamic 1-DOF equation |
+| WF heave | From RAO (superposed) | From RAO (superposed) |
+| Viscous damping | Section-wise transverse drag (Brix) | Morison drag on spar hull |
+| Mooring | Single anchor chain | 3 catenary lines (quasi-static or dynamic) |
+| Wind loads | Blendermann coefficients × A_lateral | Turbine thrust Ct(U) + tower drag |
+| Aero damping | None | Turbine thrust derivative × z_hub² |
+| Current | Speed-through-water in damping | Direct drag force on spar |
+| Resistance | ITTC-57 + Holtrop-Mennen | N/A (moored) |
+
+---
+
+## CURRENT VARIABILITY — Slowly Varying Surge from Ocean Current Fluctuations (Session 59)
+
+### Motivation
+
+Slowly varying motions of the Hywind spar at Tampen in the minute-range timescale were consistently underestimated. The existing slow-drift model (QTF-based) gives only σ ≈ 0.09–0.17 m for typical swell, and wind turbulence contributes σ ≈ 0.26 m. The missing piece: **ocean current variability**.
+
+Ocean currents fluctuate due to tidal, inertial, and internal wave processes. Since drag is quadratic in velocity (F ~ U²), even small current fluctuations produce large force variations that drive slowly varying platform motions. At Uc = 0.5 m/s mean current, the mean offset is ~3.3 m. A current variation of σ_Uc = 0.10 m/s produces σ_surge ≈ 1.85 m — **an order of magnitude larger than the QTF slow-drift**.
+
+### Physics
+
+1. **Quadratic drag amplification**: F = CdA_eff × U|U|. For mean Uc with fluctuation u':
+   - F(t) ≈ F_mean + dF/dU × u' + ½ d²F/dU² × u'²
+   - dF/dU = 2 × CdA_eff × Uc (linear sensitivity)
+   - d²F/dU² = 2 × CdA_eff (rectification → mean offset increase)
+
+2. **Hardening catenary mooring**: Stiffness K increases with offset. At 3.3m offset (Uc=0.5 m/s), K_tang = 48.4 kN/m vs linearized 41.2 kN/m. This shifts the surge natural period from 147s to 135s.
+
+3. **Three response regimes** (from period sweep):
+   - **Quasi-static** (T_current >> T_n): platform follows current quasi-statically
+   - **Near resonance** (T_current ≈ T_n ≈ 135s): dynamic amplification (Q ≈ 10)
+   - **Filtered** (T_current << T_n): inertia prevents response
+
+4. **Rectification effect**: Zero-mean current fluctuations produce a net positive mean offset increase Δx = ½ d²F/dU² × σ_Uc² / K_tang (0.12 m for σ_Uc = 0.10 m/s).
+
+### Implementation
+
+Added ~590 lines to `slow_drift_swell.py` (lines 331–920):
+
+| Function | Description |
+|----------|-------------|
+| `compute_current_drag_force(U)` | Scalar drag force wrapper |
+| `compute_linearized_current_sensitivity(Uc)` | dF/dU, d²F/dU² via central differences |
+| `current_spectrum_generic(f, σ, T_peak)` | Gaussian-in-log-f parametric spectrum |
+| `current_spectrum_internal_wave(f, σ, ...)` | Garrett-Munk f⁻² spectrum (lat=61.2°N) |
+| `current_spectrum_bimodal(f, ...)` | Tidal + internal wave two-peak spectrum |
+| `compute_current_variability_surge(...)` | **Main function**: spectral chain from S_Uc → S_F → H(ω) → S_x → statistics |
+| `current_variability_sweep(...)` | Amplitude sensitivity sweep |
+| `current_period_sweep(...)` | Period sensitivity sweep (identifies regime) |
+
+### CLI Usage
+
+```bash
+# Amplitude sweep (default)
+python3 slow_drift_swell.py --current-variability --uc-mean 0.5
+
+# Single case with period sweep
+python3 slow_drift_swell.py --current-variability --uc-mean 0.5 --sigma-uc 0.10 \
+    --t-peak-current 1800 --period-sweep
+
+# Internal wave spectrum
+python3 slow_drift_swell.py --current-variability --spectrum-type internal_wave
+```
+
+### Integration
+
+- **`platform_motion_plot.py`**: Added as 5th surge component (`surge_cv`). Spectrum from `compute_current_variability_surge()` is interpolated onto geometric omega grid and synthesized via `synthesize_from_spectrum()`. Rectification mean shift added to mean offset. Shown in component breakdown plot and statistics panel.
+
+- **`surge_budget.py`**: Added Part 3c (current variability sweep table) and included σ_cv in the RSS combination in Part 5. Budget now shows σ_total with and without current variability.
+
+### Reference Results (Uc = 0.5 m/s, T_peak = 30 min)
+
+| σ_Uc [m/s] | σ_surge [m] | x_sig [m] | pp_exact [m] |
+|-------------|-------------|-----------|-------------|
+| 0.05 | 0.93 | 1.85 | 2.43 |
+| 0.10 | 1.85 | 3.70 | 4.74 |
+| 0.15 | 2.77 | 5.55 | 6.84 |
+| 0.20 | 3.70 | 7.40 | 8.63 |
+
+Updated RSS surge budget (feathered blades, reference conditions):
+- Without current variability: σ_RSS = 1.38 m
+- With current variability (σ_Uc = 0.10 m/s): σ_RSS = 2.31 m (+67%)
+
+### Caveats
+
+1. **σ_Uc is uncertain**: Typical North Sea values likely 0.05–0.20 m/s. Site-specific current measurements at Tampen would be needed to constrain this.
+2. **Linearized analysis**: Overestimates for large excursions because the catenary mooring hardens. The nonlinear check shows pp_exact/4σ ≈ 0.64 for σ_Uc = 0.10 m/s.
+3. **Generic spectrum model**: The Gaussian-in-log-f shape is a placeholder. Real current spectra at Tampen may differ (tidal harmonics, internal wave bandwidth).
+4. **No wave-current interaction**: Current fluctuations and wave drift forces are treated as independent. In reality, current modifies the wave drift force (wave-current interaction QTF).
+
+### Future Work
+
+- Integrate into brucon C++ wind turbine simulator (FloatingPlatformSimulator)
+- Add site-specific current spectrum from Tampen ADCP data if available
+- Couple with wave-current interaction in the QTF computation
+
+---
