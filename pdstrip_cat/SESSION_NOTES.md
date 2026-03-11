@@ -1745,3 +1745,450 @@ Wave-current interaction (current modifying wave drift QTF) belongs in the **for
 4. This keeps the environment as a pure data provider and avoids circular dependencies.
 
 ---
+
+### Session 61 — GUI Integration Design for Current Variability in brucon
+
+**Goal:** Add a current variability panel to the brucon simulator GUI so the
+operator can enable/disable time-varying current, adjust sigma_uc and spectrum
+type, and have these settings propagated through DDS to the shared
+`CurrentEnvironment` in the vessel simulator.
+
+#### 1. IDL Extensions (`dp_simulator.idl`)
+
+We need a new struct to carry all the current variability parameters, plus a
+new `SimulatorCommandType` variant so it can be sent through the existing
+union-based command dispatch.
+
+```idl
+// --- New struct for current variability settings ---
+struct CurrentVariabilitySettings {
+  boolean enabled;                     // Master on/off for current variability
+  double sigma_uc;                     // RMS current speed fluctuation [m/s]
+  @default(1800.0) double t_peak;     // Peak period [s]
+  @default(0.4) double sigma_log_f;   // Bandwidth parameter [decades]
+  short spectrum_type;                 // 0=None, 1=Generic, 2=InternalWave, 3=Bimodal
+  @default(200) short n_components;   // Number of spectral components
+  @default(0) long long seed;         // Random seed (0 = auto)
+};
+```
+
+Add to the `SimulatorCommandType` enum:
+
+```idl
+SetCurrentVariability   // after DisconnectGangway (last existing entry)
+```
+
+Add to the `SimulatorCommand` union:
+
+```idl
+case SetCurrentVariability: CurrentVariabilitySettings current_variability;
+```
+
+**Design decision — single struct vs. individual fields:**
+We send ALL current variability settings in a single struct rather than one
+field per DDS write (unlike the existing wind/wave/current scalars). Rationale:
+- The settings are interdependent (changing spectrum_type invalidates t_peak meaning)
+- They are SET together (not independently adjustable like wind speed vs. direction)
+- A single write is atomic — no risk of the receiver seeing partially-updated state
+- The receiver (VesselSimulatorWrapper) needs to re-initialize the CurrentEnvironment
+  when any of these change, so it's natural to receive them as a bundle
+
+**Note on IDL types:** We use `short` for spectrum_type rather than an IDL enum
+because OMG DDS IDL enums don't always round-trip cleanly through all DDS
+implementations. A short with documented values is more portable. The C++ side
+maps it to `CurrentSpectrumType`.
+
+#### 2. Beaufort-to-sigma_uc Auto-Scaling
+
+When the operator changes the Beaufort number, we auto-compute a suggested
+sigma_uc from the Beaufort current speed. The formula:
+
+```
+sigma_uc = sigma_uc_base + k × U_mean
+```
+
+Where:
+- `sigma_uc_base = 0.03 m/s` — floor from tidal/internal wave variability
+  present even in calm conditions
+- `k = 0.10` — turbulence intensity factor (ratio of current fluctuation
+  RMS to mean current speed)
+- `U_mean` = Beaufort table current speed (0.0–0.75 m/s)
+
+Resulting values:
+
+| Bft | U_mean [m/s] | sigma_uc [m/s] |
+|-----|-------------|----------------|
+| 0   | 0.00        | 0.030          |
+| 1   | 0.25        | 0.055          |
+| 2   | 0.50        | 0.080          |
+| 3+  | 0.75        | 0.105          |
+
+The auto-scaled value is a *suggestion* — the user can override it in the
+GUI. The override persists until the next Beaufort change (at which point
+the auto-scaled value is restored unless the user has unchecked "Auto").
+
+Implementation: add a static function to the `Beaufort` class (or keep it
+in `SimulatorModel`):
+
+```cpp
+/// Estimate current variability sigma from Beaufort mean current speed.
+/// sigma_uc = 0.03 + 0.10 * mean_current_speed [m/s]
+static double CurrentVariabilitySigma(double mean_current_speed) {
+  constexpr double kBase = 0.03;  // tidal/internal wave floor
+  constexpr double kFactor = 0.10; // turbulence intensity
+  return kBase + kFactor * mean_current_speed;
+}
+```
+
+#### 3. DpSimulatorWindow Changes (`dp_simulator_window.h/.cpp`)
+
+The widgets-based simulator GUI (`dp_simulator_gui`) writes DDS commands
+directly — there is no intermediate model class. The `DpSimulatorWindow`
+owns a `dds_utils::Writer<idl::SimulatorCommand>` and publishes commands
+in its `Publish*()` methods.
+
+New protected methods in `dp_simulator_window.h`:
+
+```cpp
+void PublishSetCurrentVariability();
+void UpdateAutoSigma();
+```
+
+Implementation is in section 5b below.
+
+#### 4. Data Flow (Widgets GUI → DDS → Simulator)
+
+The widgets GUI is simpler than the QML architecture — no signal/slot
+chain through a model class. The flow is direct:
+
+```
+User clicks "Send" in Current Variability group box
+  → DpSimulatorWindow::PublishSetCurrentVariability()
+  → Packs fields into CurrentVariabilitySettings struct
+  → command.current_variability(settings)
+  → dp_simulator_commands_writer_.write(command)
+  → DDS transport (simulator domain)
+  → VesselSimulatorWrapper command handler
+  → Map IDL → CurrentEnvironmentSettings → re-initialize
+
+User changes Beaufort combo box
+  → DpSimulatorWindow::PublishSetBeaufort()  [existing]
+  → Publishes current_speed, wave_height, wave_peak_period, wind_speed
+  → If auto-sigma checked:
+      UpdateAutoSigma() fills sigma QLineEdit
+      PublishSetCurrentVariability() sends updated settings
+```
+
+This matches the existing pattern: each `Publish*()` method reads directly
+from `ui_->` widgets and writes one or more DDS commands.
+
+#### 5. Widgets GUI (`dp_simulator_window`)
+
+The simulator GUI is a developer/test tool (`dp_simulator_gui`), not a
+production interface. It uses plain Qt Widgets: group boxes, line edits,
+checkboxes, combo boxes. No styling — just functional.
+
+The existing environment controls live in **column5** of the Simulator tab:
+
+```
+column5 (QVBoxLayout)
+├── QGroupBox "Beaufort"
+│   ├── set_beaufort        (QComboBox, Bft 0–11)
+│   └── set_reduced_current (QCheckBox, "Reduced current")
+├── QGroupBox "Wind"
+│   └── wind speed/direction (display + QLineEdit)
+├── QGroupBox "Current"
+│   ├── current_speed/direction (display QLabels)
+│   └── set_current_speed/direction (QLineEdits, enter to send)
+└── QGroupBox "Wave"
+    └── wave height/period/direction (display + QLineEdit)
+```
+
+We add a new **"Current Variability"** group box between "Current" and
+"Wave" (or after "Wave" — order doesn't matter for a dev tool).
+
+##### 5a. New UI elements in `dp_simulator_window.ui`
+
+Add a `QGroupBox` named `current_variability` with title "Current Variability":
+
+```
+QGroupBox "Current Variability"
+├── QGridLayout
+│   Row 0: QCheckBox "Enable"                        (set_current_variability_enabled)
+│   Row 1: QLabel "Sigma"  | QLineEdit | QLabel "m/s"  (set_current_variability_sigma)
+│   Row 2: QLabel "T_peak" | QLineEdit | QLabel "s"    (set_current_variability_t_peak)
+│   Row 3: QLabel "Bandwidth" | QLineEdit | QLabel "dec" (set_current_variability_sigma_log_f)
+│   Row 4: QLabel "Spectrum" | QComboBox               (set_current_variability_spectrum_type)
+│              items: "Generic", "Internal Wave", "Bimodal"
+│   Row 5: QCheckBox "Auto sigma from Beaufort"        (set_current_variability_auto_sigma)
+│   Row 6: QPushButton "Send"                          (send_current_variability)
+└──
+```
+
+This matches the existing patterns:
+- `QLineEdit` with enter-to-send (like `set_current_speed`)
+- `QCheckBox` for booleans (like `set_reduced_current`)
+- `QComboBox` for enumerated choices (like `set_beaufort`)
+- Explicit "Send" button (alternative to enter-to-send on each field)
+
+##### 5b. New code in `dp_simulator_window.cpp`
+
+**Constructor — connect signals:**
+
+```cpp
+// Current variability controls
+connect(ui_->send_current_variability, &QPushButton::clicked,
+        [&]() { PublishSetCurrentVariability(); });
+connect(ui_->set_current_variability_enabled, &QCheckBox::stateChanged,
+        [&]() { PublishSetCurrentVariability(); });
+connect(ui_->set_current_variability_auto_sigma, &QCheckBox::stateChanged,
+        [&]() {
+          if (ui_->set_current_variability_auto_sigma->isChecked()) {
+            UpdateAutoSigma();
+            PublishSetCurrentVariability();
+          }
+        });
+// Also update auto-sigma when Beaufort changes
+// (existing PublishSetBeaufort already connected to set_beaufort)
+```
+
+**PublishSetBeaufort — add auto-sigma update:**
+
+```cpp
+void DpSimulatorWindow::PublishSetBeaufort() {
+  auto [b, cs, wh, wp, ws] = util::Beaufort::BeaufortToConditions(
+      ui_->set_beaufort->currentIndex());
+  idl::SimulatorCommand simulator_command;
+  double effective_cs =
+      ui_->set_reduced_current->checkState() == Qt::Checked ? cs / 1.5 : cs;
+  simulator_command.current_speed(effective_cs);
+  dp_simulator_commands_writer_.write(simulator_command);
+  simulator_command.wave_height(wh);
+  dp_simulator_commands_writer_.write(simulator_command);
+  simulator_command.wave_peak_period(wp);
+  dp_simulator_commands_writer_.write(simulator_command);
+  simulator_command.wind_speed(ws * 0.94);
+  dp_simulator_commands_writer_.write(simulator_command);
+
+  // Auto-update current variability sigma from Beaufort
+  if (ui_->set_current_variability_auto_sigma->isChecked()) {
+    UpdateAutoSigma();
+    PublishSetCurrentVariability();
+  }
+}
+```
+
+**New methods:**
+
+```cpp
+void DpSimulatorWindow::UpdateAutoSigma() {
+  auto [b, cs, wh, wp, ws] = util::Beaufort::BeaufortToConditions(
+      ui_->set_beaufort->currentIndex());
+  double effective_cs =
+      ui_->set_reduced_current->checkState() == Qt::Checked ? cs / 1.5 : cs;
+  double sigma_uc = 0.03 + 0.10 * effective_cs;
+  ui_->set_current_variability_sigma->setText(
+      QString::number(sigma_uc, 'f', 3));
+}
+
+void DpSimulatorWindow::PublishSetCurrentVariability() {
+  idl::SimulatorCommand simulator_command;
+  idl::CurrentVariabilitySettings settings;
+  settings.enabled(
+      ui_->set_current_variability_enabled->isChecked());
+  settings.sigma_uc(
+      ui_->set_current_variability_sigma->text().toDouble());
+  settings.t_peak(
+      ui_->set_current_variability_t_peak->text().toDouble());
+  settings.sigma_log_f(
+      ui_->set_current_variability_sigma_log_f->text().toDouble());
+  settings.spectrum_type(static_cast<short>(
+      ui_->set_current_variability_spectrum_type->currentIndex() + 1));
+  settings.n_components(200);
+  settings.seed(0);
+  simulator_command.current_variability(settings);
+  dp_simulator_commands_writer_.write(simulator_command);
+}
+```
+
+**Default field values (set in constructor or .ui):**
+
+| Field | Default |
+|-------|---------|
+| Enable checkbox | unchecked |
+| Sigma | 0.100 |
+| T_peak | 1800 |
+| Bandwidth | 0.4 |
+| Spectrum type | "Generic" (index 0) |
+| Auto sigma | checked |
+
+##### 5c. Interaction behavior
+
+- **Send button** reads all fields and publishes the full
+  `CurrentVariabilitySettings` struct in one DDS write
+- **Enable checkbox** immediately publishes (so toggling on/off takes effect
+  without needing to press Send)
+- **Auto sigma checkbox** when checked: computes sigma from Beaufort and
+  fills the sigma QLineEdit; when unchecked: leaves sigma editable
+- **Beaufort combo change** if auto-sigma is on: updates the sigma field
+  AND publishes the variability settings (so sigma tracks Beaufort live)
+- **Manual sigma edit** the user can type any value in the sigma field and
+  press Send (or Enter). If auto-sigma is checked, the manual value gets
+  overwritten on next Beaufort change — the user should uncheck auto-sigma
+  first if they want a custom value to stick
+
+#### 6. Re-initialization on the Receiver Side
+
+**Key design point — re-initialization:**
+When the VesselSimulatorWrapper receives new current variability settings,
+it must re-initialize the `CurrentEnvironment`. This means:
+1. Pause the simulation step briefly (or use double-buffering)
+2. Create new `CurrentEnvironmentSettings` from the IDL struct
+3. Call `env->Initialize(remaining_duration)` with a new time origin
+4. The time series is re-synthesized; queries resume seamlessly
+
+For a smooth transition, the implementation should:
+- Keep the mean speed/direction from the existing `SetCurrentSpeed`/`SetCurrentDirection` commands (those are separate — they set `mean_speed` and `mean_direction_deg`)
+- Only re-synthesize the *fluctuation* time series when variability settings change
+- Use the simulation wall-clock as the time origin for the new synthesis
+
+#### 7. Receiver Side — VesselSimulatorWrapper
+
+The existing command handler in the vessel simulator already dispatches on
+`SimulatorCommandType`. We add a new case:
+
+```cpp
+case SimulatorCommandType::SetCurrentVariability: {
+  auto& cv = command.current_variability();
+
+  CurrentEnvironmentSettings settings;
+  settings.enabled = cv.enabled();
+  settings.mean_speed = current_mean_speed_;  // from SetCurrentSpeed
+  settings.mean_direction_deg = current_mean_direction_; // from SetCurrentDirection
+  settings.spectrum.type = static_cast<CurrentSpectrumType>(cv.spectrum_type());
+  settings.spectrum.sigma_uc = cv.sigma_uc();
+  settings.spectrum.t_peak = cv.t_peak();
+  settings.spectrum.sigma_log_f = cv.sigma_log_f();
+  settings.spectrum.n_components = cv.n_components();
+  settings.seed = cv.seed();
+
+  // Re-initialize the shared environment
+  current_environment_ = std::make_shared<CurrentEnvironment>(settings);
+  current_environment_->Initialize(remaining_simulation_duration_);
+
+  // Update all bodies that reference this environment
+  if (floating_platform_simulator_) {
+    floating_platform_simulator_->SetCurrentEnvironment(current_environment_);
+  }
+  break;
+}
+```
+
+**Relationship between SetCurrentSpeed and SetCurrentVariability:**
+- `SetCurrentSpeed` (existing) → sets the MEAN current speed. This is what
+  the Beaufort table gives. It's the deterministic part.
+- `SetCurrentVariability` (new) → sets the FLUCTUATION parameters. This is
+  the stochastic part that gets superimposed on the mean.
+- Both feed into `CurrentEnvironmentSettings` — the mean goes into
+  `settings.mean_speed`, the fluctuation into `settings.spectrum.*`.
+- The VesselSimulatorWrapper must track both and re-compose when either changes.
+
+#### 8. FloatingPlatformSimulator Integration
+
+The `FloatingPlatformSimulator` (which manages the FWT spar body) needs to:
+
+1. **Receive the shared `CurrentEnvironment`** from the vessel simulator wrapper:
+
+```cpp
+class FloatingPlatformSimulator {
+ public:
+  void SetCurrentEnvironment(
+      std::shared_ptr<const CurrentEnvironment> env) {
+    current_env_ = env;
+    // Recreate the force model with the new environment
+    if (current_env_ && current_env_->IsActive()) {
+      current_force_model_ = std::make_unique<CurrentForceModel>(
+          current_force_settings_, hull_sections_, current_env_);
+    } else {
+      current_force_model_.reset();
+    }
+  }
+
+ private:
+  std::shared_ptr<const CurrentEnvironment> current_env_;
+  std::unique_ptr<floating_platform::CurrentForceModel> current_force_model_;
+  CurrentForceSettings current_force_settings_;  // from config file
+  std::vector<HullSection> hull_sections_;       // from PlatformModel
+};
+```
+
+2. **Query the force model each timestep** in its Step() method:
+
+```cpp
+void FloatingPlatformSimulator::Step(double time, double dt) {
+  // ... existing wave force computation ...
+
+  // Current drag force
+  if (current_force_model_) {
+    auto [Fx_current, Fy_current] =
+        current_force_model_->ComputeForceDepthIntegrated(
+            time, surge_velocity_, sway_velocity_, heading_);
+    // Add to total external force
+    total_surge_force += Fx_current;
+    total_sway_force += Fy_current;
+  }
+
+  // ... time integration ...
+}
+```
+
+3. **For the DP vessel side**, the `VesselSimulatorWrapper` doesn't need a
+   `CurrentForceModel` — it already has its own maneuvering model that uses
+   speed-through-water. It just needs to update STW:
+
+```cpp
+// In VesselSimulatorWrapper::Step():
+if (current_environment_ && current_environment_->IsActive()) {
+  auto [Ucx, Ucy] = current_environment_->Velocity(time);
+  // Speed over ground to speed through water
+  stw_surge = sog_surge - Ucx;
+  stw_sway = sog_sway - Ucy;
+} else {
+  // Fallback to existing constant current
+  stw_surge = sog_surge - constant_current_surge_;
+  stw_sway = sog_sway - constant_current_sway_;
+}
+```
+
+This gives the DP vessel time-varying current drag through its existing
+maneuvering model — no new force model needed.
+
+#### 9. Summary — Files to Modify in brucon
+
+| File | Change |
+|------|--------|
+| `idl/dp/dp_simulator.idl` | Add `CurrentVariabilitySettings` struct, `SetCurrentVariability` enum/union case |
+| `apps/simulators/dp_simulator_gui/dp_simulator_window.ui` | Add "Current Variability" QGroupBox in column5 (checkbox, line edits, combo box, send button) |
+| `apps/simulators/dp_simulator_gui/dp_simulator_window.h` | Add `PublishSetCurrentVariability()`, `UpdateAutoSigma()` declarations |
+| `apps/simulators/dp_simulator_gui/dp_simulator_window.cpp` | Implement Publish/Update methods, connect signals in constructor, modify `PublishSetBeaufort()` |
+| `apps/simulators/vessel_simulator/...` | Add `SetCurrentVariability` command handler, CurrentEnvironment management |
+| `apps/simulators/floating_platform_simulator/...` | Add SetCurrentEnvironment(), current force in Step() |
+
+#### 10. Not Yet Designed (Future Work)
+
+- **Current direction variability** — currently only speed varies; direction
+  is constant from the Beaufort table. Adding directional variability needs
+  a second spectral synthesis for direction, or a wind-vane model. Low priority.
+- **DDS feedback topic** — a `CurrentVariabilityStatus` topic published by
+  the simulator back to the GUI, so the GUI can display the actual current
+  sigma being used (for verification). Could piggyback on the existing
+  `SimulatorCurrent` topic by adding sigma_uc and spectrum_type fields.
+- **Persistence** — saving/loading current variability settings to/from the
+  scenario configuration file. Would go through the existing scenario
+  serialization path.
+- **Multiple vessels** — if there are multiple DP vessels in the scenario,
+  they should all share the same `CurrentEnvironment`. The vessel simulator
+  wrapper that owns the environment should be identified as the "environment
+  provider", or the environment should be promoted to a standalone simulator.
+
+---
