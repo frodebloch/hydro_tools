@@ -1450,3 +1450,267 @@ Updated RSS surge budget (feathered blades, reference conditions):
 - Couple with wave-current interaction in the QTF computation
 
 ---
+
+## CURRENT MODEL — C++ Design for brucon Floating Platform Simulator (Session 60)
+
+### Motivation
+
+The current variability model developed in Session 59 (Python prototype in `slow_drift_swell.py`) needs to be ported to the brucon C++ floating platform simulator designed in Session 58.  Current variability produces σ_surge ≈ 1.85 m at Tampen for σ_Uc = 0.10 m/s — an order of magnitude larger than QTF slow-drift — making it a critical component for realistic DP alongside simulation.
+
+A key realization: the DP vessel and the FWT platform must see the **same current field**.  If each generates its own independent current realization, their surge motions are uncorrelated, and the DP controller's tracking error will be wrong.  This drove a two-layer architecture: a shared environment provider + per-body force consumers.
+
+### Architecture — Shared Environment + Per-Body Force
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│              CurrentEnvironment  (shared, one instance)      │
+│  - Owns mean current, variability spectrum, depth profile   │
+│  - Pre-synthesizes time-domain velocity signal              │
+│  - Queried by ALL bodies for U(t, z) at any position/time  │
+└─────────┬──────────────────────────────────┬────────────────┘
+          │                                  │
+          ▼                                  ▼
+┌─────────────────────┐       ┌──────────────────────────────┐
+│ CurrentForceModel   │       │ VesselSimulatorWrapper        │
+│ (FWT spar)          │       │ (DP vessel)                   │
+│ - Morison drag on   │       │ - Queries env for U(t)        │
+│   spar hull sections│       │ - Feeds into existing speed-  │
+│ - Relative velocity │       │   through-water damping &     │
+│ - Nonlinear F=CdA×  │       │   resistance model            │
+│   U_rel×|U_rel|     │       │ - No new drag code needed     │
+└─────────────────────┘       └──────────────────────────────┘
+```
+
+This follows the same pattern as `WindModel` — a single environment instance shared across simulators.
+
+Three header files implement this:
+
+```
+libs/simulator/
+├── include/brucon/simulator/
+│   └── current_model.h           # CurrentEnvironment (shared) +
+│                                 # CurrentForceModel (per-body)
+└── floating_platform/
+    ├── include/brucon/simulator/floating_platform/
+    │   ├── current_spectrum.h    # Spectrum generation (generic, GM, bimodal)
+    │   ├── current_drag.h        # Morison drag + HullSection geometry
+    │   └── ... (existing headers)
+```
+
+**Dependency chain:** `current_model.h` → `current_drag.h` + `current_spectrum.h`.
+
+### File Summary
+
+#### `current_drag.h` — Morison drag integration
+
+- **`HullSection`** struct: `{z_top, z_bottom, diameter, cd}` — same geometry used by `MorisonDamping` for viscous pitch damping.
+- **`OC3HywindHull()`** factory: returns the 3-section spar (upper 6.5m + taper + lower 9.4m, Cd=1.05, draft=120m), with the taper discretized into configurable sub-sections.
+- **`CurrentDrag`** class:
+  - `Force(U)` — uniform current: F = CdA_eff × U|U|
+  - `ForceRelative(U_current, U_platform)` — relative-velocity Morison
+  - `ForceWithProfile(U_surface, depth_func, U_platform)` — depth-dependent current via a callable depth factor
+  - `Sensitivity(U_mean)` → dF/dU = 2×CdA×|U|
+  - `SecondDerivative()` → d²F/dU² = 2×CdA (constant for U>0)
+  - `RectificationOffset(sigma_uc, k_mooring)` → Δx = 0.5 × d²F/dU² × σ² / K
+  - `NumericalSensitivity(U_mean)` → central-difference {dF/dU, d²F/dU²}
+
+Pre-computes `CdA_eff = 0.5 × ρ × Σ(Cd_i × D_i × L_i)` at construction.
+
+#### `current_spectrum.h` — Variability spectrum models
+
+Three spectrum generators (all return S(f) in [m²/s² / Hz], normalized to σ²):
+
+1. **`GenericCurrentSpectrum(f, σ, T_peak, σ_logf)`** — Gaussian-in-log-f parametric shape.  Width parameter σ_logf controls bandwidth (0.2 = narrow/tonal, 0.6 = broad-band).
+
+2. **`InternalWaveCurrentSpectrum(f, σ, lat, f_N)`** — Garrett-Munk f⁻² in the internal wave band [f_inertial, f_N].  Inertial frequency computed from latitude (default 61.2°N for Tampen).
+
+3. **`BimodalCurrentSpectrum(f, σ_tidal, T_tidal, σ_iw, T_iw)`** — Sum of two generic peaks: low-frequency tidal/inertial + high-frequency internal wave.
+
+Utility functions:
+- `MakeLogFrequencies()` / `MakeLinearFrequencies()` — grid generation
+- `Trapz()` — trapezoidal integration
+- `SynthesizeFromSpectrum(f, S, t, rng)` — random-phase time-domain synthesis
+
+#### `current_model.h` — Shared environment + per-body force
+
+Two main classes in a single header:
+
+**`CurrentEnvironment`** (in `brucon::simulator` namespace — shared across vessel/platform):
+
+- Constructor: `CurrentEnvironment(env_settings)`
+- `Initialize(duration)` — pre-computes the full current velocity time series
+- Query methods (all const after init, safe for concurrent reads):
+  - `Speed(t)`, `SpeedAtDepth(t, z)`, `Direction(t)`
+  - `Velocity(t)` → `{Ux, Uy}`, `VelocityAtDepth(t, z)` → `{Ux, Uy}`
+  - `MeanSpeed()`, `MeanDirection()`
+- Diagnostics: `GetSpectrum()` → `{f_hz, S}`
+
+**`CurrentForceModel`** (in `brucon::simulator::floating_platform` namespace — per-body):
+
+- Constructor: `CurrentForceModel(force_settings, hull_sections, shared_ptr<env>)`
+- `ComputeForce(t, surge_vel, sway_vel, heading)` → `{Fx, Fy}` [N]
+- `ComputeForceDepthIntegrated(t, ...)` → depth-integrated Morison drag
+- Linearized: `MeanDragForce()`, `DragSensitivity()`, `DragSecondDerivative()`, `RectificationOffset(K)`
+
+**Settings hierarchy:**
+
+```
+CurrentEnvironmentSettings           CurrentForceSettings
+├── enabled: bool                    ├── cd_multiplier: double
+├── mean_speed: double               ├── relative_velocity: bool
+├── mean_direction_deg: double       ├── nonlinear_drag: bool
+├── direction_convention: enum       └── include_rectification: bool
+├── variable_direction: bool
+├── seed: uint64_t
+├── lowpass_cutoff_period: double
+│
+├── CurrentSpectrumSettings
+│   ├── type: enum {None, Generic, InternalWave, Bimodal, TimeSeries}
+│   ├── sigma_uc: double
+│   ├── t_peak: double
+│   ├── sigma_log_f: double
+│   ├── latitude: double
+│   ├── buoyancy_freq_hz: double
+│   ├── sigma_tidal, t_peak_tidal
+│   ├── sigma_iw, t_peak_iw
+│   ├── time_series_file: string
+│   ├── n_components: int
+│   ├── f_min_hz, f_max_hz: double
+│   └── geometric_spacing: bool
+│
+└── CurrentProfileSettings
+    ├── type: enum {Uniform, PowerLaw, Bilinear, Custom}
+    ├── power_law_exponent: double
+    ├── power_law_reference_depth
+    ├── upper/lower_layer_fraction
+    ├── transition_depth/thickness
+    └── custom_profile: vector<(z,f)>
+```
+
+### Integration into Simulators
+
+**Simulation setup (in the orchestrator / scenario runner):**
+
+```cpp
+// Create shared current environment
+auto current_env = std::make_shared<CurrentEnvironment>(env_settings);
+current_env->Initialize(simulation_duration);
+
+// FWT platform — gets a CurrentForceModel that queries the shared env
+auto platform_sim = FloatingPlatformSimulator(dt, platform, mooring, turbine);
+platform_sim.SetCurrentEnvironment(current_env);  // creates internal CurrentForceModel
+
+// DP vessel — queries the same environment for speed-through-water
+auto vessel_wrapper = VesselSimulatorWrapper(vessel_config);
+vessel_wrapper.SetCurrentEnvironment(current_env);  // uses U(t) in STW computation
+```
+
+**FloatingPlatformSimulator::Step():**
+
+```cpp
+void Step(...) {
+    // 1. Wave-frequency response
+    ComputeWaveFrequencyResponse(time);
+
+    // 2. LF forces
+    double Fx_wind = ...;
+    double Fx_wave_drift = ...;
+
+    // 3. Current drag on spar (queries shared environment internally)
+    auto [Fx_current, Fy_current] = current_force_.ComputeForce(
+        time, lf_surge_vel_, lf_sway_vel_, lf_heading_);
+
+    // 4. VIM sway force — uses current speed from shared environment
+    double Uc = current_env_->Speed(time);
+    double Fy_vim = vim_.Step(dt_, Uc, lf_sway_vel_);
+
+    // 5. Mooring restoring
+    auto [Fx_moor, Fy_moor, Mz_moor] = mooring_->Forces(
+        lf_north_, lf_east_, lf_heading_);
+
+    // 6. Integrate LF dynamics
+    IntegrateLF(dt_,
+        Fx_wind + Fx_wave_drift + Fx_current + Fx_moor,
+        Fy_current + Fy_vim + Fy_moor,
+        Mz_moor);
+}
+```
+
+**VesselSimulatorWrapper — current integration:**
+
+The DP vessel already has current handling via speed-through-water. The change is replacing its internal constant current with queries to the shared environment:
+
+```cpp
+void VesselSimulatorWrapper::Step(double time, ...) {
+    // Query shared current environment (same realization as FWT)
+    auto [Uc_x, Uc_y] = current_env_->Velocity(time);
+
+    // Existing vessel model: speed through water = SOG - current
+    double stw_x = sog_x - Uc_x;
+    double stw_y = sog_y - Uc_y;
+
+    // Feed into existing maneuvering model (hull forces, propeller, etc.)
+    vessel_model_.SetSpeedThroughWater(stw_x, stw_y);
+    // ...rest of existing Step()
+}
+```
+
+Key integration points:
+1. **Correlated motions**: Both simulators see the same current gust at the same time. When the FWT surges from a current increase, the DP vessel also experiences increased drift, so the DP controller sees a smaller relative error than if they were independent.
+2. **VIM consistency**: The VIM model on the FWT gets the same current speed that drives the vessel's drift, so VIM lock-in events coincide with periods of higher DP demand.
+3. **Mean offset**: mooring equilibrium finder uses `current_force_.MeanDragForce()` to find the static offset and tangent stiffness.
+4. **Depth profile matters differently**: The spar extends to -120m (uses full profile), while the DP vessel has ~8m draft (only surface layer matters). The shared profile handles both correctly via `SpeedAtDepth()`.
+
+### Design Decisions
+
+1. **Shared environment, not pass-through**: We considered having the VesselSimulatorWrapper pass its current speed to the platform simulator, but that couples the two simulators. The shared environment is cleaner: each simulator independently queries the same source of truth. It also scales to Phase 3 multi-body scenarios (multiple FWTs, support vessel, etc.).
+
+2. **Pre-computed time series** (not real-time synthesis): The spectral synthesis is O(N_freq × N_time) which could be expensive for long simulations. Pre-computing at `Initialize()` avoids per-timestep cost. Memory: ~80 KB for 3 hours at 0.1s timestep.
+
+3. **Nonlinear drag option**: The Python prototype uses linearized spectral analysis. The C++ time-domain model can compute the full nonlinear F = CdA × (U_mean + u') × |U_mean + u'| at each timestep, which automatically captures the rectification effect without needing a separate correction.
+
+4. **Relative velocity**: Platform surge/sway velocity is subtracted from current velocity in the drag formula. This provides additional hydrodynamic damping (the "current damping" effect) that stabilizes the LF dynamics.
+
+5. **Depth profile**: Uniform is the default (and what the Python prototype uses). Power-law and bilinear profiles are available for more realistic scenarios. The profile multiplies the surface speed at each hull section's midpoint depth.
+
+6. **Shared HullSection geometry**: `current_drag.h` defines `HullSection` which is also used by `MorisonDamping` for viscous pitch damping. This avoids duplicate geometry definitions.
+
+7. **Thread-safe queries**: `CurrentEnvironment` query methods are const after `Initialize()`, so both simulators can call `Speed(t)` / `Velocity(t)` concurrently without locking. This matters for parallel FMU co-simulation.
+
+8. **Settings split**: Environmental settings (what the current IS) are separated from per-body settings (how this body interacts with it). This avoids duplicating spectrum/profile settings when multiple bodies share the same environment.
+
+### Validation Plan
+
+1. **Static drag**: `CurrentDrag::Force(0.5)` should match Python `compute_current_drag(0.5)` = 30.7 kN
+2. **Sensitivity**: `CurrentDrag::Sensitivity(0.5)` ≈ 122.7 kN/(m/s), matches `dFdU` from Python
+3. **Spectrum shape**: `GenericCurrentSpectrum` output should match `current_spectrum_generic` from Python
+4. **Time series statistics**: synthesized σ should match target σ_Uc to within ~5%
+5. **Surge response**: for σ_Uc = 0.10 m/s, T_peak = 1800s, the nonlinear time-domain σ_surge should approximate the Python spectral result of 1.85 m
+6. **Rectification**: nonlinear simulation should naturally produce the ~0.12 m mean offset increase without the explicit correction term
+7. **Correlation check**: In a two-body simulation, verify that the FWT and DP vessel see identical current speed at the same timestep
+
+### Default Settings for OC3 Hywind at Tampen
+
+```cpp
+// Environment (shared)
+CurrentEnvironmentSettings env;
+env.enabled = true;
+env.mean_speed = 0.50;            // m/s (moderate North Sea current)
+env.mean_direction_deg = 0.0;     // head-on
+env.spectrum.type = CurrentSpectrumType::kGeneric;
+env.spectrum.sigma_uc = 0.10;     // m/s (conservative estimate)
+env.spectrum.t_peak = 1800.0;     // 30 min (internal wave timescale)
+env.spectrum.sigma_log_f = 0.4;   // moderately broad
+env.spectrum.n_components = 200;
+env.spectrum.geometric_spacing = true;
+env.profile.type = CurrentProfileType::kUniform;
+
+// Per-body force (FWT spar)
+CurrentForceSettings spar_force;
+spar_force.cd_multiplier = 1.0;
+spar_force.relative_velocity = true;
+spar_force.nonlinear_drag = true;
+spar_force.include_rectification = true;  // only used if nonlinear_drag=false
+```
+
+---
