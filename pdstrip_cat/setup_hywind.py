@@ -227,8 +227,9 @@ def write_nemoh_cal(filepath, meshfile, npoints, npanels,
                     n_omega, omega_min, omega_max,
                     n_beta, beta_min, beta_max,
                     n_qtf_omega, qtf_omega_min, qtf_omega_max,
-                    qtf_contrib=2, enable_qtf=True):
+                    qtf_contrib=2, enable_qtf=True, geometric=False):
     """Write Nemoh.cal configuration file."""
+    freq_type = 4 if geometric else 1  # 4=geometric rad/s, 1=linear rad/s
     dashes = '-' * 114
     qtf_flag = 1 if enable_qtf else 0
     with open(filepath, 'w') as f:
@@ -258,7 +259,7 @@ def write_nemoh_cal(filepath, meshfile, npoints, npanels,
         f.write(f"2 0. 0. 1. 0. 0. 0.000000\t\t\t! Moment about z\n")
         f.write(f"0\t\t\t\t\t\t! Number of lines of additional information\n")
         f.write(f"--- Load cases to be solved {dashes}\n")
-        f.write(f"1 {n_omega}\t{omega_min:.4f}\t{omega_max:.4f}\t\t\t! Freq type 1=rad/s, N, Min, Max\n")
+        f.write(f"{freq_type} {n_omega}\t{omega_min:.4f}\t{omega_max:.4f}\t\t\t! Freq type (1=rad/s, 4=geom rad/s), N, Min, Max\n")
         f.write(f"{n_beta}\t{beta_min:.6f}\t{beta_max:.6f}\t\t\t! N_beta, beta_min, beta_max (degrees)\n")
         f.write(f"--- Post processing {dashes}\n")
         f.write(f"0\t0.1\t10.\t\t\t! IRF (0=no), dt, duration\n")
@@ -266,7 +267,7 @@ def write_nemoh_cal(filepath, meshfile, npoints, npanels,
         f.write(f"0\t0.\t180.\t\t\t! Kochin function: N_theta, min, max\n")
         f.write(f"0\t50\t400.\t400.\t\t! Free surface: Nx, Ny, Lx, Ly\n")
         f.write(f"1\t\t\t\t\t! RAO (1=calculate)\n")
-        f.write(f"1\t\t\t\t\t! output freq type 1=rad/s\n")
+        f.write(f"{freq_type}\t\t\t\t\t! output freq type (1=rad/s, 4=geom rad/s)\n")
         f.write(f"--- QTF{dashes}\n")
         f.write(f"{qtf_flag}\t\t\t\t\t! QTF flag (1=enable)\n")
         if enable_qtf:
@@ -276,7 +277,7 @@ def write_nemoh_cal(filepath, meshfile, npoints, npanels,
             f.write(f"NA\t\t\t\t\t! FS mesh file (NA if not full QTF)\n")
             f.write(f"0\t0\t0\t\t\t! FS QTF params (not used for terms<=2)\n")
             f.write(f"0\t\t\t\t\t! Hydrostatic quadratic terms\n")
-            f.write(f"1\t\t\t\t\t! Output freq type 1=rad/s\n")
+            f.write(f"{freq_type}\t\t\t\t\t! Output freq type (1=rad/s, 4=geom rad/s)\n")
             f.write(f"1\t\t\t\t\t! Include DUOK in total QTFs\n")
             f.write(f"1\t\t\t\t\t! Include HASBO in total QTFs\n")
             f.write(f"0\t\t\t\t\t! Include HASFS+ASYMP in total QTFs\n")
@@ -365,6 +366,7 @@ def setup_case(args):
         qtf_omega_max=args.qtf_omega_max or args.omega_max,
         qtf_contrib=args.qtf_contrib,
         enable_qtf=not args.no_qtf,
+        geometric=args.geometric,
     )
     print(f"  Nemoh.cal written")
 
@@ -489,6 +491,9 @@ def main():
                         help='QTF max frequency (default: same as --omega-max)')
     parser.add_argument('--qtf-contrib', type=int, default=2,
                         help='QTF contributing terms: 2=DUOK+HASBO (default: 2)')
+    parser.add_argument('--geometric', action='store_true',
+                        help='Use geometrically spaced frequencies (breaks '
+                             'signal repetition in time-domain synthesis)')
 
     args = parser.parse_args()
     return setup_case(args)

@@ -457,8 +457,9 @@ def write_nemoh_cal(filepath, meshfile, n_nodes, n_panels,
                     n_omega, omega_min, omega_max,
                     n_beta, beta_min, beta_max,
                     n_qtf_omega, qtf_omega_min, qtf_omega_max,
-                    qtf_contrib=2, bidirectional=0):
+                    qtf_contrib=2, bidirectional=0, geometric=False):
     """Write Nemoh.cal configuration file."""
+    freq_type = 4 if geometric else 1  # 4=geometric rad/s, 1=linear rad/s
     dashes = '-' * 114
     with open(filepath, 'w') as f:
         f.write(f"--- Environment {dashes}\n")
@@ -487,7 +488,7 @@ def write_nemoh_cal(filepath, meshfile, n_nodes, n_panels,
         f.write(f"2 0. 0. 1. 0. 0. 0.\t\t\t\t! Moment about z\n")
         f.write(f"0\t\t\t\t\t\t! Number of lines of additional information\n")
         f.write(f"--- Load cases to be solved {dashes}\n")
-        f.write(f"1 {n_omega}\t{omega_min:.4f}\t{omega_max:.4f}\t\t\t! Freq type 1=rad/s, N, Min, Max\n")
+        f.write(f"{freq_type} {n_omega}\t{omega_min:.4f}\t{omega_max:.4f}\t\t\t! Freq type (1=rad/s, 4=geom rad/s), N, Min, Max\n")
         f.write(f"{n_beta}\t{beta_min:.6f}\t{beta_max:.6f}\t\t\t! N_beta, beta_min, beta_max (degrees)\n")
         f.write(f"--- Post processing {dashes}\n")
         f.write(f"0\t0.1\t10.\t\t\t! IRF (0=no), dt, duration\n")
@@ -495,7 +496,7 @@ def write_nemoh_cal(filepath, meshfile, n_nodes, n_panels,
         f.write(f"0\t0.\t180.\t\t\t! Kochin function: N_theta, min, max\n")
         f.write(f"0\t50\t400.\t400.\t\t! Free surface: Nx, Ny, Lx, Ly\n")
         f.write(f"1\t\t\t\t\t! RAO (1=calculate)\n")
-        f.write(f"1\t\t\t\t\t! output freq type 1=rad/s\n")
+        f.write(f"{freq_type}\t\t\t\t\t! output freq type (1=rad/s, 4=geom rad/s)\n")
         f.write(f"--- QTF{dashes}\n")
         f.write(f"1\t\t\t\t\t! QTF flag (1=enable)\n")
         f.write(f"{n_qtf_omega}\t{qtf_omega_min:.4f}\t{qtf_omega_max:.4f}\t\t! N_omega_QTF, min, max\n")
@@ -504,7 +505,7 @@ def write_nemoh_cal(filepath, meshfile, n_nodes, n_panels,
         f.write(f"NA\t\t\t\t\t! FS mesh file (NA if not full QTF)\n")
         f.write(f"0\t0\t0\t\t\t! FS QTF params (not used for terms<=2)\n")
         f.write(f"0\t\t\t\t\t! Hydrostatic quadratic terms\n")
-        f.write(f"1\t\t\t\t\t! Output freq type 1=rad/s\n")
+        f.write(f"{freq_type}\t\t\t\t\t! Output freq type (1=rad/s, 4=geom rad/s)\n")
         f.write(f"1\t\t\t\t\t! Include DUOK in total QTFs\n")
         f.write(f"1\t\t\t\t\t! Include HASBO in total QTFs\n")
         f.write(f"0\t\t\t\t\t! Include HASFS+ASYMP in total QTFs\n")
@@ -911,6 +912,7 @@ def cmd_geomet(args):
         args.n_qtf_omega, args.qtf_omega_min, args.qtf_omega_max,
         qtf_contrib=args.qtf_contrib,
         bidirectional=1 if args.bidirectional else 0,
+        geometric=args.geometric,
     )
 
     write_mesh_cal(
@@ -976,6 +978,7 @@ def cmd_wigley(args):
         args.n_qtf_omega, args.qtf_omega_min, args.qtf_omega_max,
         qtf_contrib=args.qtf_contrib,
         bidirectional=1 if args.bidirectional else 0,
+        geometric=args.geometric,
     )
 
     write_mesh_cal(
@@ -1031,6 +1034,7 @@ def cmd_barge(args):
         args.n_qtf_omega, args.qtf_omega_min, args.qtf_omega_max,
         qtf_contrib=args.qtf_contrib,
         bidirectional=1 if args.bidirectional else 0,
+        geometric=args.geometric,
     )
 
     write_mesh_cal(
@@ -1113,6 +1117,9 @@ def add_common_args(parser):
                         help='QTF contributing terms: 2=DUOK+HASBO (default: 2)')
     parser.add_argument('--bidirectional', action='store_true',
                         help='Enable bidirectional QTF')
+    parser.add_argument('--geometric', action='store_true',
+                        help='Use geometrically spaced frequencies (breaks '
+                             'signal repetition in time-domain synthesis)')
 
 
 def main():
