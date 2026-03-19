@@ -178,5 +178,5 @@ class TurbineGeometry:
         t.Identity()
         t.RotateX(roll_deg)
         t.RotateY(-pitch_deg)
-        t.RotateZ(heading_deg)
+        t.RotateZ(-heading_deg)
         t.Translate(east, north, heave)

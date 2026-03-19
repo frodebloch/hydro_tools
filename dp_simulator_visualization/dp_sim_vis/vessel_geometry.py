@@ -470,7 +470,7 @@ class VesselGeometry:
         # Order: rotate in body frame (roll, pitch, yaw), then translate
         # VTK RotateY = about Y axis, etc., applied in reverse reading order
         # with PostMultiply, transforms are applied left-to-right.
-        t.RotateX(roll_deg)   # roll about X (starboard axis)
-        t.RotateY(-pitch_deg)  # pitch about Y (forward axis), sign convention
-        t.RotateZ(heading_deg)  # yaw/heading about Z
+        t.RotateX(roll_deg)    # roll about X (starboard axis)
+        t.RotateY(-pitch_deg)  # pitch about Y (forward axis), NED sign: +bow down
+        t.RotateZ(-heading_deg)  # heading: NED clockwise from North, VTK rotates CCW
         t.Translate(east, north, heave)
