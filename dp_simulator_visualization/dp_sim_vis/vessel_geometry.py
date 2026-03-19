@@ -181,56 +181,164 @@ def _build_superstructure() -> pv.PolyData:
     the stern and the bow is around x=103.  Mapped to body-frame coordinates
     (Y=0 at midship, forward positive).
 
+    Reference image shows (stern to bow):
+        - Low aft working deck (~2.4 m above WL, hull only)
+        - Aft accommodation block with stepped upper decks
+        - Mid-level working deck area with crane platform
+        - Forward accommodation / bridge block (tallest accommodation)
+        - Wheelhouse with bridge wings
+        - Cantilevered helideck over the bow
+
     Key features (body Y / height Z):
         Aft accommodation block   Y ≈ -4 to  +6,  Z up to 29 m
-        Working deck (mid-level)  Y ≈ +6 to +11,  Z up to 19 m
-        Forward accomm / bridge   Y ≈ +20 to +53, Z up to 29 m
+        Working deck (mid-level)  Y ≈ +6 to +19,  Z up to 19 m
+        Forward accomm / bridge   Y ≈ +19 to +50, Z up to 29 m
+        Helideck (cantilevered)   Y ≈ +46 to +58, Z ≈ 29 m
     """
     deck_z = MIDSHIP_FREEBOARD  # ~ 7.0 m above waterline
 
     blocks = []
 
     # ── Aft accommodation block ─────────────────────────────────
-    # Main block Y=-4 to +6, 29m tall, slightly narrower than beam
+    # Lower accommodation: Y=-4 to +6, 4 decks (~16m above deck)
     blocks.append(pv.Box(bounds=(
-        -9.0, 9.0,         # x: port-starboard
-        -4.0, 6.0,         # y: body frame
-        deck_z, 29.0,      # z: from deck to top
+        -9.5, 9.5,         # x: port-starboard (nearly full beam)
+        -6.0, 6.0,         # y: body frame
+        deck_z, 23.0,      # z: from deck to top of lower block
     )))
-    # Wheelhouse on top of aft block
+    # Upper accommodation step-back (narrower, taller)
+    blocks.append(pv.Box(bounds=(
+        -8.0, 8.0,
+        -4.0, 5.0,
+        23.0, 29.0,
+    )))
+    # Wheelhouse / bridge deck on top of aft block
     blocks.append(pv.Box(bounds=(
         -6.0, 6.0,
         -2.0, 4.0,
-        29.0, 33.0,
+        29.0, 32.0,
+    )))
+    # Bridge wings (thin extensions port & starboard)
+    blocks.append(pv.Box(bounds=(
+        -10.5, -6.0,       # port bridge wing
+        -1.0, 2.0,
+        29.0, 31.0,
+    )))
+    blocks.append(pv.Box(bounds=(
+        6.0, 10.5,         # starboard bridge wing
+        -1.0, 2.0,
+        29.0, 31.0,
+    )))
+
+    # ── Offshore crane on aft deck ─────────────────────────────
+    # Crane pedestal (on centreline, aft of accommodation)
+    blocks.append(pv.Box(bounds=(
+        -2.0, 2.0,
+        -16.0, -12.0,
+        deck_z, 16.0,       # pedestal ~9m above deck
+    )))
+    # Crane A-frame / boom base (wider at top)
+    blocks.append(pv.Box(bounds=(
+        -3.0, 3.0,
+        -17.0, -11.0,
+        16.0, 20.0,
+    )))
+    # Crane boom (extending to port and slightly aft)
+    blocks.append(pv.Box(bounds=(
+        -20.0, -2.0,
+        -15.5, -13.5,
+        18.0, 19.5,
+    )))
+
+    # ── Exhaust stacks (on roof of aft accommodation, well aft) ─
+    blocks.append(pv.Box(bounds=(
+        -2.0, 0.0,
+        -5.0, -3.5,
+        32.0, 36.0,         # short stacks on aft wheelhouse roof
+    )))
+    blocks.append(pv.Box(bounds=(
+        1.0, 3.0,
+        -5.0, -3.5,
+        32.0, 36.0,
     )))
 
     # ── Working deck (mid-level between blocks) ─────────────────
-    # Y=+6 to +19, height ~19m (starboard side only — port has gangway)
+    # Starboard side: working deck with crane pedestal area
     blocks.append(pv.Box(bounds=(
-        -1.0, 9.0,         # starboard half + a bit past centre
+        -1.0, 9.5,         # starboard half + a bit past centre
         6.0, 19.0,
-        deck_z, 19.0,
+        deck_z, 14.0,      # lower level
+    )))
+    # Crane pedestal (starboard side, between blocks)
+    blocks.append(pv.Box(bounds=(
+        3.0, 7.0,
+        10.0, 14.0,
+        14.0, 19.0,
     )))
 
     # ── Forward accommodation / bridge block ────────────────────
-    # Y=+19 to +50, ~29m tall
+    # Main forward block: Y=+19 to +49, ~29m tall
     blocks.append(pv.Box(bounds=(
-        -9.0, 9.0,
-        19.0, 50.0,
-        deck_z, 29.0,
+        -9.5, 9.5,
+        19.0, 49.0,
+        deck_z, 23.0,
     )))
-    # Forward wheelhouse / bridge on top
+    # Upper forward block (step-back)
+    blocks.append(pv.Box(bounds=(
+        -8.5, 8.5,
+        22.0, 47.0,
+        23.0, 29.0,
+    )))
+    # Forward wheelhouse on top (with windows — just a box for now)
     blocks.append(pv.Box(bounds=(
         -7.0, 7.0,
-        35.0, 48.0,
+        36.0, 47.0,
         29.0, 33.0,
     )))
+    # Forward bridge wings
+    blocks.append(pv.Box(bounds=(
+        -11.0, -7.0,       # port
+        38.0, 44.0,
+        29.0, 31.5,
+    )))
+    blocks.append(pv.Box(bounds=(
+        7.0, 11.0,         # starboard
+        38.0, 44.0,
+        29.0, 31.5,
+    )))
 
-    # ── Funnel (between aft block and working deck) ─────────────
+    # ── Helideck cantilevered over the bow ──────────────────────
+    # Large platform extending forward past the hull bow
+    blocks.append(pv.Box(bounds=(
+        -10.0, 10.0,
+        46.0, 60.0,        # extends well past hull bow (~54m)
+        29.0, 29.8,        # thin deck plate at top of forward block
+    )))
+    # Helideck support columns (port & starboard)
+    blocks.append(pv.Box(bounds=(
+        -10.0, -8.5,
+        49.0, 58.0,
+        23.0, 29.0,
+    )))
+    blocks.append(pv.Box(bounds=(
+        8.5, 10.0,
+        49.0, 58.0,
+        23.0, 29.0,
+    )))
+
+    # ── Mast / antenna platform (on top of aft wheelhouse) ──────
+    # Centred on the aft wheelhouse roof (Y=-2 to +4), well clear of gangway
+    # Thin mast pole
+    blocks.append(pv.Box(bounds=(
+        -0.5, 0.5,
+        0.0, 1.0,
+        32.0, 40.0,
+    )))
+    # Antenna platform / radar scanner at top
     blocks.append(pv.Box(bounds=(
         -2.5, 2.5,
-        -8.0, -4.0,
-        deck_z, 19.0,
+        -0.5, 1.5,
+        38.0, 39.0,
     )))
 
     mesh = blocks[0]
@@ -242,30 +350,64 @@ def _build_superstructure() -> pv.PolyData:
 def _build_gangway_tower() -> pv.PolyData:
     """Walk-to-work gangway tower on the port side.
 
-    Positioned at roughly Y ≈ +5 to +14 (about 5 m forward of midship after
-    the Lpp/2 shift).  The tower sits on the port side of the working deck
-    and rises to ~37 m (the highest point on the vessel profile).
+    Positioned at roughly Y ≈ +6 to +14 (about 5–10 m forward of midship).
+    The tower sits on the port side of the working deck and rises to ~37 m
+    (the highest point on the vessel profile).
 
-    The gangway system is modelled as:
-        - A rectangular tower base (port side, wider)
-        - A narrower upper tower section peaking at ~37 m
+    Based on the reference image, the gangway system consists of:
+        - A wide base/platform (housing the motion compensation system)
+        - A tall cylindrical tower (approximated as octagonal prism)
+        - The gangway boom arm extending to port
+        - A radome (dome) near the tower top
     """
     deck_z = MIDSHIP_FREEBOARD  # ~ 7.0 m
     parts = []
 
-    # Tower base / platform on port side
+    # ── Tower base / platform on port side ──────────────────────
     parts.append(pv.Box(bounds=(
-        -11.0, -1.0,       # port side (negative X)
+        -11.5, -1.0,       # port side (negative X)
         6.0, 14.0,         # y range
-        deck_z, 24.0,      # base rises to 24 m
+        deck_z, 20.0,      # base housing
     )))
 
-    # Upper tower — narrower, rises to peak of ~37 m
+    # ── Main tower column (approximated as box — could use cylinder) ─
     parts.append(pv.Box(bounds=(
-        -9.0, -3.0,        # slightly narrower
-        9.0, 13.0,         # centred around Y≈11
-        24.0, 37.0,        # from 24 m up to peak
+        -8.5, -3.5,
+        8.5, 12.5,
+        20.0, 37.0,        # rises to 37 m (peak)
     )))
+
+    # ── Tower crown / equipment platform ────────────────────────
+    parts.append(pv.Box(bounds=(
+        -10.0, -2.0,
+        8.0, 13.0,
+        35.0, 37.0,        # wider platform at top
+    )))
+
+    # ── Gangway boom arm (extending to port from tower) ─────────
+    # The boom connects at the tower column (~X=-8.5) and extends to port.
+    # Simplified as a box; the boom is ~25m long in reality.
+    parts.append(pv.Box(bounds=(
+        -35.0, -8.5,       # from tower face outward to port
+        9.5, 11.5,         # narrow fore-aft, centred on tower
+        27.0, 28.5,        # at roughly 28m height on the tower
+    )))
+    # Boom tip (slightly wider — the gangway platform)
+    parts.append(pv.Box(bounds=(
+        -38.0, -34.0,
+        8.5, 12.5,
+        25.0, 29.0,
+    )))
+
+    # ── Radome (dome near gangway tower) ────────────────────────
+    # Approximated as a sphere
+    radome = pv.Sphere(
+        radius=2.5,
+        center=(-6.0, 14.5, 24.0),
+        theta_resolution=12,
+        phi_resolution=12,
+    )
+    parts.append(radome)
 
     mesh = parts[0]
     for p in parts[1:]:
@@ -290,11 +432,10 @@ class VesselGeometry:
 
     def __init__(self):
         hull = _build_hull_mesh()
-        superstructure = _build_superstructure()
         gangway = _build_gangway_tower()
 
         # Merge into a single mesh
-        self.mesh = hull.merge(superstructure).merge(gangway)
+        self.mesh = hull.merge(gangway)
 
         # VTK transform for fast rigid-body updates (no mesh point modification)
         self._vtk_transform = vtk.vtkTransform()

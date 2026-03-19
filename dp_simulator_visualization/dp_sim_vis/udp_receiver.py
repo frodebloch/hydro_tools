@@ -101,8 +101,10 @@ class UdpReceiver:
             self.state.vessel_roll = msg.get("roll", self.state.vessel_roll)
             self.state.vessel_pitch = msg.get("pitch", self.state.vessel_pitch)
             self.state.vessel_heave = msg.get("heave", self.state.vessel_heave)
-            # Note: lat/lon would need conversion to NED offsets relative to a
-            # reference point. For now we keep NED as is (mock mode sets directly).
+            # NED coordinates added by our extended VisualisationInterface
+            if "ned_north" in msg:
+                self.state.vessel_north = msg["ned_north"]
+                self.state.vessel_east = msg["ned_east"]
 
         # ── Simulation time: {"OceanSimulationTime": 123.4}
         if "OceanSimulationTime" in msg:
@@ -139,8 +141,7 @@ class UdpReceiver:
                 )
             self.state.wave_params_updated = True
 
-        # ── Floating platform data (extension — not yet in C++ VisInterface)
-        # {"platformId":"...", "north":..., "east":..., "heading":..., ...}
+        # ── Floating platform data: {"platformId":"...", "north":..., "east":..., ...}
         if "platformId" in msg:
             self.state.platform_north = msg.get("north", self.state.platform_north)
             self.state.platform_east = msg.get("east", self.state.platform_east)
