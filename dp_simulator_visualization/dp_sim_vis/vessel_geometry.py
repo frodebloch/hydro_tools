@@ -175,42 +175,102 @@ def _build_hull_mesh() -> pv.PolyData:
 
 
 def _build_superstructure() -> pv.PolyData:
-    """Simple box superstructure on the aft part of the vessel.
+    """Build superstructure matching the Vard 985 CSOV side-profile.
 
-    Positioned roughly over the aft third, representing the bridge/accommodation.
-    Sits on top of the main deck (at freeboard height).
+    Profile reference: wind_profile.csv — a crude side-profile where x=0 is
+    the stern and the bow is around x=103.  Mapped to body-frame coordinates
+    (Y=0 at midship, forward positive).
+
+    Key features (body Y / height Z):
+        Aft accommodation block   Y ≈ -4 to  +6,  Z up to 29 m
+        Working deck (mid-level)  Y ≈ +6 to +11,  Z up to 19 m
+        Forward accomm / bridge   Y ≈ +20 to +53, Z up to 29 m
     """
-    deck_z = MIDSHIP_FREEBOARD + STERN_SHEER  # approx deck height in aft region
-    # Bridge block: centered aft, slightly narrower than beam
-    bridge = pv.Box(bounds=(
-        -8.0, 8.0,       # x: port-starboard
-        -35.0, -10.0,    # y: aft section
-        deck_z, deck_z + 10.0,  # z: from deck to ~10m above deck
-    ))
-    # Wheelhouse on top
-    wheelhouse = pv.Box(bounds=(
-        -5.0, 5.0,
-        -30.0, -18.0,
-        deck_z + 10.0, deck_z + 14.0,
-    ))
-    # Funnel
-    funnel = pv.Box(bounds=(
+    deck_z = MIDSHIP_FREEBOARD  # ~ 7.0 m above waterline
+
+    blocks = []
+
+    # ── Aft accommodation block ─────────────────────────────────
+    # Main block Y=-4 to +6, 29m tall, slightly narrower than beam
+    blocks.append(pv.Box(bounds=(
+        -9.0, 9.0,         # x: port-starboard
+        -4.0, 6.0,         # y: body frame
+        deck_z, 29.0,      # z: from deck to top
+    )))
+    # Wheelhouse on top of aft block
+    blocks.append(pv.Box(bounds=(
+        -6.0, 6.0,
+        -2.0, 4.0,
+        29.0, 33.0,
+    )))
+
+    # ── Working deck (mid-level between blocks) ─────────────────
+    # Y=+6 to +19, height ~19m (starboard side only — port has gangway)
+    blocks.append(pv.Box(bounds=(
+        -1.0, 9.0,         # starboard half + a bit past centre
+        6.0, 19.0,
+        deck_z, 19.0,
+    )))
+
+    # ── Forward accommodation / bridge block ────────────────────
+    # Y=+19 to +50, ~29m tall
+    blocks.append(pv.Box(bounds=(
+        -9.0, 9.0,
+        19.0, 50.0,
+        deck_z, 29.0,
+    )))
+    # Forward wheelhouse / bridge on top
+    blocks.append(pv.Box(bounds=(
+        -7.0, 7.0,
+        35.0, 48.0,
+        29.0, 33.0,
+    )))
+
+    # ── Funnel (between aft block and working deck) ─────────────
+    blocks.append(pv.Box(bounds=(
         -2.5, 2.5,
-        -40.0, -35.0,
-        deck_z, deck_z + 12.0,
-    ))
-    superstructure = bridge.merge(wheelhouse).merge(funnel)
-    return superstructure
+        -8.0, -4.0,
+        deck_z, 19.0,
+    )))
+
+    mesh = blocks[0]
+    for b in blocks[1:]:
+        mesh = mesh.merge(b)
+    return mesh
 
 
-def _build_helideck() -> pv.PolyData:
-    """Helideck disc on the foredeck area."""
-    deck_z = MIDSHIP_FREEBOARD + BOW_SHEER * 0.5  # approximate deck height forward
-    deck = pv.Disc(
-        center=(0.0, 35.0, deck_z + 0.3),
-        inner=0.0, outer=10.0, normal=(0, 0, 1),
-    )
-    return deck
+def _build_gangway_tower() -> pv.PolyData:
+    """Walk-to-work gangway tower on the port side.
+
+    Positioned at roughly Y ≈ +5 to +14 (about 5 m forward of midship after
+    the Lpp/2 shift).  The tower sits on the port side of the working deck
+    and rises to ~37 m (the highest point on the vessel profile).
+
+    The gangway system is modelled as:
+        - A rectangular tower base (port side, wider)
+        - A narrower upper tower section peaking at ~37 m
+    """
+    deck_z = MIDSHIP_FREEBOARD  # ~ 7.0 m
+    parts = []
+
+    # Tower base / platform on port side
+    parts.append(pv.Box(bounds=(
+        -11.0, -1.0,       # port side (negative X)
+        6.0, 14.0,         # y range
+        deck_z, 24.0,      # base rises to 24 m
+    )))
+
+    # Upper tower — narrower, rises to peak of ~37 m
+    parts.append(pv.Box(bounds=(
+        -9.0, -3.0,        # slightly narrower
+        9.0, 13.0,         # centred around Y≈11
+        24.0, 37.0,        # from 24 m up to peak
+    )))
+
+    mesh = parts[0]
+    for p in parts[1:]:
+        mesh = mesh.merge(p)
+    return mesh
 
 
 class VesselGeometry:
@@ -231,10 +291,10 @@ class VesselGeometry:
     def __init__(self):
         hull = _build_hull_mesh()
         superstructure = _build_superstructure()
-        helideck = _build_helideck()
+        gangway = _build_gangway_tower()
 
         # Merge into a single mesh
-        self.mesh = hull.merge(superstructure).merge(helideck)
+        self.mesh = hull.merge(superstructure).merge(gangway)
 
         # VTK transform for fast rigid-body updates (no mesh point modification)
         self._vtk_transform = vtk.vtkTransform()
