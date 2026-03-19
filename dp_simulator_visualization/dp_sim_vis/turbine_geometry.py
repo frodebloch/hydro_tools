@@ -179,4 +179,4 @@ class TurbineGeometry:
         t.RotateX(pitch_deg)     # pitch about X (starboard), +bow up
         t.RotateY(roll_deg)      # roll about Y (forward), +stbd down
         t.RotateZ(-heading_deg)
-        t.Translate(east, north, heave)  # heave: sim +up, viz +up (no negation needed)
+        t.Translate(east, north, -heave)  # heave: negate for VTK
