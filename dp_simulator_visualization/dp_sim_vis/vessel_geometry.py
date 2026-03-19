@@ -1,12 +1,15 @@
 """Vessel geometry — simple 3D hull built from CSOV cross-section data.
 
 Uses the 39-station section data from the Norwind SOV (config_csov) to build
-a realistic hull shape, plus a simplified superstructure.
+a realistic hull shape, plus an articulated gangway system.
 """
 
+import math
 import numpy as np
 import pyvista as pv
 import vtk
+
+from .udp_receiver import GangwayConfigData, GangwayStateData
 
 # ── CSOV section data: (offset_m, breadth_m, draft_m, area_m2) ──────────
 # Offset: longitudinal position, positive = forward, zero near midship.
@@ -348,75 +351,285 @@ def _build_superstructure() -> pv.PolyData:
 
 
 def _build_gangway_tower() -> pv.PolyData:
-    """Walk-to-work gangway tower on the port side.
+    """DEPRECATED: Static gangway tower — replaced by articulated GangwayGeometry.
 
-    Positioned at roughly Y ≈ +6 to +14 (about 5–10 m forward of midship).
-    The tower sits on the port side of the working deck and rises to ~37 m
-    (the highest point on the vessel profile).
-
-    Based on the reference image, the gangway system consists of:
-        - A wide base/platform (housing the motion compensation system)
-        - A tall cylindrical tower (approximated as octagonal prism)
-        - The gangway boom arm extending to port
-        - A radome (dome) near the tower top
+    Kept for reference but not called.
     """
-    deck_z = MIDSHIP_FREEBOARD  # ~ 7.0 m
-    parts = []
+    raise NotImplementedError("Use GangwayGeometry instead")
 
-    # ── Tower base / platform on port side ──────────────────────
-    parts.append(pv.Box(bounds=(
-        -11.5, -1.0,       # port side (negative X)
-        6.0, 14.0,         # y range
-        deck_z, 20.0,      # base housing
-    )))
 
-    # ── Main tower column (approximated as box — could use cylinder) ─
-    parts.append(pv.Box(bounds=(
-        -8.5, -3.5,
-        8.5, 12.5,
-        20.0, 37.0,        # rises to 37 m (peak)
-    )))
+# ── Gangway coordinate mapping ─────────────────────────────────────────
+# Config body frame:  X forward, Y starboard, Z down (origin: midship/keel)
+# Viz body frame:     X east (starboard), Y north (forward), Z up (origin: midship/waterline)
+# Mapping: viz_X = config_Y, viz_Y = config_X, viz_Z = -config_Z - DESIGN_DRAFT
+# where DESIGN_DRAFT is the distance from keel to waterline.
 
-    # ── Tower crown / equipment platform ────────────────────────
-    parts.append(pv.Box(bounds=(
-        -10.0, -2.0,
-        8.0, 13.0,
-        35.0, 37.0,        # wider platform at top
-    )))
+def _config_to_viz_body(cfg_x: float, cfg_y: float, cfg_z: float) -> tuple[float, float, float]:
+    """Convert config body-frame position to viz body-frame position.
 
-    # ── Gangway boom arm (extending to port from tower) ─────────
-    # The boom connects at the tower column (~X=-8.5) and extends to port.
-    # Simplified as a box; the boom is ~25m long in reality.
-    parts.append(pv.Box(bounds=(
-        -35.0, -8.5,       # from tower face outward to port
-        9.5, 11.5,         # narrow fore-aft, centred on tower
-        27.0, 28.5,        # at roughly 28m height on the tower
-    )))
-    # Boom tip (slightly wider — the gangway platform)
-    parts.append(pv.Box(bounds=(
-        -38.0, -34.0,
-        8.5, 12.5,
-        25.0, 29.0,
-    )))
+    Config: X=forward, Y=starboard, Z=down from keel.
+    Viz: X=starboard(east), Y=forward(north), Z=up from waterline.
+    """
+    return (cfg_y, cfg_x, -cfg_z - VESSEL_DESIGN_DRAFT)
 
-    # ── Radome (dome near gangway tower) ────────────────────────
-    # Approximated as a sphere
-    radome = pv.Sphere(
-        radius=2.5,
-        center=(-6.0, 14.5, 24.0),
-        theta_resolution=12,
-        phi_resolution=12,
+
+class GangwayGeometry:
+    """Articulated gangway with tower base, tower column, boom, and tip platform.
+
+    Each part has its own VTK mesh and transform. The transforms compose
+    the vessel 6DOF with the gangway joint kinematics.
+
+    Gangway kinematic chain:
+        Vessel frame → Tower base (fixed on deck)
+                     → Tower column (extends vertically by 'height')
+                     → Boom (slews horizontally, luffs vertically, length = total_length)
+                     → Tip platform (at boom end)
+    """
+
+    # Gangway slewing convention (from gangway.cpp):
+    #   0 deg = forward (body +X = viz +Y)
+    #   90 deg = starboard (body +Y = viz +X)
+    #   180 deg = aft
+    #   270 deg = port
+    # Increases clockwise viewed from above.
+    #
+    # Boom angle convention (from gangway.cpp):
+    #   Body frame Z points DOWN, so:
+    #   Positive boom angle → boom tip goes DOWN
+    #   Negative boom angle → boom tip goes UP
+    #   Range: -30 to +30 degrees
+    #
+    # Height convention:
+    #   Height is measured upward from the antenna_position (= gangway base).
+    #   Rotation center Z (body) = antenna_position_z - height (more negative = higher)
+    #   Rotation center Z (viz)  = base_viz_z + height
+
+    # Default config matching CSOV posrefs
+    DEFAULT_CONFIG = GangwayConfigData(
+        base_x=5.0, base_y=-9.0, base_z=-8.0,
+        max_height=25.0, min_length=18.0, max_length=32.0,
     )
-    parts.append(radome)
 
-    mesh = parts[0]
-    for p in parts[1:]:
-        mesh = mesh.merge(p)
-    return mesh
+    def __init__(self, config: GangwayConfigData | None = None):
+        cfg = config or self.DEFAULT_CONFIG
+
+        # Store config in viz body frame
+        self._base_viz = _config_to_viz_body(cfg.base_x, cfg.base_y, cfg.base_z)
+        self._max_height = cfg.max_height
+        self._min_length = cfg.min_length
+        self._max_length = cfg.max_length
+
+        # The config z_position is the base of the height measurement.
+        # In viz frame: base_z = -cfg_z - DRAFT.
+        # The rotation center is at base_z + height.
+        # Everything below the main deck (MIDSHIP_FREEBOARD) is hidden inside the hull,
+        # so we only need to draw the tower column from deck level upward.
+
+        # Geometry dimensions
+        self._tower_width = 5.0      # width of tower column [m]
+        self._boom_width = 2.0       # width of boom arm [m]
+        self._boom_height = 1.5      # height of boom arm [m]
+        self._tip_size = 4.0         # side length of tip platform [m]
+
+        # Build meshes in their local coordinate systems (centred at origin)
+        self._build_meshes()
+
+        # VTK transforms — one per part
+        self._tower_base_transform = vtk.vtkTransform()
+        self._tower_base_transform.PostMultiply()
+        self._tower_col_transform = vtk.vtkTransform()
+        self._tower_col_transform.PostMultiply()
+        self._boom_transform = vtk.vtkTransform()
+        self._boom_transform.PostMultiply()
+        self._tip_transform = vtk.vtkTransform()
+        self._tip_transform.PostMultiply()
+
+    def _build_meshes(self):
+        """Build the gangway part meshes in local coordinates.
+
+        The gangway base (z_position) is typically below the main deck — it is
+        the origin for the height measurement, inside the hull structure.  The
+        telescoping column extends upward by 'height' from that point, emerging
+        through the deck when height is large enough.
+
+        We draw:
+          - tower_base_mesh: a small housing at deck level representing the
+            visible pedestal / deck penetration where the column emerges.
+          - tower_col_mesh: the telescoping column from the base upward by
+            'height' (unit-height mesh, Z-scaled in the transform).
+          - boom_mesh / tip_mesh: the boom arm and tip platform.
+        """
+        bx, by, bz = self._base_viz
+        tw = self._tower_width
+
+        # Deck penetration housing: sits at deck level, small visible structure.
+        deck_z = MIDSHIP_FREEBOARD
+        housing_height = 2.0  # 2m tall housing at deck level
+        self.tower_base_mesh = pv.Box(bounds=(
+            -tw * 1.2, tw * 1.2,   # local X
+            -tw * 0.8, tw * 0.8,   # local Y
+            0.0, housing_height,    # local Z: 0 to housing_height
+        ))
+        # The housing is positioned at deck level in viz frame
+        self._housing_z = deck_z
+
+        # Tower column: vertical box that grows with 'height'.
+        # Built with unit height — will be Z-scaled by actual height in the transform.
+        # The column starts at the gangway base (bz) and extends upward.
+        # Only the portion above deck is visible, but VTK will clip/hide the
+        # below-deck portion behind the hull mesh.
+        self.tower_col_mesh = pv.Box(bounds=(
+            -tw / 2, tw / 2,
+            -tw / 2, tw / 2,
+            0.0, 1.0,    # unit height — will be scaled by actual height
+        ))
+
+        # Boom arm: long narrow box. Built along +Y (forward in viz body frame)
+        # with origin at the rotation center end.
+        # Length 1.0 — will be scaled to total_length.
+        bw = self._boom_width
+        bhh = self._boom_height
+        self.boom_mesh = pv.Box(bounds=(
+            -bw / 2, bw / 2,    # X
+            0.0, 1.0,           # Y: from rotation center outward (unit length)
+            -bhh / 2, bhh / 2,  # Z
+        ))
+
+        # Tip platform: small box at the end of the boom.
+        ts = self._tip_size
+        self.tip_mesh = pv.Box(bounds=(
+            -ts / 2, ts / 2,
+            -ts / 2, ts / 2,
+            -ts / 2, ts / 2,
+        ))
+
+    def update_transforms(
+        self,
+        vessel_north: float,
+        vessel_east: float,
+        vessel_heading_deg: float,
+        vessel_roll_deg: float,
+        vessel_pitch_deg: float,
+        vessel_heave: float,
+        gangway_state: GangwayStateData,
+    ):
+        """Update all gangway part transforms for the current frame.
+
+        Composes vessel 6DOF with gangway joint kinematics.
+
+        The gangway kinematic chain (from gangway.cpp):
+          - z_position is the gangway base (height measurement origin)
+          - rotation center is at z_position + height (upward)
+          - boom extends from rotation center at slewing/boom angles
+        """
+        bx, by, bz = self._base_viz
+        height = gangway_state.height
+        slew_deg = gangway_state.slewing_angle
+        boom_deg = gangway_state.boom_angle
+        total_length = gangway_state.total_length
+
+        # ── Helper: build vessel rotation transform ──────────────────
+        # This is the same rotation order as VesselGeometry.update_transform
+        def _set_vessel_pose(t: vtk.vtkTransform):
+            """Apply vessel 6DOF to a transform (PostMultiply mode)."""
+            t.RotateX(vessel_pitch_deg)     # pitch about X, +bow up
+            t.RotateY(vessel_roll_deg)      # roll about Y, +stbd down
+            t.RotateZ(-vessel_heading_deg)
+            t.Translate(vessel_east, vessel_north, vessel_heave)  # heave: sim +up, viz +up
+
+        # ── Tower base housing: fixed on vessel at deck level ─────────
+        t = self._tower_base_transform
+        t.Identity()
+        t.Translate(bx, by, self._housing_z)  # housing sits at deck level
+        _set_vessel_pose(t)
+
+        # ── Tower column: from base reference upward by 'height' ─────
+        t = self._tower_col_transform
+        t.Identity()
+        t.Scale(1.0, 1.0, max(height, 0.1))  # scale Z to actual height
+        t.Translate(bx, by, bz)               # column starts at base reference
+        _set_vessel_pose(t)
+
+        # ── Boom: at rotation center (base + height) ─────────────────
+        # Rotation center position in viz body frame:
+        rc_x = bx
+        rc_y = by
+        rc_z = bz + height
+
+        # The boom in its local frame points along +Y (forward).
+        # We need to:
+        # 1. Scale Y to total_length
+        # 2. Rotate to apply slewing (about local Z) and luffing (about local X)
+        #
+        # Slewing convention: 0=forward (+Y in viz), 90=starboard (+X in viz), clockwise.
+        # In VTK: RotateZ rotates CCW, so slewing_deg clockwise = RotateZ(-slewing_deg).
+        #
+        # Boom angle convention (from gangway.cpp):
+        #   In the body frame (Z-down): dz = sin(boom_angle) * length
+        #   Positive boom_angle → positive dz → downward in body frame
+        #   Negative boom_angle → upward (boom tip above rotation center)
+        #
+        # In viz frame (Z-up), we need to negate: the VTK RotateX(+angle)
+        # rotates +Y towards +Z (up), but a negative boom_angle means "up",
+        # so we apply RotateX(-boom_deg) to get the correct visual tilt.
+
+        t = self._boom_transform
+        t.Identity()
+        t.Scale(1.0, total_length, 1.0)  # scale Y to actual boom length
+        t.RotateX(-boom_deg)             # luffing: negate because negative boom = up
+        t.RotateZ(-slew_deg)             # slewing: clockwise from forward
+        t.Translate(rc_x, rc_y, rc_z)    # move to rotation center
+        _set_vessel_pose(t)
+
+        # ── Tip platform: at the end of the boom ─────────────────────
+        # Compute tip position in viz body frame using the gangway kinematics.
+        # From gangway.cpp, body-frame vector from rotation center to bumper:
+        #   dx_body = cos(boom) * length * cos(slew)   [forward]
+        #   dy_body = cos(boom) * length * sin(slew)   [starboard]
+        #   dz_body = sin(boom) * length               [DOWN in body frame]
+        #
+        # Convert to viz body frame (X=starboard, Y=forward, Z=up):
+        #   viz_dx = dy_body (starboard)
+        #   viz_dy = dx_body (forward)
+        #   viz_dz = -dz_body (negate: body Z-down → viz Z-up)
+        slew_rad = math.radians(slew_deg)
+        boom_rad = math.radians(boom_deg)
+        cos_boom = math.cos(boom_rad)
+        sin_boom = math.sin(boom_rad)
+        cos_slew = math.cos(slew_rad)
+        sin_slew = math.sin(slew_rad)
+
+        # Config body-frame offset from rotation center to tip
+        dx_cfg = cos_boom * total_length * cos_slew  # forward
+        dy_cfg = cos_boom * total_length * sin_slew  # starboard
+        dz_cfg = sin_boom * total_length              # DOWN (body frame)
+
+        # Convert to viz body frame
+        tip_x = rc_x + dy_cfg    # starboard
+        tip_y = rc_y + dx_cfg    # forward
+        tip_z = rc_z - dz_cfg    # up (negate body Z-down)
+
+        t = self._tip_transform
+        t.Identity()
+        # Tip orientation follows boom (slewing + luffing)
+        t.RotateX(-boom_deg)
+        t.RotateZ(-slew_deg)
+        t.Translate(tip_x, tip_y, tip_z)
+        _set_vessel_pose(t)
+
+    @property
+    def meshes_and_transforms(self) -> list[tuple[pv.PolyData, vtk.vtkTransform]]:
+        """Return list of (mesh, transform) for all gangway parts."""
+        return [
+            (self.tower_base_mesh, self._tower_base_transform),
+            (self.tower_col_mesh, self._tower_col_transform),
+            (self.boom_mesh, self._boom_transform),
+            (self.tip_mesh, self._tip_transform),
+        ]
 
 
 class VesselGeometry:
-    """Complete vessel geometry with hull, superstructure, and 6DOF transform.
+    """Complete vessel geometry with hull and articulated gangway.
 
     Coordinate convention for the mesh (before transform):
         X = East (starboard positive)
@@ -431,15 +644,18 @@ class VesselGeometry:
     """
 
     def __init__(self):
-        hull = _build_hull_mesh()
-        gangway = _build_gangway_tower()
+        self.mesh = _build_hull_mesh()
 
-        # Merge into a single mesh
-        self.mesh = hull.merge(gangway)
+        # Articulated gangway (initially with default CSOV config)
+        self.gangway = GangwayGeometry()
 
         # VTK transform for fast rigid-body updates (no mesh point modification)
         self._vtk_transform = vtk.vtkTransform()
         self._vtk_transform.PostMultiply()
+
+    def set_gangway_config(self, config: GangwayConfigData):
+        """Re-create the gangway geometry with the given configuration."""
+        self.gangway = GangwayGeometry(config)
 
     def update_transform(
         self,
@@ -461,16 +677,22 @@ class VesselGeometry:
         roll_deg : float
             Roll angle [deg], positive = starboard down.
         pitch_deg : float
-            Pitch angle [deg], positive = bow down.
+            Pitch angle [deg], positive = bow up.
         heave : float
-            Vertical displacement [m], positive up.
+            Vertical displacement [m], positive down.
         """
         t = self._vtk_transform
         t.Identity()
-        # Order: rotate in body frame (roll, pitch, yaw), then translate
-        # VTK RotateY = about Y axis, etc., applied in reverse reading order
-        # with PostMultiply, transforms are applied left-to-right.
-        t.RotateX(roll_deg)    # roll about X (starboard axis)
-        t.RotateY(-pitch_deg)  # pitch about Y (forward axis), NED sign: +bow down
+        # Order: rotate in body frame (pitch, roll, yaw), then translate.
+        # With PostMultiply, transforms are applied left-to-right.
+        #
+        # Viz frame: X=East(starboard), Y=North(forward), Z=Up
+        # Simulator body frame: X=fwd, Y=stbd, Z=down
+        # Pitch = rotation about starboard axis = X in viz. +pitch = bow UP.
+        #         RotateX(+pitch_deg): +Y(bow) rotates towards +Z(up). ✓
+        # Roll  = rotation about forward axis = Y in viz. +roll = stbd down.
+        #         RotateY(+roll_deg): +X(stbd) rotates towards -Z(down). ✓
+        t.RotateX(pitch_deg)     # pitch about X (starboard), +bow up
+        t.RotateY(roll_deg)      # roll about Y (forward), +stbd down
         t.RotateZ(-heading_deg)  # heading: NED clockwise from North, VTK rotates CCW
-        t.Translate(east, north, heave)
+        t.Translate(east, north, heave)  # heave: sim +up, viz +up (no negation needed)

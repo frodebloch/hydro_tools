@@ -9,7 +9,7 @@ and a JONSWAP wave field.
 import time
 import numpy as np
 
-from .udp_receiver import SimulatorState, WaveSpectrumParams
+from .udp_receiver import SimulatorState, WaveSpectrumParams, GangwayStateData
 from .wave_model import WaveSpectrum, WaveElevation, default_frequencies, default_directions
 
 
@@ -150,6 +150,39 @@ class MockDataGenerator:
         self.state.platform_roll = plat_roll
         self.state.platform_pitch = plat_pitch
         self.state.platform_heave = plat_wf_heave
+
+        # ── Gangway motions ────────────────────────────────────────────
+        # Simulate a gangway that starts parked (slew=180, boom=0, height=0)
+        # and after 10s moves to a working position (slew~270=port, boom~-5deg = up,
+        # height~15m, length~25m), then oscillates slightly.
+        # Boom angle convention: negative = up, positive = down (body Z-down frame).
+        if t < 10.0:
+            # Parked
+            gw_slew = 180.0
+            gw_boom = 0.0
+            gw_height = 0.0
+            gw_length = 18.0
+            gw_state = 0  # Parked
+        else:
+            # Smooth transition over ~20 seconds
+            ramp = min(1.0, (t - 10.0) / 20.0)
+            gw_slew = 180.0 + ramp * 90.0  # 180 → 270 (aft to port)
+            gw_boom = ramp * -5.0           # 0 → -5 deg (up)
+            gw_height = ramp * 15.0         # 0 → 15 m
+            gw_length = 18.0 + ramp * 7.0   # 18 → 25 m
+            gw_state = 2 if ramp < 1.0 else 4  # Moving → Connected
+            # Add slight oscillation when connected
+            if ramp >= 1.0:
+                gw_slew += 0.5 * np.sin(0.3 * t)
+                gw_boom += 0.3 * np.sin(0.4 * t + 0.5)
+
+        self.state.gangway_state = GangwayStateData(
+            total_length=gw_length,
+            height=gw_height,
+            slewing_angle=gw_slew,
+            boom_angle=gw_boom,
+            state=gw_state,
+        )
 
         self.state.last_update = time.time()
         return self.state

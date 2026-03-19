@@ -11,7 +11,7 @@ from .ocean_surface import OceanSurface
 from .vessel_geometry import VesselGeometry
 from .turbine_geometry import TurbineGeometry
 from .scene import Scene
-from .udp_receiver import UdpReceiver, SimulatorState
+from .udp_receiver import UdpReceiver, SimulatorState, GangwayStateData
 from .mock_data import MockDataGenerator
 
 
@@ -114,6 +114,15 @@ def run(args):
         pitch_deg=state.vessel_pitch,
         heave=state.vessel_heave,
     )
+    vessel.gangway.update_transforms(
+        vessel_north=state.vessel_north,
+        vessel_east=state.vessel_east,
+        vessel_heading_deg=state.vessel_heading,
+        vessel_roll_deg=state.vessel_roll,
+        vessel_pitch_deg=state.vessel_pitch,
+        vessel_heave=state.vessel_heave,
+        gangway_state=state.gangway_state,
+    )
     turbine.update_transform(
         north=state.platform_north,
         east=state.platform_east,
@@ -152,6 +161,14 @@ def run(args):
                 dirs_arr = np.array(st.directions)
                 # Rebuild elevation model with new params
                 wave_elevation.__init__(freqs_arr, dirs_arr, st.random_seed)
+                # If C++ sent the actual random phases, override the Python-generated ones.
+                # This eliminates the MT19937 bit-extraction mismatch between C++ and NumPy.
+                if st.random_phases:
+                    wave_elevation.set_phases(np.array(st.random_phases))
+                # If C++ sent precomputed amplitudes, use them directly instead of
+                # recomputing from JONSWAP spectra (eliminates formula differences).
+                if st.amplitudes:
+                    wave_elevation.set_amplitudes(np.array(st.amplitudes))
                 if st.wave.significant_wave_height > 0:
                     wave_elevation.add_spectrum(WaveSpectrum(
                         hs=st.wave.significant_wave_height,
@@ -166,10 +183,30 @@ def run(args):
                         direction_deg=st.swell.direction_deg,
                         spreading_factor=st.swell.spreading_factor,
                     ))
+                n_f = len(st.frequencies)
+                n_d = len(st.directions)
+                has_phases = bool(st.random_phases)
+                has_amps = bool(st.amplitudes)
+                print(f"[wave] Received params: {n_f} freqs x {n_d} dirs, "
+                      f"seed={st.random_seed}, "
+                      f"phases={'yes' if has_phases else 'NO'}, "
+                      f"amplitudes={'yes' if has_amps else 'NO'}")
                 st.wave_params_updated = False
 
         # Update ocean surface
         ocean.update(st.sim_time)
+
+        # Compute Python wave elevation at vessel's LF position for comparison.
+        # Note: C++ evaluates at LF-only NED position (no wave-frequency offset),
+        # but we receive total position (LF+WF) over UDP. For DP the vessel stays
+        # near origin so we use the total position — the spatial difference is
+        # small relative to wavelength.
+        # Time offset: OceanSimulationTime is ahead of the internal wave time
+        # used by the C++ simulator. Empirically, t+0.05 gives the best match
+        # (the C++ wave evaluation time falls between two OceanSimulationTime steps).
+        wave_compare_time = st.sim_time - 0.05
+        py_wave_elev = float(wave_elevation.elevation(
+            wave_compare_time, st.vessel_north, st.vessel_east))
 
         # Update vessel transform
         vessel.update_transform(
@@ -179,6 +216,25 @@ def run(args):
             roll_deg=st.vessel_roll,
             pitch_deg=st.vessel_pitch,
             heave=st.vessel_heave,
+        )
+
+        # Update gangway articulation (follows vessel + gangway joints)
+        # If gangway config was received from simulator, apply it once
+        if not mock_gen and st.gangway_config_received:
+            if not hasattr(on_update, '_gangway_config_applied'):
+                vessel.set_gangway_config(st.gangway_config)
+                # Re-add gangway actors to scene with new geometry
+                # (only needed if config changed — happens once at start)
+                on_update._gangway_config_applied = True
+
+        vessel.gangway.update_transforms(
+            vessel_north=st.vessel_north,
+            vessel_east=st.vessel_east,
+            vessel_heading_deg=st.vessel_heading,
+            vessel_roll_deg=st.vessel_roll,
+            vessel_pitch_deg=st.vessel_pitch,
+            vessel_heave=st.vessel_heave,
+            gangway_state=st.gangway_state,
         )
 
         # Update turbine transform
@@ -206,7 +262,11 @@ def run(args):
             last_fps_time[0] = now
 
         # Info text
+        gw = st.gangway_state
+        gw_states = ["Parked", "Parking", "Moving", "Connecting", "Connected"]
+        gw_state_str = gw_states[gw.state] if 0 <= gw.state < len(gw_states) else "?"
         mode = "MOCK" if mock_gen else "LIVE"
+        wave_diff = py_wave_elev - st.sim_wave_elevation
         scene.update_info_text(
             f"[{mode}]  t = {st.sim_time:.1f} s  |  "
             f"FPS: {fps_display[0]:.0f}\n"
@@ -217,7 +277,13 @@ def run(args):
             f"Platform: N={st.platform_north:+.1f} E={st.platform_east:+.1f}  "
             f"HDG={st.platform_heading:.1f} deg  "
             f"Roll={st.platform_roll:+.1f} Pitch={st.platform_pitch:+.1f} "
-            f"Heave={st.platform_heave:+.2f}"
+            f"Heave={st.platform_heave:+.2f}\n"
+            f"Gangway:  {gw_state_str}  "
+            f"Slew={gw.slewing_angle:.1f} Boom={gw.boom_angle:+.1f} "
+            f"H={gw.height:.1f}m L={gw.total_length:.1f}m\n"
+            f"WaveElev: C++={st.sim_wave_elevation:+.3f}m  "
+            f"Py={py_wave_elev:+.3f}m  "
+            f"diff={wave_diff:+.4f}m"
         )
 
     scene.on_update = on_update

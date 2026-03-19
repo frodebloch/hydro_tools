@@ -176,7 +176,7 @@ class TurbineGeometry:
         """Apply 6DOF transform — same convention as VesselGeometry."""
         t = self._vtk_transform
         t.Identity()
-        t.RotateX(roll_deg)
-        t.RotateY(-pitch_deg)
+        t.RotateX(pitch_deg)     # pitch about X (starboard), +bow up
+        t.RotateY(roll_deg)      # roll about Y (forward), +stbd down
         t.RotateZ(-heading_deg)
-        t.Translate(east, north, heave)
+        t.Translate(east, north, heave)  # heave: sim +up, viz +up (no negation needed)

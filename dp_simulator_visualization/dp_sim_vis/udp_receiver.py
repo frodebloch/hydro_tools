@@ -20,6 +20,27 @@ class WaveSpectrumParams:
 
 
 @dataclass
+class GangwayConfigData:
+    """Static gangway configuration from posrefs."""
+    base_x: float = 0.0    # forward from midship [m] (config body frame)
+    base_y: float = 0.0    # starboard from centreline [m] (config body frame)
+    base_z: float = 0.0    # downward from keel [m] (config body frame)
+    max_height: float = 25.0
+    min_length: float = 18.0
+    max_length: float = 32.0
+
+
+@dataclass
+class GangwayStateData:
+    """Dynamic gangway state from the gangway simulator."""
+    total_length: float = 18.0   # boom length from rotation center to tip [m]
+    height: float = 0.0          # tower height (rotation center above base) [m]
+    slewing_angle: float = 180.0  # horizontal rotation [deg] (0=fwd, 90=stbd, 180=aft)
+    boom_angle: float = 0.0      # vertical luffing angle [deg] (positive = up)
+    state: int = 0               # 0=Parked, 1=Parking, 2=Moving, 3=Connecting, 4=Connected
+
+
+@dataclass
 class SimulatorState:
     """Latest state received from the dp_simulator."""
 
@@ -46,15 +67,25 @@ class SimulatorState:
     wind_speed: float = 0.0
     wind_direction: float = 0.0
 
+    # Wave elevation from C++ simulator (at vessel LF position)
+    sim_wave_elevation: float = 0.0
+
     # Wave parameters
     wave: WaveSpectrumParams = field(default_factory=WaveSpectrumParams)
     swell: WaveSpectrumParams = field(default_factory=WaveSpectrumParams)
     random_seed: int = 42
     frequencies: list[float] = field(default_factory=list)
     directions: list[float] = field(default_factory=list)
+    random_phases: list[float] = field(default_factory=list)  # flat [freq*dir], from C++
+    amplitudes: list[float] = field(default_factory=list)     # flat [freq*dir], from C++
 
     # Flag indicating wave params have changed
     wave_params_updated: bool = False
+
+    # Gangway
+    gangway_config: GangwayConfigData = field(default_factory=GangwayConfigData)
+    gangway_state: GangwayStateData = field(default_factory=GangwayStateData)
+    gangway_config_received: bool = False
 
     # Timestamps
     last_update: float = 0.0
@@ -101,10 +132,11 @@ class UdpReceiver:
             self.state.vessel_roll = msg.get("roll", self.state.vessel_roll)
             self.state.vessel_pitch = msg.get("pitch", self.state.vessel_pitch)
             self.state.vessel_heave = msg.get("heave", self.state.vessel_heave)
-            # NED coordinates added by our extended VisualisationInterface
             if "ned_north" in msg:
                 self.state.vessel_north = msg["ned_north"]
                 self.state.vessel_east = msg["ned_east"]
+            if "waveElevation" in msg:
+                self.state.sim_wave_elevation = msg["waveElevation"]
 
         # ── Simulation time: {"OceanSimulationTime": 123.4}
         if "OceanSimulationTime" in msg:
@@ -122,6 +154,10 @@ class UdpReceiver:
             self.state.frequencies = msg["frequencies"]
             self.state.directions = msg["directions"]
             self.state.random_seed = msg.get("randomSeed", self.state.random_seed)
+            if "randomPhases" in msg:
+                self.state.random_phases = msg["randomPhases"]
+            if "amplitudes" in msg:
+                self.state.amplitudes = msg["amplitudes"]
             spectrums = msg["spectrums"]
             if len(spectrums) >= 1:
                 s = spectrums[0]
@@ -149,6 +185,30 @@ class UdpReceiver:
             self.state.platform_roll = msg.get("roll", self.state.platform_roll)
             self.state.platform_pitch = msg.get("pitch", self.state.platform_pitch)
             self.state.platform_heave = msg.get("heave", self.state.platform_heave)
+
+        # ── Gangway config: {"gangwayConfig":{"index":0, "baseX":..., ...}}
+        if "gangwayConfig" in msg:
+            gc = msg["gangwayConfig"]
+            self.state.gangway_config = GangwayConfigData(
+                base_x=gc.get("baseX", 0.0),
+                base_y=gc.get("baseY", 0.0),
+                base_z=gc.get("baseZ", 0.0),
+                max_height=gc.get("maxHeight", 25.0),
+                min_length=gc.get("minLength", 18.0),
+                max_length=gc.get("maxLength", 32.0),
+            )
+            self.state.gangway_config_received = True
+
+        # ── Gangway state: {"gangwayState":{"index":0, "state":4, ...}}
+        if "gangwayState" in msg:
+            gs = msg["gangwayState"]
+            self.state.gangway_state = GangwayStateData(
+                total_length=gs.get("totalLength", self.state.gangway_state.total_length),
+                height=gs.get("height", self.state.gangway_state.height),
+                slewing_angle=gs.get("slewingAngle", self.state.gangway_state.slewing_angle),
+                boom_angle=gs.get("boomAngle", self.state.gangway_state.boom_angle),
+                state=gs.get("state", self.state.gangway_state.state),
+            )
 
     def close(self):
         self._sock.close()

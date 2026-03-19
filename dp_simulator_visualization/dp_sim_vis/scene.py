@@ -15,6 +15,7 @@ from .turbine_geometry import TurbineGeometry
 OCEAN_CMAP = "ocean"  # blue-themed colourmap for the ocean (matplotlib built-in)
 VESSEL_COLOR = "#D04030"  # dark red hull
 VESSEL_SUPER_COLOR = "#E8E0D0"  # off-white superstructure
+GANGWAY_COLOR = "#F0C040"  # yellow/gold for gangway equipment
 TURBINE_COLOR = "#C0C0C0"  # light grey
 WATERLINE_COLOR = "#1A4A6A"  # dark blue for waterline reference
 
@@ -95,6 +96,18 @@ class Scene:
         )
         # Apply VTK transform to the actor for fast rigid-body updates
         self._vessel_actor.SetUserTransform(self.vessel._vtk_transform)
+
+        # ── Add gangway (articulated parts) ─────────────────────────
+        self._gangway_actors = []
+        for i, (mesh, transform) in enumerate(self.vessel.gangway.meshes_and_transforms):
+            actor = self.plotter.add_mesh(
+                mesh,
+                color=GANGWAY_COLOR,
+                smooth_shading=True,
+                name=f"gangway_{i}",
+            )
+            actor.SetUserTransform(transform)
+            self._gangway_actors.append(actor)
 
         # ── Add turbine ───────────────────────────────────────────
         self._turbine_actor = self.plotter.add_mesh(

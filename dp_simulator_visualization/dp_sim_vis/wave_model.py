@@ -146,6 +146,7 @@ class WaveElevation:
         self.amplitudes = np.zeros((n_freq, n_dir))
         self.active_dir = np.zeros(n_dir, dtype=bool)
         self._spectra: list[WaveSpectrum] = []
+        self._external_amplitudes = False
         self._dirty = True
 
     def add_spectrum(self, spectrum: WaveSpectrum):
@@ -160,8 +161,61 @@ class WaveElevation:
         self._spectra = list(spectra)
         self._dirty = True
 
+    def set_phases(self, phases: np.ndarray):
+        """Override internally-generated phases with externally-provided ones.
+
+        Parameters
+        ----------
+        phases : array, shape (n_freq, n_dir) or flat (n_freq * n_dir,)
+            Phase values in radians, row-major (freq outer, dir inner).
+            Typically received from the C++ simulator to ensure exact match.
+        """
+        n_freq = len(self.frequencies)
+        n_dir = len(self.directions)
+        phases = np.asarray(phases, dtype=float)
+        if phases.ndim == 1:
+            phases = phases.reshape(n_freq, n_dir)
+        assert phases.shape == (n_freq, n_dir), (
+            f"Phase shape mismatch: got {phases.shape}, expected ({n_freq}, {n_dir})"
+        )
+        self.phases = phases
+        self._dirty = True
+
+    def set_amplitudes(self, amplitudes: np.ndarray):
+        """Override internally-computed amplitudes with externally-provided ones.
+
+        When amplitudes are set externally, calling add_spectrum() / set_spectra()
+        will still work for the ocean surface visual, but the elevation comparison
+        will use these exact amplitudes rather than recomputing from spectra.
+
+        Parameters
+        ----------
+        amplitudes : array, shape (n_freq, n_dir) or flat (n_freq * n_dir,)
+            Wave amplitudes [m], row-major (freq outer, dir inner).
+            Typically received from the C++ simulator to ensure exact match.
+        """
+        n_freq = len(self.frequencies)
+        n_dir = len(self.directions)
+        amplitudes = np.asarray(amplitudes, dtype=float)
+        if amplitudes.ndim == 1:
+            amplitudes = amplitudes.reshape(n_freq, n_dir)
+        assert amplitudes.shape == (n_freq, n_dir), (
+            f"Amplitude shape mismatch: got {amplitudes.shape}, expected ({n_freq}, {n_dir})"
+        )
+        self.amplitudes = amplitudes
+        self.active_dir = np.any(amplitudes > EPS, axis=0)
+        self._external_amplitudes = True
+        # Precompute float32 arrays immediately
+        self._precompute_f32()
+        self._dirty = False
+
     def _compute_amplitudes(self):
         """Recalculate the amplitude table from current spectra."""
+        if self._external_amplitudes:
+            # External amplitudes already set; just re-precompute f32 cache
+            self._precompute_f32()
+            self._dirty = False
+            return
         n_freq = len(self.frequencies)
         n_dir = len(self.directions)
         self.amplitudes = np.zeros((n_freq, n_dir))
