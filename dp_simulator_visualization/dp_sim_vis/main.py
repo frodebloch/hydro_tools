@@ -9,7 +9,7 @@ import numpy as np
 from .wave_model import WaveSpectrum, WaveElevation, default_frequencies, default_directions
 from .ocean_surface import OceanSurface
 from .vessel_geometry import VesselGeometry
-from .turbine_geometry import TurbineGeometry, rotor_speed_rpm
+from .turbine_geometry import TurbineGeometry
 from .scene import Scene
 from .udp_receiver import UdpReceiver, SimulatorState, GangwayStateData
 from .mock_data import MockDataGenerator
@@ -289,7 +289,7 @@ def run(args):
         gw_state_str = gw_states[gw.state] if 0 <= gw.state < len(gw_states) else "?"
         turbine_states = ["Operating", "Shutdown", "Idling"]
         turb_state_str = turbine_states[st.turbine_state] if 0 <= st.turbine_state < 3 else "?"
-        rpm = rotor_speed_rpm(wind_speed_hub, st.turbine_state)
+        rpm = turbine._omega * 60.0 / (2.0 * np.pi)  # actual smoothed RPM
         mode = "MOCK" if mock_gen else "LIVE"
         wave_diff = py_wave_elev - st.sim_wave_elevation
         scene.update_info_text(

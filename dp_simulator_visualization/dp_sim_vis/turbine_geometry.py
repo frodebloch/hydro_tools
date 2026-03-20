@@ -28,6 +28,7 @@ TOWER_TOP_DIAMETER = 3.87  # m
 NACELLE_LENGTH = 14.0  # m
 NACELLE_WIDTH = 4.0  # m
 NACELLE_HEIGHT = 4.0  # m
+SHAFT_OVERHANG = 5.0  # m upwind of tower centre (NREL 5MW definition report)
 
 # NREL 5MW rotor speed parameters (matching C++ TurbineThrustModel)
 RATED_ROTOR_SPEED = 1.2671  # rad/s (12.1 rpm)
@@ -35,6 +36,9 @@ MIN_ROTOR_SPEED = 0.7225  # rad/s (6.9 rpm)
 RATED_WIND_SPEED = 11.4  # m/s
 CUT_IN_WIND_SPEED = 3.0  # m/s
 OPTIMAL_TIP_SPEED_RATIO = 7.0
+
+# Visualization spin-up/down dynamics
+ROTOR_TIME_CONSTANT = 15.0  # s — first-order lag for visual rotor response
 
 
 def rotor_speed(wind_speed: float, turbine_state: int = 0) -> float:
@@ -201,8 +205,8 @@ class TurbineGeometry:
 
     The rotor is a separate mesh with its own VTK transform so it can
     spin independently. The transform chain for the rotor is:
-        1. Translate to hub height (0, 0, HUB_HEIGHT) — positions hub
-        2. RotateY(rotor_angle) — spin about the Y-axis (shaft axis)
+        1. RotateY(rotor_angle) — spin about the shaft axis
+        2. Translate to hub (0, -SHAFT_OVERHANG, HUB_HEIGHT) — upwind of tower
         3. Platform 6DOF (pitch, roll, heading, translate)
     """
 
@@ -228,6 +232,9 @@ class TurbineGeometry:
         # Current rotor angle [degrees] — accumulated over time
         self._rotor_angle_deg = 0.0
 
+        # Actual rotor angular velocity [rad/s] — smoothed toward target
+        self._omega = 0.0
+
     def update_transform(
         self,
         north: float,
@@ -250,7 +257,7 @@ class TurbineGeometry:
         r = self._rotor_vtk_transform
         r.Identity()
         r.RotateY(self._rotor_angle_deg)  # spin about shaft (Y-axis)
-        r.Translate(0, 0, HUB_HEIGHT)      # move to hub height
+        r.Translate(0, -SHAFT_OVERHANG, HUB_HEIGHT)  # hub: upwind of tower, at hub height
         r.RotateX(pitch_deg)
         r.RotateY(roll_deg)
         r.RotateZ(-heading_deg)
@@ -259,12 +266,23 @@ class TurbineGeometry:
     def update_rotor_angle(self, dt: float, wind_speed: float, turbine_state: int = 0):
         """Advance rotor angle based on wind speed and time step.
 
+        Uses a first-order lag to smooth transitions — gives a visible
+        coast-down on shutdown and gradual spin-up on start.
+
         Args:
             dt: Time step since last call [s]
             wind_speed: Hub-height wind speed [m/s]
             turbine_state: 0=operating, 1=shutdown, 2=idling
         """
-        omega = rotor_speed(wind_speed, turbine_state)  # rad/s
-        self._rotor_angle_deg += np.degrees(omega * dt)
+        omega_target = rotor_speed(wind_speed, turbine_state)  # rad/s
+
+        # First-order lag: omega -> omega_target with time constant tau
+        if dt > 0 and ROTOR_TIME_CONSTANT > 0:
+            alpha = 1.0 - np.exp(-dt / ROTOR_TIME_CONSTANT)
+            self._omega += alpha * (omega_target - self._omega)
+        else:
+            self._omega = omega_target
+
+        self._rotor_angle_deg += np.degrees(self._omega * dt)
         # Keep angle in [0, 360) to avoid float precision issues over long runs
         self._rotor_angle_deg %= 360.0
