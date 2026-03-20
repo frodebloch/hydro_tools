@@ -168,7 +168,6 @@ class WaveElevation:
         """Recalculate the amplitude table from current spectra."""
         n_freq = len(self.frequencies)
         n_dir = len(self.directions)
-        self.amplitudes = np.zeros((n_freq, n_dir))
         self.active_dir = np.zeros(n_dir, dtype=bool)
 
         # Frequency step (frequencies are descending)
@@ -181,6 +180,10 @@ class WaveElevation:
         elif n_freq == 1:
             dw[0] = 1.0  # fallback
 
+        # Sum spectral densities (energy) across spectra, then take sqrt once.
+        # Wave energy is proportional to amplitude squared, so energies from
+        # independent spectra are additive: a = sqrt(2 * (S1 + S2 + ...) * dw).
+        spectral_energy = np.zeros((n_freq, n_dir))
         for spec in self._spectra:
             # S(w, dir) for all (freq, dir) combinations
             S_1d = spec.spectral_value_1d(self.frequencies)  # (n_freq,)
@@ -195,10 +198,9 @@ class WaveElevation:
 
             mask = S_2d > EPS
             self.active_dir |= np.any(mask, axis=0)
-            # Amplitude = sqrt(2 * S * dw)
-            self.amplitudes += np.sqrt(
-                2.0 * np.maximum(S_2d, 0.0) * dw[:, np.newaxis]
-            )
+            spectral_energy += 2.0 * np.maximum(S_2d, 0.0) * dw[:, np.newaxis]
+
+        self.amplitudes = np.sqrt(spectral_energy)
 
         # Precompute float32 arrays for fast elevation computation
         self._precompute_f32()
