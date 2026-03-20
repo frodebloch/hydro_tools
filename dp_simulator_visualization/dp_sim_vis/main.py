@@ -146,6 +146,11 @@ def run(args):
     last_fps_time = [time.time()]
     fps_display = [0.0]
 
+    # Track previous wave params to avoid unnecessary rebuilds.
+    # The C++ side resends periodically (for late-joining clients),
+    # but we only rebuild when something actually changed.
+    prev_wave_key = [None]
+
     def on_update():
         """Called each frame by the scene timer."""
         # Get latest state
@@ -154,44 +159,51 @@ def run(args):
         else:
             udp_receiver.poll()
             st = udp_receiver.state
-            # If wave params changed, rebuild wave model
+            # If wave params message arrived, check if anything actually changed
             if st.wave_params_updated and st.frequencies:
-                wave_elevation.clear_spectra()
-                freqs_arr = np.array(st.frequencies)
-                dirs_arr = np.array(st.directions)
-                # Rebuild elevation model with new params
-                wave_elevation.__init__(freqs_arr, dirs_arr, st.random_seed)
-                # If C++ sent the actual random phases, override the Python-generated ones.
-                # This eliminates the MT19937 bit-extraction mismatch between C++ and NumPy.
-                if st.random_phases:
-                    wave_elevation.set_phases(np.array(st.random_phases))
-                # If C++ sent precomputed amplitudes, use them directly instead of
-                # recomputing from JONSWAP spectra (eliminates formula differences).
-                if st.amplitudes:
-                    wave_elevation.set_amplitudes(np.array(st.amplitudes))
-                if st.wave.significant_wave_height > 0:
-                    wave_elevation.add_spectrum(WaveSpectrum(
-                        hs=st.wave.significant_wave_height,
-                        tp=st.wave.peak_period,
-                        direction_deg=st.wave.direction_deg,
-                        spreading_factor=st.wave.spreading_factor,
-                    ))
-                if st.swell.significant_wave_height > 0:
-                    wave_elevation.add_spectrum(WaveSpectrum(
-                        hs=st.swell.significant_wave_height,
-                        tp=st.swell.peak_period,
-                        direction_deg=st.swell.direction_deg,
-                        spreading_factor=st.swell.spreading_factor,
-                    ))
-                n_f = len(st.frequencies)
-                n_d = len(st.directions)
-                has_phases = bool(st.random_phases)
-                has_amps = bool(st.amplitudes)
-                print(f"[wave] Received params: {n_f} freqs x {n_d} dirs, "
-                      f"seed={st.random_seed}, "
-                      f"phases={'yes' if has_phases else 'NO'}, "
-                      f"amplitudes={'yes' if has_amps else 'NO'}")
+                wave_key = (
+                    st.random_seed,
+                    tuple(st.frequencies),
+                    tuple(st.directions),
+                    st.swell.significant_wave_height,
+                    st.swell.peak_period,
+                    st.swell.direction_deg,
+                    st.swell.spreading_factor,
+                    st.wave.significant_wave_height,
+                    st.wave.peak_period,
+                    st.wave.direction_deg,
+                    st.wave.spreading_factor,
+                )
                 st.wave_params_updated = False
+                if wave_key != prev_wave_key[0]:
+                    prev_wave_key[0] = wave_key
+                    wave_elevation.clear_spectra()
+                    freqs_arr = np.array(st.frequencies)
+                    dirs_arr = np.array(st.directions)
+                    # Rebuild elevation model with new params.
+                    # Phase generation uses RandomState(seed) + libstdc++
+                    # generate_canonical formula to produce phases identical
+                    # to the C++ simulator.
+                    wave_elevation.__init__(freqs_arr, dirs_arr, st.random_seed)
+                    if st.swell.significant_wave_height > 0:
+                        wave_elevation.add_spectrum(WaveSpectrum(
+                            hs=st.swell.significant_wave_height,
+                            tp=st.swell.peak_period,
+                            direction_deg=st.swell.direction_deg,
+                            spreading_factor=st.swell.spreading_factor,
+                        ))
+                    if st.wave.significant_wave_height > 0:
+                        wave_elevation.add_spectrum(WaveSpectrum(
+                            hs=st.wave.significant_wave_height,
+                            tp=st.wave.peak_period,
+                            direction_deg=st.wave.direction_deg,
+                            spreading_factor=st.wave.spreading_factor,
+                        ))
+                    n_f = len(st.frequencies)
+                    n_d = len(st.directions)
+                    print(f"[wave] Rebuilt wave model: {n_f} freqs x {n_d} dirs, "
+                          f"seed={st.random_seed}")
+
 
         # Update ocean surface
         ocean.update(st.sim_time)

@@ -3,6 +3,13 @@
 Replicates the C++ WaveElevation and WaveSpectrum classes from the dp_simulator
 vessel_model library, using the same formulae and random seed convention so that
 the Python wave surface matches the C++ simulation exactly.
+
+Phase generation uses numpy.random.RandomState (which calls init_genrand,
+matching C++ std::mt19937 seeding exactly) and replicates the libstdc++
+generate_canonical<double> formula for converting raw uint32 pairs to
+uniform doubles in [0, 1).  This allows Python to reproduce the C++
+simulator's random phases from just the seed, with no pre-computed phase
+array needed over the wire.
 """
 
 import numpy as np
@@ -137,16 +144,12 @@ class WaveElevation:
             random_seed = int(rng.integers(0, 2**31))
         self.random_seed = random_seed
 
-        # Use MT19937 matching C++ std::mt19937
-        mt = np.random.MT19937(seed=random_seed)
-        rng = np.random.Generator(mt)
-        self.phases = 2.0 * PI * rng.random((n_freq, n_dir))
+        self.phases = _generate_phases_cpp(random_seed, n_freq, n_dir)
 
         # Amplitude table — filled when spectra are set
         self.amplitudes = np.zeros((n_freq, n_dir))
         self.active_dir = np.zeros(n_dir, dtype=bool)
         self._spectra: list[WaveSpectrum] = []
-        self._external_amplitudes = False
         self._dirty = True
 
     def add_spectrum(self, spectrum: WaveSpectrum):
@@ -161,61 +164,8 @@ class WaveElevation:
         self._spectra = list(spectra)
         self._dirty = True
 
-    def set_phases(self, phases: np.ndarray):
-        """Override internally-generated phases with externally-provided ones.
-
-        Parameters
-        ----------
-        phases : array, shape (n_freq, n_dir) or flat (n_freq * n_dir,)
-            Phase values in radians, row-major (freq outer, dir inner).
-            Typically received from the C++ simulator to ensure exact match.
-        """
-        n_freq = len(self.frequencies)
-        n_dir = len(self.directions)
-        phases = np.asarray(phases, dtype=float)
-        if phases.ndim == 1:
-            phases = phases.reshape(n_freq, n_dir)
-        assert phases.shape == (n_freq, n_dir), (
-            f"Phase shape mismatch: got {phases.shape}, expected ({n_freq}, {n_dir})"
-        )
-        self.phases = phases
-        self._dirty = True
-
-    def set_amplitudes(self, amplitudes: np.ndarray):
-        """Override internally-computed amplitudes with externally-provided ones.
-
-        When amplitudes are set externally, calling add_spectrum() / set_spectra()
-        will still work for the ocean surface visual, but the elevation comparison
-        will use these exact amplitudes rather than recomputing from spectra.
-
-        Parameters
-        ----------
-        amplitudes : array, shape (n_freq, n_dir) or flat (n_freq * n_dir,)
-            Wave amplitudes [m], row-major (freq outer, dir inner).
-            Typically received from the C++ simulator to ensure exact match.
-        """
-        n_freq = len(self.frequencies)
-        n_dir = len(self.directions)
-        amplitudes = np.asarray(amplitudes, dtype=float)
-        if amplitudes.ndim == 1:
-            amplitudes = amplitudes.reshape(n_freq, n_dir)
-        assert amplitudes.shape == (n_freq, n_dir), (
-            f"Amplitude shape mismatch: got {amplitudes.shape}, expected ({n_freq}, {n_dir})"
-        )
-        self.amplitudes = amplitudes
-        self.active_dir = np.any(amplitudes > EPS, axis=0)
-        self._external_amplitudes = True
-        # Precompute float32 arrays immediately
-        self._precompute_f32()
-        self._dirty = False
-
     def _compute_amplitudes(self):
         """Recalculate the amplitude table from current spectra."""
-        if self._external_amplitudes:
-            # External amplitudes already set; just re-precompute f32 cache
-            self._precompute_f32()
-            self._dirty = False
-            return
         n_freq = len(self.frequencies)
         n_dir = len(self.directions)
         self.amplitudes = np.zeros((n_freq, n_dir))
@@ -345,6 +295,34 @@ def _angle_diff(a_deg: np.ndarray, b_deg: float) -> np.ndarray:
     diff = np.where(diff < -180.0, diff + 360.0, diff)
     diff = np.where(diff >= 180.0, diff - 360.0, diff)
     return diff
+
+
+def _generate_phases_cpp(seed: int, n_freq: int, n_dir: int) -> np.ndarray:
+    """Generate random phases matching C++ std::mt19937 + std::uniform_real_distribution.
+
+    Replicates WaveResponse::InitializeFrequencyAndPhaseVectors() exactly:
+      std::mt19937 random(seed);
+      std::uniform_real_distribution<> uniform(0.0, 1.0);
+      phase[i][j] = 2 * pi * uniform(random);
+
+    Uses numpy.random.RandomState (which calls init_genrand — same as C++
+    std::mt19937 seeding) to produce an identical raw uint32 stream.
+
+    The libstdc++/libc++ generate_canonical<double> formula consumes two
+    uint32 values per double:
+        result = (r0 + r1 * 2^32) / 2^64
+    where r0 is the first draw (low bits) and r1 is the second (high bits).
+
+    Source: https://stackoverflow.com/a/77509827 (CC BY-SA 4.0, Artyer)
+    """
+    n = n_freq * n_dir
+    rs = np.random.RandomState(seed)
+    raw = rs.randint(0, 2**32, size=2 * n, dtype=np.uint64)
+    r0 = raw[0::2]  # first draw of each pair (low bits)
+    r1 = raw[1::2]  # second draw of each pair (high bits)
+    uniform = (r0 + r1 * np.uint64(2**32)) / np.float64(2**64)
+    phases = 2.0 * PI * uniform
+    return phases.reshape(n_freq, n_dir)
 
 
 def default_frequencies(n: int = 50, w_min: float = 0.2, w_max: float = 2.5) -> np.ndarray:

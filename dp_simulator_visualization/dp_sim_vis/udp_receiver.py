@@ -76,8 +76,6 @@ class SimulatorState:
     random_seed: int = 42
     frequencies: list[float] = field(default_factory=list)
     directions: list[float] = field(default_factory=list)
-    random_phases: list[float] = field(default_factory=list)  # flat [freq*dir], from C++
-    amplitudes: list[float] = field(default_factory=list)     # flat [freq*dir], from C++
 
     # Flag indicating wave params have changed
     wave_params_updated: bool = False
@@ -154,10 +152,6 @@ class UdpReceiver:
             self.state.frequencies = msg["frequencies"]
             self.state.directions = msg["directions"]
             self.state.random_seed = msg.get("randomSeed", self.state.random_seed)
-            if "randomPhases" in msg:
-                self.state.random_phases = msg["randomPhases"]
-            if "amplitudes" in msg:
-                self.state.amplitudes = msg["amplitudes"]
             spectrums = msg["spectrums"]
             if len(spectrums) >= 1:
                 s = spectrums[0]

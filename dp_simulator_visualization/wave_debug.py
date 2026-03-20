@@ -23,6 +23,8 @@ import numpy as np
 # Add the package to path
 sys.path.insert(0, ".")
 
+from dp_sim_vis.wave_model import WaveElevation, WaveSpectrum, _generate_phases_cpp
+
 PI = np.pi
 G = 9.81
 
@@ -60,8 +62,7 @@ def main():
             wave_params = msg
             print(f"  Got wave params: {len(msg.get('frequencies',[]))} freqs, "
                   f"{len(msg.get('directions',[]))} dirs, "
-                  f"{len(msg.get('randomPhases',[]))} phases, "
-                  f"{len(msg.get('amplitudes',[]))} amplitudes")
+                  f"seed={msg.get('randomSeed', 0)}")
             # Reset vessel samples to collect fresh data after wave params
             vessel_samples.clear()
             sim_times.clear()
@@ -123,135 +124,129 @@ def main():
               f"Dir={s['dominantDirection']:.1f}deg, "
               f"Spreading={s['spreadingFactor']}")
 
-    # ── Phases ─────────────────────────────────────────────────────
-    has_cpp_phases = "randomPhases" in wave_params and len(wave_params["randomPhases"]) > 0
-    has_cpp_amplitudes = "amplitudes" in wave_params and len(wave_params["amplitudes"]) > 0
+    # ── Build wave model from seed + spectrum params ───────────────
+    # Generate phases from seed (matching C++ MT19937 + generate_canonical)
+    phases = _generate_phases_cpp(seed, n_freq, n_dir)
+    print(f"\n  Phases generated from seed {seed}")
+    print(f"    first 5: {phases.ravel()[:5]}")
 
-    print(f"\n  C++ phases received: {has_cpp_phases}")
-    if has_cpp_phases:
-        cpp_phases_flat = np.array(wave_params["randomPhases"])
-        print(f"    count: {len(cpp_phases_flat)} (expected {n_freq * n_dir})")
-        cpp_phases = cpp_phases_flat.reshape(n_freq, n_dir)
-        print(f"    first 5: {cpp_phases_flat[:5]}")
-    else:
-        cpp_phases = None
+    # Build wave elevation model and add spectra
+    wave_elev = WaveElevation(freqs, dirs, random_seed=seed)
+    for s in spectrums:
+        if s["significantWaveHeight"] > 0:
+            wave_elev.add_spectrum(WaveSpectrum(
+                hs=s["significantWaveHeight"],
+                tp=s["peakPeriod"],
+                direction_deg=s["dominantDirection"],
+                spreading_factor=s["spreadingFactor"],
+            ))
 
-    print(f"  C++ amplitudes received: {has_cpp_amplitudes}")
-    if has_cpp_amplitudes:
-        cpp_amps_flat = np.array(wave_params["amplitudes"])
-        print(f"    count: {len(cpp_amps_flat)} (expected {n_freq * n_dir})")
-        cpp_amps = cpp_amps_flat.reshape(n_freq, n_dir)
-        print(f"    first 5: {cpp_amps_flat[:5]}")
-        print(f"    max amplitude: {cpp_amps.max():.6f} m")
-        print(f"    nonzero count: {np.count_nonzero(cpp_amps > 1e-10)}")
-        active_dir = np.any(cpp_amps > 1e-10, axis=0)
-        active_indices = np.nonzero(active_dir)[0]
-        print(f"    active directions: {len(active_indices)} indices: {active_indices}")
-        print(f"    active dir values: {dirs[active_indices]}")
-    else:
-        cpp_amps = None
+    # Get amplitude info after spectra are set
+    # Force amplitude computation
+    wave_elev._compute_amplitudes()
+    amps = wave_elev.amplitudes
+    print(f"\n  Amplitudes computed from spectra")
+    print(f"    max amplitude: {amps.max():.6f} m")
+    print(f"    nonzero count: {np.count_nonzero(amps > 1e-10)}")
+    active_dir = np.any(amps > 1e-10, axis=0)
+    active_indices = np.nonzero(active_dir)[0]
+    print(f"    active directions: {len(active_indices)} indices: {active_indices}")
+    print(f"    active dir values: {dirs[active_indices]}")
 
-    # ── Compute Python elevation using C++ params ──────────────────
-    # Use float64 for maximum precision in this diagnostic
-    if cpp_amps is not None and cpp_phases is not None:
-        active_dir_mask = np.any(cpp_amps > 1e-10, axis=0)
-        active_idx = np.nonzero(active_dir_mask)[0]
-        dir_rad = np.deg2rad(dirs[active_idx])
-        cos_dir = np.cos(dir_rad)
-        sin_dir = np.sin(dir_rad)
-        k = freqs**2 / G
-        amps_active = cpp_amps[:, active_idx]
-        phases_active = cpp_phases[:, active_idx]
+    # ── Compute Python elevation using seed-based params ──────────
+    active_idx = active_indices
+    dir_rad = np.deg2rad(dirs[active_idx])
+    cos_dir = np.cos(dir_rad)
+    sin_dir = np.sin(dir_rad)
+    k = freqs**2 / G
+    amps_active = amps[:, active_idx]
+    phases_active = phases[:, active_idx]
 
-        def elevation_f64(t, north, east):
-            """Compute elevation at (north, east) using float64."""
-            spatial_proj = cos_dir * north + sin_dir * east  # (n_active,)
-            elev = 0.0
-            for i in range(n_freq):
-                phase = freqs[i] * t + k[i] * spatial_proj + phases_active[i]
-                elev += np.dot(amps_active[i], np.cos(phase))
-            return elev
+    def elevation_f64(t, north, east):
+        """Compute elevation at (north, east) using float64."""
+        spatial_proj = cos_dir * north + sin_dir * east  # (n_active,)
+        elev = 0.0
+        for i in range(n_freq):
+            phase = freqs[i] * t + k[i] * spatial_proj + phases_active[i]
+            elev += np.dot(amps_active[i], np.cos(phase))
+        return elev
 
-        def elevation_f32(t, north, east):
-            """Compute elevation using float32 (matching the viz code)."""
-            north_f32 = np.float32(north)
-            east_f32 = np.float32(east)
-            cos_dir_f32 = cos_dir.astype(np.float32)
-            sin_dir_f32 = sin_dir.astype(np.float32)
-            k_f32 = k.astype(np.float32)
-            freqs_f32 = freqs.astype(np.float32)
-            amps_f32 = amps_active.astype(np.float32)
-            phases_f32 = phases_active.astype(np.float32)
+    def elevation_f32(t, north, east):
+        """Compute elevation using float32 (matching the viz code)."""
+        north_f32 = np.float32(north)
+        east_f32 = np.float32(east)
+        cos_dir_f32 = cos_dir.astype(np.float32)
+        sin_dir_f32 = sin_dir.astype(np.float32)
+        k_f32 = k.astype(np.float32)
+        freqs_f32 = freqs.astype(np.float32)
+        amps_f32 = amps_active.astype(np.float32)
+        phases_f32 = phases_active.astype(np.float32)
 
-            spatial_proj = cos_dir_f32 * north_f32 + sin_dir_f32 * east_f32
-            elev = np.float32(0.0)
-            for i in range(n_freq):
-                phase = freqs_f32[i] * np.float32(t) + k_f32[i] * spatial_proj + phases_f32[i]
-                elev += np.dot(amps_f32[i], np.cos(phase))
-            return float(elev)
+        spatial_proj = cos_dir_f32 * north_f32 + sin_dir_f32 * east_f32
+        elev = np.float32(0.0)
+        for i in range(n_freq):
+            phase = freqs_f32[i] * np.float32(t) + k_f32[i] * spatial_proj + phases_f32[i]
+            elev += np.dot(amps_f32[i], np.cos(phase))
+        return float(elev)
 
-        # Take the last vessel sample and corresponding time
-        last_sample = vessel_samples[-1]
-        last_time = last_sample["sim_time"]
-        north = last_sample["ned_north"]
-        east = last_sample["ned_east"]
-        cpp_elev = last_sample["waveElevation"]
+    # Take the last vessel sample and corresponding time
+    last_sample = vessel_samples[-1]
+    last_time = last_sample["sim_time"]
+    north = last_sample["ned_north"]
+    east = last_sample["ned_east"]
+    cpp_elev = last_sample["waveElevation"]
 
-        print(f"\n{'='*60}")
-        print(f"ELEVATION COMPARISON")
-        print(f"{'='*60}")
-        print(f"  Vessel position: N={north:.4f}m, E={east:.4f}m")
-        print(f"  Vessel heading: {last_sample['heading']:.2f} deg")
-        print(f"  Sim time (OceanSimulationTime): {last_time:.4f}s")
-        print(f"  C++ reported wave elevation: {cpp_elev:+.6f}m")
+    print(f"\n{'='*60}")
+    print(f"ELEVATION COMPARISON")
+    print(f"{'='*60}")
+    print(f"  Vessel position: N={north:.4f}m, E={east:.4f}m")
+    print(f"  Vessel heading: {last_sample['heading']:.2f} deg")
+    print(f"  Sim time (OceanSimulationTime): {last_time:.4f}s")
+    print(f"  C++ reported wave elevation: {cpp_elev:+.6f}m")
 
-        # Try different time offsets
-        for dt_label, dt in [("t", 0.0), ("t-0.1", -0.1), ("t+0.1", 0.1)]:
-            t = last_time + dt
-            py_f64 = elevation_f64(t, north, east)
-            py_f32 = elevation_f32(t, north, east)
-            py_f64_origin = elevation_f64(t, 0.0, 0.0)
-            diff_f64 = py_f64 - cpp_elev
-            diff_f32 = py_f32 - cpp_elev
-            diff_origin = py_f64_origin - cpp_elev
-            print(f"\n  Time = {dt_label} = {t:.4f}s:")
-            print(f"    Py f64 at ({north:.1f}, {east:.1f}): {py_f64:+.6f}m  diff={diff_f64:+.6f}m")
-            print(f"    Py f32 at ({north:.1f}, {east:.1f}): {py_f32:+.6f}m  diff={diff_f32:+.6f}m")
-            print(f"    Py f64 at (0, 0):         {py_f64_origin:+.6f}m  diff={diff_origin:+.6f}m")
+    # Try different time offsets
+    for dt_label, dt in [("t", 0.0), ("t-0.1", -0.1), ("t+0.1", 0.1)]:
+        t = last_time + dt
+        py_f64 = elevation_f64(t, north, east)
+        py_f32 = elevation_f32(t, north, east)
+        py_f64_origin = elevation_f64(t, 0.0, 0.0)
+        diff_f64 = py_f64 - cpp_elev
+        diff_f32 = py_f32 - cpp_elev
+        diff_origin = py_f64_origin - cpp_elev
+        print(f"\n  Time = {dt_label} = {t:.4f}s:")
+        print(f"    Py f64 at ({north:.1f}, {east:.1f}): {py_f64:+.6f}m  diff={diff_f64:+.6f}m")
+        print(f"    Py f32 at ({north:.1f}, {east:.1f}): {py_f32:+.6f}m  diff={diff_f32:+.6f}m")
+        print(f"    Py f64 at (0, 0):         {py_f64_origin:+.6f}m  diff={diff_origin:+.6f}m")
 
-        # Also check elevation at several positions along north axis
-        print(f"\n  Elevation along north axis (t={last_time - 0.1:.2f}s, east=0):")
-        t_compare = last_time - 0.1
-        for n_pos in [0, 1, 2, 5, 10, 50, 100, 500]:
-            py_val = elevation_f64(t_compare, float(n_pos), 0.0)
-            print(f"    N={n_pos:>4d}m: Py={py_val:+.6f}m")
+    # Also check elevation at several positions along north axis
+    print(f"\n  Elevation along north axis (t={last_time - 0.1:.2f}s, east=0):")
+    t_compare = last_time - 0.1
+    for n_pos in [0, 1, 2, 5, 10, 50, 100, 500]:
+        py_val = elevation_f64(t_compare, float(n_pos), 0.0)
+        print(f"    N={n_pos:>4d}m: Py={py_val:+.6f}m")
 
-        # Sanity check: compute at (0,0) with t=0 — should be sum of amp*cos(phase)
-        elev_00_t0 = elevation_f64(0.0, 0.0, 0.0)
-        manual = np.sum(amps_active * np.cos(phases_active))
-        print(f"\n  Sanity check: elevation(0, 0, 0):")
-        print(f"    Computed:  {elev_00_t0:+.6f}m")
-        print(f"    Manual:    {manual:+.6f}m")
-        print(f"    Match: {abs(elev_00_t0 - manual) < 1e-10}")
+    # Sanity check: compute at (0,0) with t=0 — should be sum of amp*cos(phase)
+    elev_00_t0 = elevation_f64(0.0, 0.0, 0.0)
+    manual = np.sum(amps_active * np.cos(phases_active))
+    print(f"\n  Sanity check: elevation(0, 0, 0):")
+    print(f"    Computed:  {elev_00_t0:+.6f}m")
+    print(f"    Manual:    {manual:+.6f}m")
+    print(f"    Match: {abs(elev_00_t0 - manual) < 1e-10}")
 
-        # ── Multi-sample comparison ────────────────────────────────
-        print(f"\n{'='*60}")
-        print(f"MULTI-SAMPLE COMPARISON (best time offset: t-0.1)")
-        print(f"{'='*60}")
-        print(f"  {'Sample':>6} {'Time':>8} {'North':>8} {'East':>8} "
-              f"{'C++':>10} {'Py_f64':>10} {'Diff':>10} {'|Diff|':>8}")
-        for idx, s in enumerate(vessel_samples):
-            t = s["sim_time"] - 0.1
-            n, e = s["ned_north"], s["ned_east"]
-            cpp_e = s["waveElevation"]
-            py_e = elevation_f64(t, n, e)
-            diff = py_e - cpp_e
-            dist = np.sqrt(n**2 + e**2)
-            print(f"  {idx:>6d} {s['sim_time']:>8.2f} {n:>+8.2f} {e:>+8.2f} "
-                  f"{cpp_e:>+10.4f} {py_e:>+10.4f} {diff:>+10.4f} {abs(diff):>8.4f}")
-
-    else:
-        print("\nCannot compute comparison — missing C++ phases and/or amplitudes")
+    # ── Multi-sample comparison ────────────────────────────────
+    print(f"\n{'='*60}")
+    print(f"MULTI-SAMPLE COMPARISON (best time offset: t-0.1)")
+    print(f"{'='*60}")
+    print(f"  {'Sample':>6} {'Time':>8} {'North':>8} {'East':>8} "
+          f"{'C++':>10} {'Py_f64':>10} {'Diff':>10} {'|Diff|':>8}")
+    for idx, s in enumerate(vessel_samples):
+        t = s["sim_time"] - 0.1
+        n, e = s["ned_north"], s["ned_east"]
+        cpp_e = s["waveElevation"]
+        py_e = elevation_f64(t, n, e)
+        diff = py_e - cpp_e
+        print(f"  {idx:>6d} {s['sim_time']:>8.2f} {n:>+8.2f} {e:>+8.2f} "
+              f"{cpp_e:>+10.4f} {py_e:>+10.4f} {diff:>+10.4f} {abs(diff):>8.4f}")
 
     # ── Additional: check if vessel_samples have consistent positions ──
     if len(vessel_samples) > 3:
