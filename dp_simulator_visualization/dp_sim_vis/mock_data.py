@@ -46,6 +46,7 @@ class MockDataGenerator:
         # Wind
         self.state.wind_speed = 10.0  # m/s
         self.state.wind_direction = 180.0  # from south
+        self.state.platform_wind_speed = 10.0  # m/s (same as wind_speed for mock)
 
         # Platform position (fixed installation location)
         self._platform_install_north = 200.0

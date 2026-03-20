@@ -1,7 +1,10 @@
-"""Floating turbine geometry — simple spar + tower + rotor representation.
+"""Floating turbine geometry — spar + tower + nacelle + spinning rotor.
 
-Based on the OC3 Hywind spar dimensions from the dp_simulator floating
-platform model.
+Based on the OC3 Hywind spar dimensions and NREL 5MW turbine parameters
+from the dp_simulator floating platform model.
+
+The rotor is a separate mesh with its own VTK transform so it can spin
+independently of the platform 6DOF motion.
 """
 
 import numpy as np
@@ -16,14 +19,64 @@ SPAR_TAPER_TOP = -4.0  # m (below SWL)
 SPAR_TAPER_BOTTOM = -12.0  # m (below SWL)
 SPAR_FREEBOARD = 10.0  # m above SWL
 
-# Turbine dimensions
+# NREL 5MW turbine dimensions
 HUB_HEIGHT = 90.0  # m above SWL
 ROTOR_DIAMETER = 126.0  # m
+ROTOR_RADIUS = ROTOR_DIAMETER / 2.0
 TOWER_BASE_DIAMETER = 6.5  # m
 TOWER_TOP_DIAMETER = 3.87  # m
 NACELLE_LENGTH = 14.0  # m
 NACELLE_WIDTH = 4.0  # m
 NACELLE_HEIGHT = 4.0  # m
+
+# NREL 5MW rotor speed parameters (matching C++ TurbineThrustModel)
+RATED_ROTOR_SPEED = 1.2671  # rad/s (12.1 rpm)
+MIN_ROTOR_SPEED = 0.7225  # rad/s (6.9 rpm)
+RATED_WIND_SPEED = 11.4  # m/s
+CUT_IN_WIND_SPEED = 3.0  # m/s
+OPTIMAL_TIP_SPEED_RATIO = 7.0
+
+
+def rotor_speed(wind_speed: float, turbine_state: int = 0) -> float:
+    """Compute rotor speed [rad/s] from hub-height wind speed.
+
+    Replicates the C++ TurbineThrustModel::RotorSpeed() logic:
+      - Below cut-in (3 m/s): 0 rad/s
+      - Region 2 (3-11.4 m/s): variable speed, optimal TSR tracking
+      - Region 3 (>11.4 m/s): rated speed (12.1 rpm)
+
+    Args:
+        wind_speed: Hub-height wind speed [m/s]
+        turbine_state: 0=operating, 1=shutdown, 2=idling
+
+    Returns:
+        Rotor speed [rad/s]
+    """
+    if turbine_state == 1:  # shutdown
+        return 0.0
+    if turbine_state == 2:  # idling
+        # Small residual rotation (5% of what it would be)
+        factor = 0.05
+    else:
+        factor = 1.0
+
+    if wind_speed < CUT_IN_WIND_SPEED:
+        return 0.0
+
+    if wind_speed <= RATED_WIND_SPEED:
+        # Region 2: variable speed, optimal TSR tracking
+        omega = OPTIMAL_TIP_SPEED_RATIO * wind_speed / ROTOR_RADIUS
+        omega = max(MIN_ROTOR_SPEED, min(omega, RATED_ROTOR_SPEED))
+    else:
+        # Region 3: constant rotor speed
+        omega = RATED_ROTOR_SPEED
+
+    return omega * factor
+
+
+def rotor_speed_rpm(wind_speed: float, turbine_state: int = 0) -> float:
+    """Compute rotor speed [rpm] from hub-height wind speed."""
+    return rotor_speed(wind_speed, turbine_state) * 60.0 / (2.0 * np.pi)
 
 
 def _build_spar() -> pv.PolyData:
@@ -52,16 +105,13 @@ def _build_spar() -> pv.PolyData:
     )
 
     # Taper section: frustum from -12m (D=9.4) to -4m (D=6.5)
-    # Build as a truncated cone using parametric points
     n_circ = 12
     theta = np.linspace(0, 2 * np.pi, n_circ, endpoint=False)
-    # Bottom ring
     r_bot = SPAR_LOWER_DIAMETER / 2.0
     z_bot = SPAR_TAPER_BOTTOM
     x_bot = r_bot * np.cos(theta)
     y_bot = r_bot * np.sin(theta)
     z_bot_arr = np.full(n_circ, z_bot)
-    # Top ring
     r_top = SPAR_UPPER_DIAMETER / 2.0
     z_top = SPAR_TAPER_TOP
     x_top = r_top * np.cos(theta)
@@ -84,7 +134,6 @@ def _build_spar() -> pv.PolyData:
 
 def _build_tower() -> pv.PolyData:
     """Tapered tower from spar top to hub height."""
-    # Simple cylinder (slight taper is hard to see at engineering vis scale)
     tower = pv.Cylinder(
         center=(0, 0, (SPAR_FREEBOARD + HUB_HEIGHT) / 2.0),
         direction=(0, 0, 1),
@@ -107,12 +156,13 @@ def _build_nacelle() -> pv.PolyData:
 
 
 def _build_rotor() -> pv.PolyData:
-    """Three-bladed rotor in the X-Z plane at hub height.
+    """Three-bladed rotor centred at origin, rotation axis along Y.
 
-    Each blade extends radially from the hub centre.  The rotor rotation axis
-    is aligned with the Y-axis (the forward/wind direction of the turbine).
-    Blades are built pointing along +Z from origin, then rotated about the
-    Y-axis to their 120-degree spacing, and finally translated up to hub height.
+    The rotor is built with the hub at the origin and blades in the X-Z plane.
+    It will be translated to hub height by the VTK transform chain.
+
+    The rotation axis is Y (north/forward in body frame) — matching the
+    nacelle orientation where the shaft points into the wind.
     """
     blade_length = ROTOR_DIAMETER / 2.0
     blade_width = 4.0   # m chord (simplified)
@@ -128,16 +178,14 @@ def _build_rotor() -> pv.PolyData:
         ))
         # Rotate about the Y-axis so blades fan out in the X-Z plane
         blade.rotate_y(angle_deg, point=(0, 0, 0), inplace=True)
-        # Translate up to hub height
-        blade.translate((0, 0, HUB_HEIGHT), inplace=True)
         blades.append(blade)
 
     rotor = blades[0]
     for b in blades[1:]:
         rotor = rotor.merge(b)
 
-    # Hub sphere
-    hub = pv.Sphere(radius=2.0, center=(0, 0, HUB_HEIGHT))
+    # Hub sphere at origin
+    hub = pv.Sphere(radius=2.0, center=(0, 0, 0))
     rotor = rotor.merge(hub)
     return rotor
 
@@ -150,19 +198,35 @@ class TurbineGeometry:
         Y = North (forward)
         Z = Up
         Origin at waterline centre of spar.
+
+    The rotor is a separate mesh with its own VTK transform so it can
+    spin independently. The transform chain for the rotor is:
+        1. Translate to hub height (0, 0, HUB_HEIGHT) — positions hub
+        2. RotateY(rotor_angle) — spin about the Y-axis (shaft axis)
+        3. Platform 6DOF (pitch, roll, heading, translate)
     """
 
     def __init__(self):
         spar = _build_spar()
         tower = _build_tower()
         nacelle = _build_nacelle()
-        rotor = _build_rotor()
 
-        self.mesh = spar.merge(tower).merge(nacelle).merge(rotor)
+        # Static mesh: spar + tower + nacelle (no rotor)
+        self.mesh = spar.merge(tower).merge(nacelle)
 
-        # VTK transform for fast rigid-body updates
+        # Rotor mesh: centred at origin, will be positioned by transform
+        self.rotor_mesh = _build_rotor()
+
+        # VTK transform for the static structure (6DOF)
         self._vtk_transform = vtk.vtkTransform()
         self._vtk_transform.PostMultiply()
+
+        # VTK transform for the rotor (6DOF + spin)
+        self._rotor_vtk_transform = vtk.vtkTransform()
+        self._rotor_vtk_transform.PostMultiply()
+
+        # Current rotor angle [degrees] — accumulated over time
+        self._rotor_angle_deg = 0.0
 
     def update_transform(
         self,
@@ -174,9 +238,33 @@ class TurbineGeometry:
         heave: float = 0.0,
     ):
         """Apply 6DOF transform — same convention as VesselGeometry."""
+        # Static structure transform
         t = self._vtk_transform
         t.Identity()
         t.RotateX(pitch_deg)     # pitch about X (starboard), +bow up
         t.RotateY(roll_deg)      # roll about Y (forward), +stbd down
         t.RotateZ(-heading_deg)
-        t.Translate(east, north, -heave)  # heave: sim +down (NED), viz +up → negate
+        t.Translate(east, north, -heave)  # heave: sim +down (NED), viz +up -> negate
+
+        # Rotor transform: spin first (in body frame), then hub offset, then 6DOF
+        r = self._rotor_vtk_transform
+        r.Identity()
+        r.RotateY(self._rotor_angle_deg)  # spin about shaft (Y-axis)
+        r.Translate(0, 0, HUB_HEIGHT)      # move to hub height
+        r.RotateX(pitch_deg)
+        r.RotateY(roll_deg)
+        r.RotateZ(-heading_deg)
+        r.Translate(east, north, -heave)
+
+    def update_rotor_angle(self, dt: float, wind_speed: float, turbine_state: int = 0):
+        """Advance rotor angle based on wind speed and time step.
+
+        Args:
+            dt: Time step since last call [s]
+            wind_speed: Hub-height wind speed [m/s]
+            turbine_state: 0=operating, 1=shutdown, 2=idling
+        """
+        omega = rotor_speed(wind_speed, turbine_state)  # rad/s
+        self._rotor_angle_deg += np.degrees(omega * dt)
+        # Keep angle in [0, 360) to avoid float precision issues over long runs
+        self._rotor_angle_deg %= 360.0

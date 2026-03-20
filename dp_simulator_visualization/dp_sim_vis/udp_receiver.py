@@ -67,6 +67,10 @@ class SimulatorState:
     wind_speed: float = 0.0
     wind_direction: float = 0.0
 
+    # Turbine
+    turbine_state: int = 0  # 0=operating, 1=shutdown, 2=idling
+    platform_wind_speed: float = 0.0  # wind speed at platform (for rotor RPM)
+
     # Wave elevation from C++ simulator (at vessel LF position)
     sim_wave_elevation: float = 0.0
 
@@ -179,6 +183,8 @@ class UdpReceiver:
             self.state.platform_roll = msg.get("roll", self.state.platform_roll)
             self.state.platform_pitch = msg.get("pitch", self.state.platform_pitch)
             self.state.platform_heave = msg.get("heave", self.state.platform_heave)
+            self.state.platform_wind_speed = msg.get("windSpeed", self.state.platform_wind_speed)
+            self.state.turbine_state = msg.get("turbineState", self.state.turbine_state)
 
         # ── Gangway config: {"gangwayConfig":{"index":0, "baseX":..., ...}}
         if "gangwayConfig" in msg:

@@ -9,7 +9,7 @@ import numpy as np
 from .wave_model import WaveSpectrum, WaveElevation, default_frequencies, default_directions
 from .ocean_surface import OceanSurface
 from .vessel_geometry import VesselGeometry
-from .turbine_geometry import TurbineGeometry
+from .turbine_geometry import TurbineGeometry, rotor_speed_rpm
 from .scene import Scene
 from .udp_receiver import UdpReceiver, SimulatorState, GangwayStateData
 from .mock_data import MockDataGenerator
@@ -144,6 +144,7 @@ def run(args):
     # ── Animation callback ─────────────────────────────────────────
     frame_count = [0]
     last_fps_time = [time.time()]
+    last_frame_time = [time.time()]
     fps_display = [0.0]
 
     # Track previous wave params to avoid unnecessary rebuilds.
@@ -259,6 +260,15 @@ def run(args):
             heave=st.platform_heave,
         )
 
+        # Animate rotor — compute dt from wall clock and advance angle
+        now_frame = time.time()
+        dt_frame = min(now_frame - last_frame_time[0], 0.2)  # cap at 200ms
+        last_frame_time[0] = now_frame
+
+        # Wind speed at hub: in live mode from platform data, in mock from state
+        wind_speed_hub = st.platform_wind_speed if not mock_gen else st.wind_speed
+        turbine.update_rotor_angle(dt_frame, wind_speed_hub, st.turbine_state)
+
         # Camera follow
         scene.follow_vessel_camera(
             st.vessel_north, st.vessel_east, st.vessel_heading,
@@ -277,6 +287,9 @@ def run(args):
         gw = st.gangway_state
         gw_states = ["Parked", "Parking", "Moving", "Connecting", "Connected"]
         gw_state_str = gw_states[gw.state] if 0 <= gw.state < len(gw_states) else "?"
+        turbine_states = ["Operating", "Shutdown", "Idling"]
+        turb_state_str = turbine_states[st.turbine_state] if 0 <= st.turbine_state < 3 else "?"
+        rpm = rotor_speed_rpm(wind_speed_hub, st.turbine_state)
         mode = "MOCK" if mock_gen else "LIVE"
         wave_diff = py_wave_elev - st.sim_wave_elevation
         scene.update_info_text(
@@ -290,6 +303,9 @@ def run(args):
             f"HDG={st.platform_heading:.1f} deg  "
             f"Roll={st.platform_roll:+.1f} Pitch={st.platform_pitch:+.1f} "
             f"Heave={st.platform_heave:+.2f}\n"
+            f"Turbine:  {turb_state_str}  "
+            f"Wind={wind_speed_hub:.1f}m/s  "
+            f"Rotor={rpm:.1f}rpm\n"
             f"Gangway:  {gw_state_str}  "
             f"Slew={gw.slewing_angle:.1f} Boom={gw.boom_angle:+.1f} "
             f"H={gw.height:.1f}m L={gw.total_length:.1f}m\n"

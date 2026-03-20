@@ -109,7 +109,7 @@ class Scene:
             actor.SetUserTransform(transform)
             self._gangway_actors.append(actor)
 
-        # ── Add turbine ───────────────────────────────────────────
+        # ── Add turbine (static: spar + tower + nacelle) ─────────────
         self._turbine_actor = self.plotter.add_mesh(
             self.turbine.mesh,
             color=TURBINE_COLOR,
@@ -117,6 +117,15 @@ class Scene:
             name="turbine",
         )
         self._turbine_actor.SetUserTransform(self.turbine._vtk_transform)
+
+        # ── Add turbine rotor (separate actor for spinning) ────────
+        self._rotor_actor = self.plotter.add_mesh(
+            self.turbine.rotor_mesh,
+            color=TURBINE_COLOR,
+            smooth_shading=True,
+            name="rotor",
+        )
+        self._rotor_actor.SetUserTransform(self.turbine._rotor_vtk_transform)
 
         # ── Axes and labels ────────────────────────────────────────
         self.plotter.add_axes(
