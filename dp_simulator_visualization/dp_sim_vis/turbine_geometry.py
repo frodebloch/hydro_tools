@@ -150,11 +150,15 @@ def _build_tower() -> pv.PolyData:
 
 
 def _build_nacelle() -> pv.PolyData:
-    """Nacelle box at hub height."""
+    """Nacelle box centred at origin — positioned by VTK transform.
+
+    Built at the origin so it can yaw independently of the tower.
+    The transform chain places it at hub height and rotates it to face the wind.
+    """
     nacelle = pv.Box(bounds=(
         -NACELLE_WIDTH / 2, NACELLE_WIDTH / 2,
         -NACELLE_LENGTH / 2, NACELLE_LENGTH / 2,
-        HUB_HEIGHT - NACELLE_HEIGHT / 2, HUB_HEIGHT + NACELLE_HEIGHT / 2,
+        -NACELLE_HEIGHT / 2, NACELLE_HEIGHT / 2,
     ))
     return nacelle
 
@@ -203,29 +207,38 @@ class TurbineGeometry:
         Z = Up
         Origin at waterline centre of spar.
 
-    The rotor is a separate mesh with its own VTK transform so it can
-    spin independently. The transform chain for the rotor is:
-        1. RotateY(rotor_angle) — spin about the shaft axis
-        2. Translate to hub (0, +SHAFT_OVERHANG, HUB_HEIGHT) — upwind of tower
-        3. Platform 6DOF (pitch, roll, heading, translate)
+    Three separate meshes with independent transforms:
+        mesh        — spar + tower (fixed to platform 6DOF)
+        nacelle_mesh — nacelle box (yaws to face wind, at hub height)
+        rotor_mesh   — 3 blades + hub (yaws + spins, at hub + overhang)
+
+    Nacelle yaw = wind_from_direction - platform_heading (relative bearing).
+    Both nacelle and rotor yaw about the tower top (Z-axis at hub height),
+    then follow the platform 6DOF.
     """
 
     def __init__(self):
         spar = _build_spar()
         tower = _build_tower()
-        nacelle = _build_nacelle()
 
-        # Static mesh: spar + tower + nacelle (no rotor)
-        self.mesh = spar.merge(tower).merge(nacelle)
+        # Static mesh: spar + tower only (nacelle is separate now)
+        self.mesh = spar.merge(tower)
 
-        # Rotor mesh: centred at origin, will be positioned by transform
+        # Nacelle mesh: centred at origin, positioned by transform
+        self.nacelle_mesh = _build_nacelle()
+
+        # Rotor mesh: centred at origin, positioned by transform
         self.rotor_mesh = _build_rotor()
 
-        # VTK transform for the static structure (6DOF)
+        # VTK transform for the static structure (6DOF only)
         self._vtk_transform = vtk.vtkTransform()
         self._vtk_transform.PostMultiply()
 
-        # VTK transform for the rotor (6DOF + spin)
+        # VTK transform for the nacelle (yaw + 6DOF)
+        self._nacelle_vtk_transform = vtk.vtkTransform()
+        self._nacelle_vtk_transform.PostMultiply()
+
+        # VTK transform for the rotor (spin + yaw + 6DOF)
         self._rotor_vtk_transform = vtk.vtkTransform()
         self._rotor_vtk_transform.PostMultiply()
 
@@ -235,6 +248,9 @@ class TurbineGeometry:
         # Actual rotor angular velocity [rad/s] — smoothed toward target
         self._omega = 0.0
 
+        # Current nacelle yaw relative to platform [degrees]
+        self._nacelle_yaw_deg = 0.0
+
     def update_transform(
         self,
         north: float,
@@ -243,21 +259,48 @@ class TurbineGeometry:
         roll_deg: float = 0.0,
         pitch_deg: float = 0.0,
         heave: float = 0.0,
+        wind_from_deg: float = 0.0,
     ):
-        """Apply 6DOF transform — same convention as VesselGeometry."""
-        # Static structure transform
+        """Apply 6DOF transform and nacelle yaw.
+
+        Args:
+            north, east: Platform NED position [m]
+            heading_deg: Platform heading [deg, 0=N, CW]
+            roll_deg, pitch_deg: Platform attitude [deg]
+            heave: Platform heave [m, positive down NED]
+            wind_from_deg: Wind coming-from direction [deg, 0=N, CW]
+        """
+        # Nacelle yaw: relative bearing of wind in platform body frame.
+        # The nacelle +Y axis should point into the wind (toward wind source).
+        # In body frame, +Y is the platform heading direction.
+        # Nacelle yaw = how much to rotate from body +Y to face the wind source.
+        self._nacelle_yaw_deg = wind_from_deg - heading_deg
+
+        # Static structure transform (spar + tower)
         t = self._vtk_transform
         t.Identity()
-        t.RotateX(pitch_deg)     # pitch about X (starboard), +bow up
-        t.RotateY(roll_deg)      # roll about Y (forward), +stbd down
+        t.RotateX(pitch_deg)
+        t.RotateY(roll_deg)
         t.RotateZ(-heading_deg)
-        t.Translate(east, north, -heave)  # heave: sim +down (NED), viz +up -> negate
+        t.Translate(east, north, -heave)
 
-        # Rotor transform: spin first (in body frame), then hub offset, then 6DOF
+        # Nacelle transform: yaw about tower top, then platform 6DOF
+        n = self._nacelle_vtk_transform
+        n.Identity()
+        n.RotateZ(-self._nacelle_yaw_deg)  # yaw nacelle to face wind
+        n.Translate(0, 0, HUB_HEIGHT)       # up to hub height
+        n.RotateX(pitch_deg)
+        n.RotateY(roll_deg)
+        n.RotateZ(-heading_deg)
+        n.Translate(east, north, -heave)
+
+        # Rotor transform: spin, then overhang offset, then same yaw + 6DOF
         r = self._rotor_vtk_transform
         r.Identity()
-        r.RotateY(self._rotor_angle_deg)  # spin about shaft (Y-axis)
-        r.Translate(0, SHAFT_OVERHANG, HUB_HEIGHT)  # hub: upwind of tower, at hub height
+        r.RotateY(self._rotor_angle_deg)    # spin about shaft (Y-axis)
+        r.Translate(0, SHAFT_OVERHANG, 0)   # overhang from tower centre along nacelle +Y
+        r.RotateZ(-self._nacelle_yaw_deg)   # yaw with nacelle
+        r.Translate(0, 0, HUB_HEIGHT)       # up to hub height
         r.RotateX(pitch_deg)
         r.RotateY(roll_deg)
         r.RotateZ(-heading_deg)

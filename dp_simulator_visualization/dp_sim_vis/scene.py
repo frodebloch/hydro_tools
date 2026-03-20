@@ -109,7 +109,7 @@ class Scene:
             actor.SetUserTransform(transform)
             self._gangway_actors.append(actor)
 
-        # ── Add turbine (static: spar + tower + nacelle) ─────────────
+        # ── Add turbine (static: spar + tower) ──────────────────────
         self._turbine_actor = self.plotter.add_mesh(
             self.turbine.mesh,
             color=TURBINE_COLOR,
@@ -118,7 +118,16 @@ class Scene:
         )
         self._turbine_actor.SetUserTransform(self.turbine._vtk_transform)
 
-        # ── Add turbine rotor (separate actor for spinning) ────────
+        # ── Add nacelle (yaws to face wind) ─────────────────────────
+        self._nacelle_actor = self.plotter.add_mesh(
+            self.turbine.nacelle_mesh,
+            color=TURBINE_COLOR,
+            smooth_shading=True,
+            name="nacelle",
+        )
+        self._nacelle_actor.SetUserTransform(self.turbine._nacelle_vtk_transform)
+
+        # ── Add turbine rotor (yaws + spins) ────────────────────────
         self._rotor_actor = self.plotter.add_mesh(
             self.turbine.rotor_mesh,
             color=TURBINE_COLOR,

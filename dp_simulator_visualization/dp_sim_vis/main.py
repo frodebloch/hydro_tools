@@ -130,6 +130,7 @@ def run(args):
         roll_deg=state.platform_roll,
         pitch_deg=state.platform_pitch,
         heave=state.platform_heave,
+        wind_from_deg=state.wind_direction,
     )
 
     # ── Build scene ────────────────────────────────────────────────
@@ -258,6 +259,7 @@ def run(args):
             roll_deg=st.platform_roll,
             pitch_deg=st.platform_pitch,
             heave=st.platform_heave,
+            wind_from_deg=st.wind_direction,
         )
 
         # Animate rotor — compute dt from wall clock and advance angle
