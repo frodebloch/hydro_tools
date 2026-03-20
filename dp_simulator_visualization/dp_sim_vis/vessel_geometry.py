@@ -1,61 +1,21 @@
-"""Vessel geometry — simple 3D hull built from CSOV cross-section data.
+"""Vessel geometry — 3D hull from Nemoh panel mesh plus superstructure.
 
-Uses the 39-station section data from the Norwind SOV (config_csov) to build
-a realistic hull shape, plus an articulated gangway system.
+The underwater hull is loaded from a Nemoh mesh file (csov_nemoh3.dat) which
+provides the actual panel geometry for the CSOV (Vard 985 / Norwind SOV).
+The mesh is mirrored to get the port side, extended vertically to freeboard
+height, and capped with a deck surface.  An articulated gangway system is
+built on top.
 """
 
 import math
+import os
 import numpy as np
 import pyvista as pv
 import vtk
 
 from .udp_receiver import GangwayConfigData, GangwayStateData
 
-# ── CSOV section data: (offset_m, breadth_m, draft_m, area_m2) ──────────
-# Offset: longitudinal position, positive = forward, zero near midship.
-# From /brucon/modules/config_csov/vessel_data.prototxt.in
-CSOV_SECTIONS = [
-    (-52.65, 17.16, 1.83, 16.50),
-    (-49.85, 19.67, 2.32, 27.02),
-    (-47.05, 20.98, 2.85, 39.12),
-    (-44.25, 21.71, 4.84, 52.46),
-    (-41.45, 22.12, 6.11, 67.73),
-    (-38.65, 22.33, 6.31, 81.16),
-    (-35.85, 22.40, 6.35, 93.74),
-    (-33.05, 22.40, 6.35, 106.04),
-    (-30.25, 22.40, 6.37, 116.97),
-    (-27.45, 22.40, 6.43, 125.99),
-    (-24.65, 22.40, 6.49, 132.39),
-    (-21.85, 22.40, 6.50, 136.75),
-    (-19.05, 22.40, 6.50, 139.93),
-    (-16.25, 22.40, 6.50, 141.91),
-    (-13.45, 22.40, 6.50, 142.68),
-    (-10.65, 22.40, 6.50, 142.74),
-    (-7.85, 22.40, 6.50, 142.74),
-    (-5.05, 22.40, 6.50, 142.74),
-    (-2.25, 22.40, 6.50, 142.74),
-    (0.55, 22.40, 6.50, 142.74),
-    (3.35, 22.40, 6.50, 142.74),
-    (6.15, 22.40, 6.50, 142.72),
-    (8.95, 22.40, 6.50, 142.37),
-    (11.75, 22.40, 6.50, 141.57),
-    (14.55, 22.40, 6.50, 140.10),
-    (17.35, 22.40, 6.50, 137.64),
-    (20.15, 22.39, 6.50, 133.74),
-    (22.95, 22.26, 6.50, 127.93),
-    (25.75, 21.82, 6.50, 119.88),
-    (28.55, 20.87, 6.50, 109.53),
-    (31.35, 19.23, 6.50, 97.20),
-    (34.15, 17.19, 6.50, 83.88),
-    (36.95, 14.49, 6.50, 69.26),
-    (39.75, 11.27, 6.50, 55.13),
-    (42.55, 7.88, 6.50, 42.25),
-    (45.35, 5.30, 6.50, 29.97),
-    (48.15, 3.89, 6.24, 19.54),
-    (50.95, 2.69, 5.44, 11.07),
-    (53.75, 1.43, 4.05, 4.15),
-]
-
+# ── Vessel principal dimensions ──────────────────────────────────────────
 VESSEL_LOA = 111.5
 VESSEL_LPP = 101.1
 VESSEL_BREADTH = 22.4
@@ -72,108 +32,291 @@ MIDSHIP_FREEBOARD = 7.0  # m above waterline at midship
 BOW_SHEER = 2.5  # m additional at bow
 STERN_SHEER = 0.5  # m additional at stern
 
+# Path to the Nemoh mesh file (bundled alongside this module)
+_NEMOH_MESH_PATH = os.path.join(os.path.dirname(__file__), "csov_nemoh3.dat")
+
+# Stern and bow X positions in Nemoh coordinates (longitudinal, forward positive)
+_STERN_X = -52.65
+_BOW_X = 53.75
+
 
 def _freeboard_at_offset(offset: float) -> float:
     """Estimate freeboard height at a longitudinal station.
 
     Linear interpolation of sheer: higher at bow, slightly raised at stern.
+    offset is in Nemoh X coordinates (forward positive).
     """
-    # Offset range: stern ~ -53m, bow ~ +54m
-    stern_x = CSOV_SECTIONS[0][0]
-    bow_x = CSOV_SECTIONS[-1][0]
-    t = (offset - stern_x) / (bow_x - stern_x)  # 0 at stern, 1 at bow
+    t = (offset - _STERN_X) / (_BOW_X - _STERN_X)  # 0 at stern, 1 at bow
     # Sheer curve: parabolic, lowest at midship
     sheer = STERN_SHEER * (1.0 - t) ** 2 + BOW_SHEER * t**2
     return MIDSHIP_FREEBOARD + sheer
 
 
-def _build_hull_mesh() -> pv.PolyData:
-    """Build a 3D hull mesh by lofting cross-sections from keel to main deck.
+def _parse_nemoh_mesh(path: str) -> tuple[np.ndarray, list[list[int]]]:
+    """Parse a Nemoh-format mesh file.
 
-    Each section has:
-      - A curved underwater profile (parabolic bottom)
-      - Vertical hull sides from waterline up to the main deck (freeboard)
-      - A deck surface closing the top
-
-    Coordinate system: X = East (starboard), Y = North (forward), Z = Up.
-    Waterline at Z=0, keel below, deck above.
+    Returns
+    -------
+    vertices : ndarray, shape (N, 3)
+        Vertex coordinates (X=fwd, Y=stbd, Z=up, waterline=0).
+    panels : list of list of int
+        Quad panels as 0-indexed vertex indices.
     """
-    n_sections = len(CSOV_SECTIONS)
-    n_bottom = 8  # points across the bottom curve (port to starboard)
-
-    # Each section profile: bottom curve (n_bottom+1 pts) + starboard side up +
-    # deck edge starboard + deck edge port + port side down
-    # Total per section: (n_bottom+1) + 1 + 1 + 1 = n_bottom + 4
-    # Profile order: 0..n_bottom = bottom curve (port to starboard at keel)
-    #                n_bottom+1   = starboard at deck
-    #                n_bottom+2   = port at deck
-
-    section_profiles = []
-    for offset, breadth, draft, _area in CSOV_SECTIONS:
-        half_b = breadth / 2.0
-        fb = _freeboard_at_offset(offset)
-
-        profile = []
-        # Bottom curve: port -> starboard through keel
-        for i in range(n_bottom + 1):
-            t = i / n_bottom  # 0=port, 1=starboard
-            x = -half_b + t * breadth
-            frac = (2.0 * t - 1.0) ** 2  # 1 at edges, 0 at keel
-            z = -draft + draft * 0.3 * frac
-            profile.append((x, offset, z))
-
-        # Starboard deck edge (top of hull side)
-        profile.append((half_b, offset, fb))
-        # Port deck edge
-        profile.append((-half_b, offset, fb))
-
-        section_profiles.append(profile)
-
-    n_pts = len(section_profiles[0])  # n_bottom + 3
-
     vertices = []
-    for profile in section_profiles:
-        vertices.extend(profile)
+    panels = []
+    with open(path) as f:
+        _header = f.readline()  # "2  1" — format version, symmetry flag
+        # Read vertices until terminator (index 0)
+        for line in f:
+            parts = line.split()
+            if len(parts) >= 4 and parts[0] == "0":
+                break
+            vertices.append((float(parts[1]), float(parts[2]), float(parts[3])))
+        # Read panels until terminator (all zeros)
+        for line in f:
+            parts = line.split()
+            if len(parts) >= 4 and all(p == "0" for p in parts):
+                break
+            # Convert from 1-indexed to 0-indexed
+            panels.append([int(p) - 1 for p in parts])
+    return np.array(vertices, dtype=np.float64), panels
 
+
+def _build_hull_mesh() -> pv.PolyData:
+    """Build a 3D hull mesh from the Nemoh panel mesh.
+
+    The Nemoh mesh provides the wetted (underwater) hull surface for the
+    starboard half only (symmetry=1).  This function:
+      1. Loads and mirrors the mesh to create the full hull below waterline
+      2. Identifies the waterline edge (top row of each section)
+      3. Extends the hull sides vertically from waterline to freeboard
+      4. Closes the top with a deck surface
+
+    Coordinate system (output): X = East (starboard), Y = North (forward), Z = Up.
+    Waterline at Z=0, keel below, deck above.
+
+    Nemoh coordinate system: X = forward, Y = starboard (port=0 on centreline), Z = up.
+    Mapping: viz_X = nemoh_Y, viz_Y = nemoh_X, viz_Z = nemoh_Z.
+    """
+    nemoh_verts, nemoh_panels = _parse_nemoh_mesh(_NEMOH_MESH_PATH)
+
+    # ── Step 1: Separate hull body panels from stern transom panels ──────
+    # The Nemoh mesh has 39 sections.  Section 0 (stern) has special extra
+    # vertices at the end of the vertex list that form the stern transom.
+    # Regular hull sections: 11 vertices each starting from the keel (Y=0)
+    # to the waterline edge (Z≈0).  Section 0 also has 11 "regular" verts
+    # then 10 extra verts at indices 429-438 (0-indexed) for the transom.
+    #
+    # We keep the Nemoh panels as-is for the underwater surface.
+
+    n_nemoh = len(nemoh_verts)
+
+    # ── Step 2: Identify sections and their waterline-edge vertices ──────
+    # Group vertices by X coordinate (longitudinal position) to find sections.
+    # The waterline edge vertex in each section is the one with the largest Y
+    # (outermost) that has Z ≈ 0.
+    from collections import OrderedDict
+    sections = OrderedDict()  # x_rounded -> list of (orig_idx, x, y, z)
+    for i, (x, y, z) in enumerate(nemoh_verts):
+        key = round(x, 2)
+        if key not in sections:
+            sections[key] = []
+        sections[key].append((i, x, y, z))
+
+    # For each section, find the waterline edge vertex (max Y with Z ≈ 0)
+    # These are the vertices where we'll extend upward to freeboard.
+    wl_edge_indices = []  # (nemoh_vert_idx, nemoh_x, nemoh_y) for each section
+    section_x_values = sorted(sections.keys())
+    for x_key in section_x_values:
+        pts = sections[x_key]
+        # Find vertices near the waterline (Z > -0.2)
+        wl_pts = [(i, x, y, z) for i, x, y, z in pts if z > -0.2]
+        if wl_pts:
+            # Take the one with largest Y (outermost at waterline)
+            best = max(wl_pts, key=lambda p: p[2])
+            wl_edge_indices.append((best[0], best[1], best[2]))
+        else:
+            # Bow section might not reach Z=0 exactly; take highest Z vertex
+            best = max(pts, key=lambda p: p[3])
+            wl_edge_indices.append((best[0], best[1], best[2]))
+
+    # ── Step 3: Build the full mesh ──────────────────────────────────────
+    # We need:
+    #   A) Starboard underwater hull (Nemoh panels as-is)
+    #   B) Port underwater hull (mirrored: negate Y)
+    #   C) Starboard freeboard side (waterline edge → deck edge, per section)
+    #   D) Port freeboard side (mirrored)
+    #   E) Deck surface (port deck edge → starboard deck edge, per section)
+    #   F) Stern transom extension (waterline to deck)
+    #   G) Bow closing
+
+    # Start building combined vertex and face arrays.
+    # First: all starboard Nemoh verts mapped to viz coords.
+    # Viz: X=nemoh_Y (stbd), Y=nemoh_X (fwd), Z=nemoh_Z (up)
+    viz_verts = []
+    for x, y, z in nemoh_verts:
+        viz_verts.append((y, x, z))  # (stbd, fwd, up)
+
+    # A) Starboard underwater faces — directly from Nemoh panels
     faces = []
-    for s in range(n_sections - 1):
-        b0 = s * n_pts
-        b1 = (s + 1) * n_pts
+    for panel in nemoh_panels:
+        faces.extend([4] + panel)
 
-        # Bottom hull surface (quads across the bottom curve)
-        for i in range(n_bottom):
-            faces.extend([4, b0 + i, b0 + i + 1, b1 + i + 1, b1 + i])
+    # B) Port underwater hull — mirror all Nemoh verts (negate viz_X = negate nemoh_Y)
+    port_offset = len(viz_verts)
+    for x, y, z in nemoh_verts:
+        viz_verts.append((-y, x, z))  # mirrored: -stbd, fwd, up
 
-        # Starboard side: from bottom curve starboard edge up to deck
-        stbd_bottom = n_bottom      # index of starboard-most bottom point
-        stbd_deck = n_bottom + 1    # index of starboard deck edge
-        faces.extend([4, b0 + stbd_bottom, b0 + stbd_deck,
-                      b1 + stbd_deck, b1 + stbd_bottom])
+    # Port faces: same connectivity but with offset indices and reversed winding
+    for panel in nemoh_panels:
+        p = [idx + port_offset for idx in panel]
+        faces.extend([4, p[0], p[3], p[2], p[1]])  # reversed winding for outward normals
 
-        # Port side: from deck down to bottom curve port edge
-        port_deck = n_bottom + 2
-        port_bottom = 0
-        faces.extend([4, b0 + port_deck, b0 + port_bottom,
-                      b1 + port_bottom, b1 + port_deck])
+    # C + D + E) Freeboard extension and deck ─────────────────────────────
+    # For each pair of adjacent sections, add:
+    #   - Starboard freeboard quad (wl_edge → deck_edge)
+    #   - Port freeboard quad (mirrored)
+    #   - Deck quad (stbd_deck → port_deck)
 
-        # Deck surface (quad from port deck edge to starboard deck edge)
-        faces.extend([4, b0 + stbd_deck, b0 + port_deck,
-                      b1 + port_deck, b1 + stbd_deck])
+    # Create deck-edge vertices for each section (stbd and port)
+    stbd_deck_indices = []  # index into viz_verts for starboard deck edge
+    port_deck_indices = []  # index into viz_verts for port deck edge
+    for nemoh_idx, nemoh_x, nemoh_y in wl_edge_indices:
+        fb = _freeboard_at_offset(nemoh_x)
+        # Starboard deck edge in viz coords
+        stbd_idx = len(viz_verts)
+        viz_verts.append((nemoh_y, nemoh_x, fb))  # (stbd, fwd, fb)
+        stbd_deck_indices.append(stbd_idx)
+        # Port deck edge in viz coords
+        port_idx = len(viz_verts)
+        viz_verts.append((-nemoh_y, nemoh_x, fb))  # (-stbd, fwd, fb)
+        port_deck_indices.append(port_idx)
 
-    # Stern transom (close the aft end)
-    b = 0
-    stbd_d = n_bottom + 1
-    port_d = n_bottom + 2
-    # Transom: deck edges to bottom curve
-    for i in range(n_bottom):
-        faces.extend([3, b + i + 1, b + i, b + n_bottom + 1])  # triangles
-    faces.extend([3, b + port_deck, b + 0, b + stbd_deck])
-    # Fill the deck-to-hull triangles for the transom
-    faces.extend([3, b + n_bottom, b + stbd_deck, b + 0])
+    # Now create quads between adjacent sections for freeboard and deck
+    for s in range(len(wl_edge_indices) - 1):
+        # Waterline edge vertex indices (starboard)
+        wl_s0 = wl_edge_indices[s][0]      # stbd waterline, section s
+        wl_s1 = wl_edge_indices[s + 1][0]  # stbd waterline, section s+1
 
-    vertices = np.array(vertices)
-    faces = np.array(faces)
-    mesh = pv.PolyData(vertices, faces)
+        # Port waterline edge (mirrored vertices)
+        wl_p0 = wl_s0 + port_offset
+        wl_p1 = wl_s1 + port_offset
+
+        # Deck edge indices
+        dk_s0 = stbd_deck_indices[s]
+        dk_s1 = stbd_deck_indices[s + 1]
+        dk_p0 = port_deck_indices[s]
+        dk_p1 = port_deck_indices[s + 1]
+
+        # Starboard freeboard side: waterline → deck
+        faces.extend([4, wl_s0, wl_s1, dk_s1, dk_s0])
+
+        # Port freeboard side: waterline → deck (reversed winding)
+        faces.extend([4, wl_p0, dk_p0, dk_p1, wl_p1])
+
+        # Deck surface: stbd deck → port deck
+        faces.extend([4, dk_s0, dk_s1, dk_p1, dk_p0])
+
+    # F) Stern transom extension ──────────────────────────────────────────
+    # Close the stern (section 0) from waterline up to deck.
+    # The stern transom in Nemoh is already closed at waterline.
+    # We add a flat quad from stern waterline to stern deck.
+    # Section 0 waterline edge:
+    stern_wl_stbd = wl_edge_indices[0][0]
+    stern_wl_port = stern_wl_stbd + port_offset
+    stern_dk_stbd = stbd_deck_indices[0]
+    stern_dk_port = port_deck_indices[0]
+    # Stern centreline vertices at waterline and deck
+    # The keel vertex at section 0 is at Y=0 (centreline) — index 0 in Nemoh
+    stern_keel = 0  # centreline at keel
+    stern_cl_wl_idx = len(viz_verts)
+    nemoh_x_stern = nemoh_verts[0][0]  # X position of stern
+    viz_verts.append((0.0, nemoh_x_stern, 0.0))  # centreline at waterline
+    stern_cl_dk_idx = len(viz_verts)
+    fb_stern = _freeboard_at_offset(nemoh_x_stern)
+    viz_verts.append((0.0, nemoh_x_stern, fb_stern))  # centreline at deck
+
+    # Stern transom face: two quads (stbd half + port half) from waterline to deck
+    faces.extend([4, stern_cl_wl_idx, stern_wl_stbd, stern_dk_stbd, stern_cl_dk_idx])
+    faces.extend([4, stern_wl_port, stern_cl_wl_idx, stern_cl_dk_idx, stern_dk_port])
+
+    # Also close the below-waterline stern transom centreline gap if needed
+    # (Nemoh already has stern transom panels, but the mirrored port side
+    # may leave a gap at the centreline — the Nemoh transom verts 429-438
+    # are at Y≥0 so the port mirror will handle them)
+
+    # G) Bow closing ──────────────────────────────────────────────────────
+    # The bow (last) section forms a bulbous profile in the Y-Z plane.
+    # Both the keel vertex and the near-waterline vertex are on the
+    # centreline (nemoh Y=0), so with the port mirror the section forms a
+    # closed loop.  We close the forward face with a triangle fan from a
+    # centroid point to each adjacent pair of perimeter vertices.
+
+    bow_sec_idx = len(wl_edge_indices) - 1
+    bow_wl_stbd = wl_edge_indices[bow_sec_idx][0]
+    bow_wl_port = bow_wl_stbd + port_offset
+    bow_dk_stbd = stbd_deck_indices[bow_sec_idx]
+    bow_dk_port = port_deck_indices[bow_sec_idx]
+
+    # Find all Nemoh vertices in the bow section (sorted by index)
+    nemoh_x_bow = nemoh_verts[bow_wl_stbd][0]
+    bow_nemoh_ids = sorted(
+        i for i, (x, y, z) in enumerate(nemoh_verts)
+        if abs(x - nemoh_x_bow) < 0.1
+    )
+
+    # Build the full perimeter loop in viz vertex indices.
+    # Starboard half: from near-waterline [last] down to keel [first]
+    # Port half: from keel [first+port_offset] up to near-waterline [last+port_offset]
+    # The keel and near-waterline vertices are on the centreline (Y=0),
+    # so we include the keel vertex once (from stbd) and the near-waterline
+    # vertex once (from stbd) to avoid duplication.
+    bow_perimeter = []  # viz vertex indices going around the full loop
+
+    # Starboard: from near-waterline down to keel (inclusive)
+    for nemoh_id in reversed(bow_nemoh_ids):
+        bow_perimeter.append(nemoh_id)
+
+    # Port: from one-above-keel up to one-below-waterline
+    # (skip first = keel at Y=0, skip last = near-wl at Y=0 — already included)
+    for nemoh_id in bow_nemoh_ids[1:-1]:
+        bow_perimeter.append(nemoh_id + port_offset)
+
+    # Add a centroid vertex for the triangle fan
+    bow_centroid_yz = np.mean(
+        nemoh_verts[bow_nemoh_ids][:, 1:3], axis=0
+    )
+    bow_fan_center = len(viz_verts)
+    viz_verts.append((0.0, nemoh_x_bow, bow_centroid_yz[1]))  # centroid in viz coords (X=0 centreline approx)
+
+    # Triangle fan: fan center to each consecutive pair on the perimeter
+    n_perim = len(bow_perimeter)
+    for i in range(n_perim):
+        v0 = bow_perimeter[i]
+        v1 = bow_perimeter[(i + 1) % n_perim]
+        faces.extend([3, bow_fan_center, v0, v1])
+
+    # Close the above-waterline bow face (freeboard extension).
+    # The freeboard side narrows to a point at the bow, so close with
+    # triangles from a centreline deck vertex to the deck and waterline edges.
+    bow_cl_dk_idx = len(viz_verts)
+    fb_bow = _freeboard_at_offset(nemoh_x_bow)
+    viz_verts.append((0.0, nemoh_x_bow, fb_bow))  # centreline at deck
+
+    # Stbd freeboard triangle: wl_edge → deck_edge → centreline_deck
+    faces.extend([3, bow_wl_stbd, bow_dk_stbd, bow_cl_dk_idx])
+    # Port freeboard triangle
+    faces.extend([3, bow_dk_port, bow_wl_port, bow_cl_dk_idx])
+    # Close from near-waterline centreline (bow_perimeter[0] = stbd near-wl = port near-wl)
+    # to the deck edges via centreline
+    bow_near_wl = bow_perimeter[0]  # near-waterline centreline vertex
+    faces.extend([3, bow_near_wl, bow_wl_stbd, bow_cl_dk_idx])  # stbd: wl_centre → wl_stbd → deck_cl
+    faces.extend([3, bow_wl_port, bow_near_wl, bow_cl_dk_idx])  # port: wl_port → wl_centre → deck_cl
+
+    # ── Build PyVista mesh ───────────────────────────────────────────────
+    vertices_arr = np.array(viz_verts, dtype=np.float64)
+    faces_arr = np.array(faces, dtype=np.int64)
+    mesh = pv.PolyData(vertices_arr, faces_arr)
     return mesh
 
 
