@@ -535,7 +535,7 @@ class GangwayGeometry:
             t.RotateX(vessel_pitch_deg)     # pitch about X, +bow up
             t.RotateY(vessel_roll_deg)      # roll about Y, +stbd down
             t.RotateZ(-vessel_heading_deg)
-            t.Translate(vessel_east, vessel_north, vessel_heave)  # heave: sim +up, viz +up
+            t.Translate(vessel_east, vessel_north, -vessel_heave)  # heave: sim +down (NED), viz +up → negate
 
         # ── Tower base housing: fixed on vessel at deck level ─────────
         t = self._tower_base_transform
@@ -695,4 +695,5 @@ class VesselGeometry:
         t.RotateX(pitch_deg)     # pitch about X (starboard), +bow up
         t.RotateY(roll_deg)      # roll about Y (forward), +stbd down
         t.RotateZ(-heading_deg)  # heading: NED clockwise from North, VTK rotates CCW
-        t.Translate(east, north, heave)  # heave: sim +up, viz +up (no negation needed)
+        t.Translate(east, north, -heave)  # heave: sim +down (NED), viz +up → negate
+

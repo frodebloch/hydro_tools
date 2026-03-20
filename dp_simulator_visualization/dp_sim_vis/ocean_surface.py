@@ -87,8 +87,8 @@ class OceanSurface:
             self._pts_buf[:, 0] = self._e_grid.ravel()
             self._pts_buf[:, 1] = self._n_grid.ravel()
 
-        # Compute wave elevation over the grid
-        z = self.wave.elevation(time, self._n_grid.ravel(), self._e_grid.ravel())
+        # Compute wave elevation over the grid (positive down in NED, negate for VTK Z-up)
+        z = -self.wave.elevation(time, self._n_grid.ravel(), self._e_grid.ravel())
         z_flat = z.ravel()
 
         # Update Z in the pre-allocated buffer and push to VTK
