@@ -206,7 +206,7 @@ class TurbineGeometry:
     The rotor is a separate mesh with its own VTK transform so it can
     spin independently. The transform chain for the rotor is:
         1. RotateY(rotor_angle) — spin about the shaft axis
-        2. Translate to hub (0, -SHAFT_OVERHANG, HUB_HEIGHT) — upwind of tower
+        2. Translate to hub (0, +SHAFT_OVERHANG, HUB_HEIGHT) — upwind of tower
         3. Platform 6DOF (pitch, roll, heading, translate)
     """
 
@@ -257,7 +257,7 @@ class TurbineGeometry:
         r = self._rotor_vtk_transform
         r.Identity()
         r.RotateY(self._rotor_angle_deg)  # spin about shaft (Y-axis)
-        r.Translate(0, -SHAFT_OVERHANG, HUB_HEIGHT)  # hub: upwind of tower, at hub height
+        r.Translate(0, SHAFT_OVERHANG, HUB_HEIGHT)  # hub: upwind of tower, at hub height
         r.RotateX(pitch_deg)
         r.RotateY(roll_deg)
         r.RotateZ(-heading_deg)
