@@ -57,6 +57,10 @@ class Scene:
             window_size=[1400, 900],
         )
 
+        # Anti-aliasing: FXAA is a post-processing shader that works on any
+        # renderer (including software/Mesa).  Smooths all polygon edges.
+        self.plotter.enable_anti_aliasing('fxaa')
+
         # Background: sky-like gradient
         self.plotter.set_background("lightblue", top="white")
 
