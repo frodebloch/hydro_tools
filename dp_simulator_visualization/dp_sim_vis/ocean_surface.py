@@ -7,6 +7,12 @@ from vtk.util.numpy_support import numpy_to_vtk
 from .wave_model import WaveElevation
 
 
+# Grid line parameters
+GRID_SPACING = 20.0          # metres between grid lines
+GRID_SAMPLES_PER_LINE = 80   # number of sample points along each line
+GRID_Z_OFFSET = 0.05         # metres above wave surface to avoid z-fighting
+
+
 class OceanSurface:
     """Manages a PyVista mesh representing the ocean surface.
 
@@ -111,3 +117,69 @@ class OceanSurface:
             e = self.mesh["elevation"]
             return float(e.min()), float(e.max())
         return -1.0, 1.0
+
+    # ── Wave-following grid lines ──────────────────────────────────────
+
+    def build_grid_lines(self) -> list[pv.PolyData]:
+        """Create polyline meshes for a North/East reference grid.
+
+        Returns a list of PolyData polylines at fixed N and E positions,
+        spanning the ocean patch.  Their Z coordinates are updated each
+        frame by update_grid_lines().
+        """
+        half = self.size / 2.0
+        n_min = self.center_north - half
+        n_max = self.center_north + half
+        e_min = self.center_east - half
+        e_max = self.center_east + half
+
+        # Snap grid origin to multiples of GRID_SPACING so lines stay at
+        # round-number world coordinates regardless of patch centre.
+        first_e = np.ceil(e_min / GRID_SPACING) * GRID_SPACING
+        first_n = np.ceil(n_min / GRID_SPACING) * GRID_SPACING
+
+        self._grid_lines: list[pv.PolyData] = []
+        # Coordinate arrays for each line's sample points (for elevation queries)
+        self._grid_north_arrs: list[np.ndarray] = []
+        self._grid_east_arrs: list[np.ndarray] = []
+
+        n_samples = GRID_SAMPLES_PER_LINE
+
+        # East-West lines (constant North, varying East)
+        n_pos = first_n
+        while n_pos <= n_max:
+            east_arr = np.linspace(e_min, e_max, n_samples)
+            north_arr = np.full(n_samples, n_pos)
+            pts = np.column_stack([east_arr, north_arr, np.zeros(n_samples)])
+            line = pv.lines_from_points(pts)
+            self._grid_lines.append(line)
+            self._grid_north_arrs.append(north_arr)
+            self._grid_east_arrs.append(east_arr)
+            n_pos += GRID_SPACING
+
+        # North-South lines (constant East, varying North)
+        e_pos = first_e
+        while e_pos <= e_max:
+            north_arr = np.linspace(n_min, n_max, n_samples)
+            east_arr = np.full(n_samples, e_pos)
+            pts = np.column_stack([east_arr, north_arr, np.zeros(n_samples)])
+            line = pv.lines_from_points(pts)
+            self._grid_lines.append(line)
+            self._grid_north_arrs.append(north_arr)
+            self._grid_east_arrs.append(east_arr)
+            e_pos += GRID_SPACING
+
+        return self._grid_lines
+
+    def update_grid_lines(self, time: float):
+        """Update grid line Z coordinates to follow the wave surface."""
+        if not hasattr(self, '_grid_lines'):
+            return
+        for i, line in enumerate(self._grid_lines):
+            z = -self.wave.elevation(
+                time, self._grid_north_arrs[i], self._grid_east_arrs[i]
+            )
+            z += GRID_Z_OFFSET
+            pts = line.points
+            pts[:, 2] = z
+            line.points = pts

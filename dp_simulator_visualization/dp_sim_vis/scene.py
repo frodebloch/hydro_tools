@@ -18,6 +18,7 @@ VESSEL_SUPER_COLOR = "#E8E0D0"  # off-white superstructure
 GANGWAY_COLOR = "#F0C040"  # yellow/gold for gangway equipment
 TURBINE_COLOR = "#C0C0C0"  # light grey
 WATERLINE_COLOR = "#1A4A6A"  # dark blue for waterline reference
+GRID_COLOR = "#2A2A2A"       # dark grey for reference grid lines
 
 
 class Scene:
@@ -86,6 +87,19 @@ class Scene:
             opacity=0.1,
             name="waterline",
         )
+
+        # ── Add reference grid lines on the ocean surface ──────────
+        grid_lines = self.ocean.build_grid_lines()
+        self._grid_actors = []
+        for i, line in enumerate(grid_lines):
+            actor = self.plotter.add_mesh(
+                line,
+                color=GRID_COLOR,
+                line_width=1,
+                opacity=0.5,
+                name=f"grid_{i}",
+            )
+            self._grid_actors.append(actor)
 
         # ── Add vessel ─────────────────────────────────────────────
         self._vessel_actor = self.plotter.add_mesh(

@@ -7,7 +7,6 @@ height, and capped with a deck surface.  An articulated gangway system is
 built on top.
 """
 
-import math
 import os
 import numpy as np
 import pyvista as pv
@@ -570,9 +569,11 @@ class GangwayGeometry:
 
         # Geometry dimensions
         self._tower_width = 5.0      # width of tower column [m]
-        self._boom_width = 2.0       # width of boom arm [m]
-        self._boom_height = 1.5      # height of boom arm [m]
-        self._tip_size = 4.0         # side length of tip platform [m]
+        self._inner_boom_width = 1.5   # width of inner (telescoping) boom [m]
+        self._inner_boom_height = 2.5  # height of inner boom [m]
+        self._boom_clearance = 0.2     # clearance on each side for outer boom [m]
+        self._outer_boom_width = self._inner_boom_width + 2 * self._boom_clearance
+        self._outer_boom_height = self._inner_boom_height + 2 * self._boom_clearance
 
         # Build meshes in their local coordinate systems (centred at origin)
         self._build_meshes()
@@ -582,10 +583,10 @@ class GangwayGeometry:
         self._tower_base_transform.PostMultiply()
         self._tower_col_transform = vtk.vtkTransform()
         self._tower_col_transform.PostMultiply()
-        self._boom_transform = vtk.vtkTransform()
-        self._boom_transform.PostMultiply()
-        self._tip_transform = vtk.vtkTransform()
-        self._tip_transform.PostMultiply()
+        self._outer_boom_transform = vtk.vtkTransform()
+        self._outer_boom_transform.PostMultiply()
+        self._inner_boom_transform = vtk.vtkTransform()
+        self._inner_boom_transform.PostMultiply()
 
     def _build_meshes(self):
         """Build the gangway part meshes in local coordinates.
@@ -600,7 +601,8 @@ class GangwayGeometry:
             visible pedestal / deck penetration where the column emerges.
           - tower_col_mesh: the telescoping column from the base upward by
             'height' (unit-height mesh, Z-scaled in the transform).
-          - boom_mesh / tip_mesh: the boom arm and tip platform.
+          - outer_boom_mesh: the sleeve (fixed at min_length).
+          - inner_boom_mesh: the telescoping section (scales to total_length).
         """
         bx, by, bz = self._base_viz
         tw = self._tower_width
@@ -627,23 +629,26 @@ class GangwayGeometry:
             0.0, 1.0,    # unit height — will be scaled by actual height
         ))
 
-        # Boom arm: long narrow box. Built along +Y (forward in viz body frame)
-        # with origin at the rotation center end.
-        # Length 1.0 — will be scaled to total_length.
-        bw = self._boom_width
-        bhh = self._boom_height
-        self.boom_mesh = pv.Box(bounds=(
-            -bw / 2, bw / 2,    # X
-            0.0, 1.0,           # Y: from rotation center outward (unit length)
-            -bhh / 2, bhh / 2,  # Z
+        # Outer boom (sleeve): fixed length = min_length.
+        # Larger cross-section that the inner boom slides through.
+        # Built along +Y with unit length — Y-scaled to min_length in transform.
+        obw = self._outer_boom_width
+        obh = self._outer_boom_height
+        self.outer_boom_mesh = pv.Box(bounds=(
+            -obw / 2, obw / 2,    # X
+            0.0, 1.0,             # Y: unit length
+            -obh / 2, obh / 2,   # Z
         ))
 
-        # Tip platform: small box at the end of the boom.
-        ts = self._tip_size
-        self.tip_mesh = pv.Box(bounds=(
-            -ts / 2, ts / 2,
-            -ts / 2, ts / 2,
-            -ts / 2, ts / 2,
+        # Inner boom (telescoping): length varies from min_length to max_length.
+        # Smaller cross-section that slides inside the outer boom.
+        # Built along +Y with unit length — Y-scaled to total_length in transform.
+        ibw = self._inner_boom_width
+        ibh = self._inner_boom_height
+        self.inner_boom_mesh = pv.Box(bounds=(
+            -ibw / 2, ibw / 2,    # X
+            0.0, 1.0,             # Y: unit length
+            -ibh / 2, ibh / 2,   # Z
         ))
 
     def update_transforms(
@@ -716,48 +721,23 @@ class GangwayGeometry:
         # rotates +Y towards +Z (up), but a negative boom_angle means "up",
         # so we apply RotateX(-boom_deg) to get the correct visual tilt.
 
-        t = self._boom_transform
+        # ── Outer boom (sleeve): fixed at min_length ──────────────
+        # Same kinematic chain as the old single boom, but Y-scaled to min_length.
+        t = self._outer_boom_transform
         t.Identity()
-        t.Scale(1.0, total_length, 1.0)  # scale Y to actual boom length
-        t.RotateX(-boom_deg)             # luffing: negate because negative boom = up
-        t.RotateZ(-slew_deg)             # slewing: clockwise from forward
-        t.Translate(rc_x, rc_y, rc_z)    # move to rotation center
+        t.Scale(1.0, self._min_length, 1.0)  # fixed length = min_length
+        t.RotateX(-boom_deg)                  # luffing: negate because negative boom = up
+        t.RotateZ(-slew_deg)                  # slewing: clockwise from forward
+        t.Translate(rc_x, rc_y, rc_z)         # move to rotation center
         _set_vessel_pose(t)
 
-        # ── Tip platform: at the end of the boom ─────────────────────
-        # Compute tip position in viz body frame using the gangway kinematics.
-        # From gangway.cpp, body-frame vector from rotation center to bumper:
-        #   dx_body = cos(boom) * length * cos(slew)   [forward]
-        #   dy_body = cos(boom) * length * sin(slew)   [starboard]
-        #   dz_body = sin(boom) * length               [DOWN in body frame]
-        #
-        # Convert to viz body frame (X=starboard, Y=forward, Z=up):
-        #   viz_dx = dy_body (starboard)
-        #   viz_dy = dx_body (forward)
-        #   viz_dz = -dz_body (negate: body Z-down → viz Z-up)
-        slew_rad = math.radians(slew_deg)
-        boom_rad = math.radians(boom_deg)
-        cos_boom = math.cos(boom_rad)
-        sin_boom = math.sin(boom_rad)
-        cos_slew = math.cos(slew_rad)
-        sin_slew = math.sin(slew_rad)
-
-        # Config body-frame offset from rotation center to tip
-        dx_cfg = cos_boom * total_length * cos_slew  # forward
-        dy_cfg = cos_boom * total_length * sin_slew  # starboard
-        dz_cfg = sin_boom * total_length              # DOWN (body frame)
-
-        # Convert to viz body frame
-        tip_x = rc_x + dy_cfg    # starboard
-        tip_y = rc_y + dx_cfg    # forward
-        tip_z = rc_z - dz_cfg    # up (negate body Z-down)
-
-        t = self._tip_transform
+        # ── Inner boom (telescoping): scales to total_length ───
+        t = self._inner_boom_transform
         t.Identity()
-        # Tip orientation follows boom (slewing + luffing)
+        t.Scale(1.0, total_length, 1.0)      # dynamic length
         t.RotateX(-boom_deg)
         t.RotateZ(-slew_deg)
-        t.Translate(tip_x, tip_y, tip_z)
+        t.Translate(rc_x, rc_y, rc_z)
         _set_vessel_pose(t)
 
     @property
@@ -766,8 +746,8 @@ class GangwayGeometry:
         return [
             (self.tower_base_mesh, self._tower_base_transform),
             (self.tower_col_mesh, self._tower_col_transform),
-            (self.boom_mesh, self._boom_transform),
-            (self.tip_mesh, self._tip_transform),
+            (self.outer_boom_mesh, self._outer_boom_transform),
+            (self.inner_boom_mesh, self._inner_boom_transform),
         ]
 
 

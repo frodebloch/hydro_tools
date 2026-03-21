@@ -209,6 +209,7 @@ def run(args):
 
         # Update ocean surface
         ocean.update(st.sim_time)
+        ocean.update_grid_lines(st.sim_time)
 
         # Compute Python wave elevation at vessel's LF position for comparison.
         # Note: C++ evaluates at LF-only NED position (no wave-frequency offset),
