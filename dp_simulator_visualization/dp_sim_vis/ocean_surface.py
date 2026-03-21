@@ -11,6 +11,7 @@ from .wave_model import WaveElevation
 GRID_SPACING = 20.0          # metres between grid lines
 GRID_SAMPLES_PER_LINE = 80   # number of sample points along each line
 GRID_Z_OFFSET = 0.05         # metres above wave surface to avoid z-fighting
+GRID_MAX_EXTENT = 400.0      # max half-size for grid lines [m] — limits line count on large oceans
 
 
 class OceanSurface:
@@ -124,10 +125,10 @@ class OceanSurface:
         """Create polyline meshes for a North/East reference grid.
 
         Returns a list of PolyData polylines at fixed N and E positions,
-        spanning the ocean patch.  Their Z coordinates are updated each
-        frame by update_grid_lines().
+        spanning up to GRID_MAX_EXTENT around the centre.  Their Z
+        coordinates are updated each frame by update_grid_lines().
         """
-        half = self.size / 2.0
+        half = min(self.size / 2.0, GRID_MAX_EXTENT)
         n_min = self.center_north - half
         n_max = self.center_north + half
         e_min = self.center_east - half

@@ -9,6 +9,7 @@ import vtk
 from .ocean_surface import OceanSurface
 from .vessel_geometry import VesselGeometry
 from .turbine_geometry import TurbineGeometry
+from .fixed_turbine_geometry import FixedTurbineGeometry
 
 
 # Colour definitions
@@ -34,12 +35,16 @@ class Scene:
         ocean: OceanSurface,
         vessel: VesselGeometry,
         turbine: TurbineGeometry,
+        fixed_turbines: list[FixedTurbineGeometry] | None = None,
+        far_ocean: OceanSurface | None = None,
         ocean_size: float = 300.0,
         update_rate_hz: float = 10.0,
     ):
         self.ocean = ocean
+        self.far_ocean = far_ocean
         self.vessel = vessel
         self.turbine = turbine
+        self.fixed_turbines = fixed_turbines or []
         self.ocean_size = ocean_size
         self._update_interval_ms = int(1000.0 / update_rate_hz)
 
@@ -67,6 +72,26 @@ class Scene:
         # ── Add ocean surface ──────────────────────────────────────
         # Use flat shading to avoid expensive per-frame normal recomputation.
         # show_edges=False and lighting=True give acceptable visual quality.
+        # ── Add far ocean (coarse, reduced spectrum) if present ───────
+        # Rendered first (behind), with slight Z depression so the near
+        # ocean always covers it in the overlap region.
+        self._far_ocean_actor = None
+        if self.far_ocean is not None:
+            self._far_ocean_actor = self.plotter.add_mesh(
+                self.far_ocean.mesh,
+                scalars="elevation",
+                cmap=OCEAN_CMAP,
+                clim=[-3.0, 3.0],
+                show_scalar_bar=False,
+                opacity=0.85,
+                smooth_shading=False,
+                name="far_ocean",
+            )
+
+        # ── Add ocean surface ──────────────────────────────────────
+        # Use flat shading to avoid expensive per-frame normal recomputation.
+        # show_edges=False and lighting=True give acceptable visual quality.
+        # Fully opaque so it cleanly covers the far ocean underneath.
         self._ocean_actor = self.plotter.add_mesh(
             self.ocean.mesh,
             scalars="elevation",
@@ -79,11 +104,12 @@ class Scene:
         )
 
         # ── Add waterline reference plane (thin transparent disc) ──
+        waterline_size = self.far_ocean.size if self.far_ocean else self.ocean_size
         waterline = pv.Plane(
             center=(0, 0, 0),
             direction=(0, 0, 1),
-            i_size=self.ocean_size * 1.5,
-            j_size=self.ocean_size * 1.5,
+            i_size=waterline_size * 1.5,
+            j_size=waterline_size * 1.5,
         )
         self.plotter.add_mesh(
             waterline,
@@ -154,6 +180,38 @@ class Scene:
         )
         self._rotor_actor.SetUserTransform(self.turbine._rotor_vtk_transform)
 
+        # ── Add fixed wind turbines (bottom-mounted) ──────────────────
+        self._fixed_turbine_actors = []
+        for i, ft in enumerate(self.fixed_turbines):
+            # Tower + monopile
+            tower_actor = self.plotter.add_mesh(
+                ft.mesh,
+                color=TURBINE_COLOR,
+                smooth_shading=True,
+                name=f"fixed_tower_{i}",
+            )
+            tower_actor.SetUserTransform(ft._vtk_transform)
+
+            # Nacelle
+            nacelle_actor = self.plotter.add_mesh(
+                ft.nacelle_mesh,
+                color=TURBINE_COLOR,
+                smooth_shading=True,
+                name=f"fixed_nacelle_{i}",
+            )
+            nacelle_actor.SetUserTransform(ft._nacelle_vtk_transform)
+
+            # Rotor
+            rotor_actor = self.plotter.add_mesh(
+                ft.rotor_mesh,
+                color=TURBINE_COLOR,
+                smooth_shading=True,
+                name=f"fixed_rotor_{i}",
+            )
+            rotor_actor.SetUserTransform(ft._rotor_vtk_transform)
+
+            self._fixed_turbine_actors.append((tower_actor, nacelle_actor, rotor_actor))
+
         # ── Axes and labels ────────────────────────────────────────
         self.plotter.add_axes(
             xlabel="East [m]",
@@ -163,12 +221,20 @@ class Scene:
         )
 
         # ── Camera setup ──────────────────────────────────────────
-        # Isometric-ish view looking at the scene from SE, elevated
-        self.plotter.camera_position = [
-            (250.0, -200.0, 120.0),   # camera position
-            (100.0, 100.0, 0.0),       # focal point (between vessel and platform)
-            (0.0, 0.0, 1.0),           # view up
-        ]
+        # Isometric-ish view looking at the scene from SE, elevated.
+        # If fixed turbines are present, pull camera back to see the farm.
+        if self.fixed_turbines:
+            self.plotter.camera_position = [
+                (600.0, -400.0, 300.0),
+                (300.0, 300.0, 0.0),
+                (0.0, 0.0, 1.0),
+            ]
+        else:
+            self.plotter.camera_position = [
+                (250.0, -200.0, 120.0),
+                (100.0, 100.0, 0.0),
+                (0.0, 0.0, 1.0),
+            ]
 
         # ── Text overlay ──────────────────────────────────────────
         # Create VTK text actor directly for fast per-frame updates
@@ -225,11 +291,18 @@ class Scene:
 
     def _reset_camera(self):
         """Reset camera to default position."""
-        self.plotter.camera_position = [
-            (250.0, -200.0, 120.0),
-            (100.0, 100.0, 0.0),
-            (0.0, 0.0, 1.0),
-        ]
+        if self.fixed_turbines:
+            self.plotter.camera_position = [
+                (600.0, -400.0, 300.0),
+                (300.0, 300.0, 0.0),
+                (0.0, 0.0, 1.0),
+            ]
+        else:
+            self.plotter.camera_position = [
+                (250.0, -200.0, 120.0),
+                (100.0, 100.0, 0.0),
+                (0.0, 0.0, 1.0),
+            ]
 
     def follow_vessel_camera(self, north: float, east: float, heading_deg: float):
         """Move camera to follow the vessel if follow mode is active."""

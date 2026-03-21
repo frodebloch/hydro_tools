@@ -10,9 +10,11 @@ from .wave_model import WaveSpectrum, WaveElevation, default_frequencies, defaul
 from .ocean_surface import OceanSurface
 from .vessel_geometry import VesselGeometry
 from .turbine_geometry import TurbineGeometry
+from .fixed_turbine_geometry import FixedTurbineGeometry
 from .scene import Scene
 from .udp_receiver import UdpReceiver, SimulatorState, GangwayStateData
 from .mock_data import MockDataGenerator
+from .config_parser import parse_offshore_structures
 
 
 def parse_args(argv=None):
@@ -55,6 +57,13 @@ def parse_args(argv=None):
         default=42,
         help="Random seed for wave phases in mock mode (default: 42).",
     )
+    p.add_argument(
+        "--structures",
+        type=str,
+        default=None,
+        help="Path to offshore_structures.prototxt config file. "
+        "When provided, fixed wind turbines are placed in the scene.",
+    )
     return p.parse_args(argv)
 
 
@@ -67,6 +76,8 @@ def run(args):
     print(f"Ocean:      {args.ocean_size:.0f}m x {args.ocean_size:.0f}m, "
           f"{args.grid_res}x{args.grid_res} grid")
     print(f"Target FPS: {args.fps:.0f}")
+    if args.structures:
+        print(f"Structures: {args.structures}")
     print()
     print("Controls:")
     print("  Mouse drag  — orbit camera")
@@ -96,6 +107,49 @@ def run(args):
         state = udp_receiver.state
 
     # ── Build geometry ─────────────────────────────────────────────
+    # Parse offshore structures config if provided
+    fixed_turbines = []
+    if args.structures:
+        # NED origin = vessel start position (from vessel_simulator_wrapper.h)
+        origin_lat = 62.43340
+        origin_lon = 6.357803
+        all_structures = parse_offshore_structures(
+            args.structures, origin_lat, origin_lon,
+        )
+        for s in all_structures:
+            if s.floating:
+                continue  # floating turbine handled by existing TurbineGeometry
+            ft = FixedTurbineGeometry(
+                name=s.name,
+                north=s.north,
+                east=s.east,
+                azimuth_deg=s.azimuth_deg,
+            )
+            fixed_turbines.append(ft)
+        print(f"Loaded {len(fixed_turbines)} fixed wind turbines from config")
+
+    # If we have fixed turbines, create a two-level ocean:
+    #   - Near ocean: 300m, 80x80, full spectrum (same as without turbines)
+    #   - Far ocean:  covers entire farm, 50x50, SAME wave model (exact boundary match)
+    # Using the same wave model guarantees perfect coherence at the boundary.
+    # The far ocean has fewer vertices (~2500 vs 6400) so its elevation cost
+    # is proportionally lower, while cell spacing at 1760m is ~35m — fine at distance.
+    far_ocean = None
+    FAR_OCEAN_RES = 50
+    if fixed_turbines:
+        max_extent = max(
+            max(abs(ft.north) for ft in fixed_turbines),
+            max(abs(ft.east) for ft in fixed_turbines),
+        )
+        far_ocean_size = max(args.ocean_size, 2.0 * max_extent + 200.0)
+        far_ocean = OceanSurface(
+            wave_elevation=wave_elevation,
+            size=far_ocean_size,
+            resolution=FAR_OCEAN_RES,
+        )
+        print(f"Far ocean: {far_ocean_size:.0f}m, {FAR_OCEAN_RES}x{FAR_OCEAN_RES} "
+              f"(cell ~{far_ocean_size/FAR_OCEAN_RES:.1f}m, full spectrum)")
+
     ocean = OceanSurface(
         wave_elevation=wave_elevation,
         size=args.ocean_size,
@@ -106,6 +160,8 @@ def run(args):
 
     # Initial positions
     ocean.update(0.0)
+    if far_ocean is not None:
+        far_ocean.update(0.0)
     vessel.update_transform(
         north=state.vessel_north,
         east=state.vessel_east,
@@ -138,6 +194,8 @@ def run(args):
         ocean=ocean,
         vessel=vessel,
         turbine=turbine,
+        fixed_turbines=fixed_turbines,
+        far_ocean=far_ocean,
         ocean_size=args.ocean_size,
         update_rate_hz=args.fps,
     )
@@ -205,11 +263,16 @@ def run(args):
                     n_d = len(st.directions)
                     print(f"[wave] Rebuilt wave model: {n_f} freqs x {n_d} dirs, "
                           f"seed={st.random_seed}")
+                    # Far ocean shares the same wave model — just update its reference
+                    if far_ocean is not None:
+                        far_ocean.wave = wave_elevation
 
 
         # Update ocean surface
         ocean.update(st.sim_time)
         ocean.update_grid_lines(st.sim_time)
+        if far_ocean is not None:
+            far_ocean.update(st.sim_time)
 
         # Compute Python wave elevation at vessel's LF position for comparison.
         # Note: C++ evaluates at LF-only NED position (no wave-frequency offset),
@@ -271,6 +334,11 @@ def run(args):
         # Wind speed at hub: in live mode from platform data, in mock from state
         wind_speed_hub = st.platform_wind_speed if not mock_gen else st.wind_speed
         turbine.update_rotor_angle(dt_frame, wind_speed_hub, st.turbine_state)
+
+        # Update fixed turbines — all share the same wind for now
+        for ft in fixed_turbines:
+            ft.update_rotor_angle(dt_frame, wind_speed_hub)
+            ft.update_transform(wind_from_deg=st.wind_direction)
 
         # Camera follow
         scene.follow_vessel_camera(

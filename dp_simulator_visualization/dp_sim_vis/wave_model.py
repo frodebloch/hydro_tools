@@ -289,6 +289,55 @@ class WaveElevation:
         return elevation.reshape(result_shape)
 
 
+    def reduced_copy(self, freq_stride: int = 3) -> "WaveElevation":
+        """Create a copy with fewer frequencies for LOD rendering.
+
+        Subsamples the frequency axis only, keeping ALL directions so that
+        the directional wave pattern is preserved exactly.  The kept
+        frequency components use the same phases and directions as the
+        full model, so near-field and far-field elevations are coherent
+        at the boundary (the far field is a low-pass-filtered version of
+        the near field).
+
+        Parameters
+        ----------
+        freq_stride : int
+            Keep every Nth frequency (default 3 → 10 of 30).
+
+        Returns
+        -------
+        WaveElevation with reduced spectral content.
+        """
+        if self._dirty:
+            self._compute_amplitudes()
+
+        reduced_freqs = self.frequencies[::freq_stride]
+
+        # Build a minimal WaveElevation and overwrite its internals
+        # with subsampled data from this instance.
+        reduced = object.__new__(WaveElevation)
+        reduced.frequencies = reduced_freqs
+        reduced.directions = self.directions.copy()
+        reduced.random_seed = self.random_seed
+        reduced.direction_step = self.direction_step
+
+        # Subsample phases and amplitudes along frequency axis only.
+        # Scale amplitudes by sqrt(freq_stride) to preserve total energy:
+        # each kept frequency bin now represents freq_stride bins worth of
+        # bandwidth.  Since a = sqrt(2*S*dw), the amplitude scales as
+        # sqrt(stride) when dw increases by that factor.
+        reduced.phases = self.phases[::freq_stride, :]
+        amp_scale = np.sqrt(float(freq_stride))
+        reduced.amplitudes = self.amplitudes[::freq_stride, :] * amp_scale
+        reduced.active_dir = self.active_dir.copy()
+        reduced._spectra = list(self._spectra)
+        reduced._dirty = False
+
+        # Rebuild the float32 precomputed arrays for the reduced grid
+        reduced._precompute_f32()
+        return reduced
+
+
 def _angle_diff(a_deg: np.ndarray, b_deg: float) -> np.ndarray:
     """Signed shortest-path angle difference (b - a) in degrees, matching C++ Math::AngleDiff."""
     a = np.mod(np.asarray(a_deg, dtype=float), 360.0)
