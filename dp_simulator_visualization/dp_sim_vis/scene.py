@@ -91,14 +91,15 @@ class Scene:
         # ── Add ocean surface ──────────────────────────────────────
         # Use flat shading to avoid expensive per-frame normal recomputation.
         # show_edges=False and lighting=True give acceptable visual quality.
-        # Fully opaque so it cleanly covers the far ocean underneath.
+        # Fully opaque so it cleanly covers the far ocean in the overlap
+        # region — avoids dark banding from two semi-transparent layers.
         self._ocean_actor = self.plotter.add_mesh(
             self.ocean.mesh,
             scalars="elevation",
             cmap=OCEAN_CMAP,
             clim=[-3.0, 3.0],
             show_scalar_bar=False,
-            opacity=0.85,
+            opacity=1.0,
             smooth_shading=False,
             name="ocean",
         )

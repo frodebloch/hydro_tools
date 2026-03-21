@@ -28,6 +28,7 @@ class OceanSurface:
         resolution: int = 100,
         center_north: float = 0.0,
         center_east: float = 0.0,
+        inner_hole: float = 0.0,
     ):
         """
         Parameters
@@ -40,30 +41,67 @@ class OceanSurface:
             Number of vertices per side.
         center_north, center_east : float
             NED coordinates of the patch centre [m].
+        inner_hole : float
+            If > 0, cells whose centre falls inside this half-width are
+            removed, leaving a ring-shaped mesh.  Used for the far ocean
+            so it doesn't overlap with the near ocean.
         """
         self.wave = wave_elevation
         self.size = size
         self.resolution = resolution
         self.center_north = center_north
         self.center_east = center_east
+        self._inner_hole = inner_hole
 
         # Build the grid coordinates
         half = size / 2.0
         n_vals = np.linspace(center_north - half, center_north + half, resolution)
         e_vals = np.linspace(center_east - half, center_east + half, resolution)
         self._e_grid, self._n_grid = np.meshgrid(e_vals, n_vals)
-        z = np.zeros_like(self._n_grid)
 
-        # Create the StructuredGrid (VTK uses X=East, Y=North, Z=Up)
-        self.mesh = pv.StructuredGrid(
-            self._e_grid, self._n_grid, z
-        )
-        self.mesh.dimensions = [resolution, resolution, 1]
+        n_pts = resolution * resolution
+
+        if inner_hole > 0:
+            # Build an UnstructuredGrid with the inner cells removed.
+            # Vertices stay on the full grid (indices unchanged) so we
+            # can still update Z with a flat array indexed by grid position.
+            points = np.column_stack([
+                self._e_grid.ravel(),
+                self._n_grid.ravel(),
+                np.zeros(n_pts),
+            ])
+            # Cell centres for the (res-1)x(res-1) quad grid
+            e_centres = (self._e_grid[:-1, :-1] + self._e_grid[:-1, 1:]) / 2.0
+            n_centres = (self._n_grid[:-1, :-1] + self._n_grid[1:, :-1]) / 2.0
+            # Shrink the hole by one cell width so the outermost kept cells
+            # overlap the near ocean edge — no gap between the two patches.
+            cell_size = size / (resolution - 1)
+            effective_hole = inner_hole - cell_size
+            outside = (np.abs(e_centres) >= effective_hole) | (np.abs(n_centres) >= effective_hole)
+            # Build quad cells for outside region only
+            cells = []
+            for row in range(resolution - 1):
+                for col in range(resolution - 1):
+                    if not outside[row, col]:
+                        continue
+                    i0 = row * resolution + col
+                    i1 = i0 + 1
+                    i2 = (row + 1) * resolution + col + 1
+                    i3 = (row + 1) * resolution + col
+                    cells.append([4, i0, i1, i2, i3])
+            cells_arr = np.array(cells, dtype=np.int64).ravel()
+            n_cells = len(cells)
+            cell_types = np.full(n_cells, 9, dtype=np.uint8)  # VTK_QUAD = 9
+            self.mesh = pv.UnstructuredGrid(cells_arr, cell_types, points)
+        else:
+            # Standard StructuredGrid (no hole)
+            z = np.zeros_like(self._n_grid)
+            self.mesh = pv.StructuredGrid(
+                self._e_grid, self._n_grid, z
+            )
+            self.mesh.dimensions = [resolution, resolution, 1]
 
         # Pre-allocate a contiguous points buffer for fast VTK updates.
-        # This avoids per-frame allocation: we write into this array then push
-        # it to VTK via numpy_to_vtk (zero-copy when possible).
-        n_pts = resolution * resolution
         self._pts_buf = np.empty((n_pts, 3), dtype=np.float64)
         self._pts_buf[:, 0] = self._e_grid.ravel()
         self._pts_buf[:, 1] = self._n_grid.ravel()

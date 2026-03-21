@@ -146,6 +146,7 @@ def run(args):
             wave_elevation=wave_elevation,
             size=far_ocean_size,
             resolution=FAR_OCEAN_RES,
+            inner_hole=args.ocean_size / 2.0,  # cut out near-ocean footprint
         )
         print(f"Far ocean: {far_ocean_size:.0f}m, {FAR_OCEAN_RES}x{FAR_OCEAN_RES} "
               f"(cell ~{far_ocean_size/FAR_OCEAN_RES:.1f}m, full spectrum)")
