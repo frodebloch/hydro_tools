@@ -248,7 +248,8 @@ class Scene:
         )
 
         # ── Camera setup ──────────────────────────────────────────
-        # Isometric-ish view looking at the scene from SE, elevated.
+        # Default view: looking at the bow from ahead, slightly to starboard
+        # and elevated.  The vessel sits at the origin with bow toward +Y.
         # If fixed turbines are present, pull camera back to see the farm.
         if self.fixed_turbines:
             self.plotter.camera_position = [
@@ -258,8 +259,8 @@ class Scene:
             ]
         else:
             self.plotter.camera_position = [
-                (250.0, -200.0, 120.0),
-                (100.0, 100.0, 0.0),
+                (80.0, 180.0, 50.0),    # ahead of bow, starboard, elevated
+                (0.0, 0.0, 10.0),       # looking at midship waterline
                 (0.0, 0.0, 1.0),
             ]
 
@@ -326,8 +327,8 @@ class Scene:
             ]
         else:
             self.plotter.camera_position = [
-                (250.0, -200.0, 120.0),
-                (100.0, 100.0, 0.0),
+                (80.0, 180.0, 50.0),
+                (0.0, 0.0, 10.0),
                 (0.0, 0.0, 1.0),
             ]
 
