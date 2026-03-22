@@ -588,6 +588,14 @@ class GangwayGeometry:
         self._inner_boom_transform = vtk.vtkTransform()
         self._inner_boom_transform.PostMultiply()
 
+        # Indicator ring transforms
+        self._max_ring_transform = vtk.vtkTransform()
+        self._max_ring_transform.PostMultiply()
+        self._warn_ring_transform = vtk.vtkTransform()
+        self._warn_ring_transform.PostMultiply()
+        self._min_warn_ring_transform = vtk.vtkTransform()
+        self._min_warn_ring_transform.PostMultiply()
+
     def _build_meshes(self):
         """Build the gangway part meshes in local coordinates.
 
@@ -650,6 +658,51 @@ class GangwayGeometry:
             0.0, 1.0,             # Y: unit length
             -ibh / 2, ibh / 2,   # Z
         ))
+
+        # ── Indicator rings on the inner boom ──────────────────────────
+        # Thin rectangular bands around the boom cross-section, perpendicular
+        # to the boom axis (+Y).  Each ring sits at Y=0 in its local frame;
+        # the transform positions it along the boom axis each frame.
+        ring_proud = 0.03   # how far the ring protrudes above boom surface [m]
+        ring_thick = 0.08   # thickness along boom axis (Y) [m]
+        rw = ibw / 2 + ring_proud  # outer half-width in X
+        rh = ibh / 2 + ring_proud  # outer half-height in Z
+        ht = ring_thick / 2        # half-thickness in Y
+
+        def _make_ring_band(rw, rh, ht):
+            """Build a thin rectangular band in the XZ plane as a PolyData.
+
+            The band is a hollow rectangle (4 flat quads forming the sides)
+            at Y ∈ [-ht, +ht], outer extent ±rw in X and ±rh in Z.
+            """
+            # 8 vertices: outer rect at Y=-ht and Y=+ht
+            verts = np.array([
+                # Front face (Y = +ht), going CW viewed from +Y
+                [-rw, +ht, -rh],  # 0: bottom-left
+                [+rw, +ht, -rh],  # 1: bottom-right
+                [+rw, +ht, +rh],  # 2: top-right
+                [-rw, +ht, +rh],  # 3: top-left
+                # Back face (Y = -ht)
+                [-rw, -ht, -rh],  # 4: bottom-left
+                [+rw, -ht, -rh],  # 5: bottom-right
+                [+rw, -ht, +rh],  # 6: top-right
+                [-rw, -ht, +rh],  # 7: top-left
+            ], dtype=np.float64)
+            # 4 side quads (the visible ring faces)
+            faces = np.array([
+                4, 0, 1, 5, 4,  # bottom side (-Z)
+                4, 1, 2, 6, 5,  # right side (+X)
+                4, 2, 3, 7, 6,  # top side (+Z)
+                4, 3, 0, 4, 7,  # left side (-X)
+                # Front and back faces (thin edges, barely visible but close the mesh)
+                4, 0, 1, 2, 3,  # front (+Y)
+                4, 5, 4, 7, 6,  # back (-Y)
+            ], dtype=np.int64)
+            return pv.PolyData(verts, faces)
+
+        self.max_ring_mesh = _make_ring_band(rw, rh, ht)
+        self.warn_ring_mesh = _make_ring_band(rw, rh, ht)
+        self.min_warn_ring_mesh = _make_ring_band(rw, rh, ht)
 
     def update_transforms(
         self,
@@ -740,6 +793,45 @@ class GangwayGeometry:
         t.Translate(rc_x, rc_y, rc_z)
         _set_vessel_pose(t)
 
+        # ── Indicator rings along the inner boom ───────────────────
+        # Each ring is positioned at a specific distance from the rotation
+        # center along the boom axis (+Y in pre-rotation frame).
+        # The transform chain: translate along boom axis → luff → slew
+        # → rotation center → vessel pose.
+        #
+        # Two marks painted on the inner boom at fixed distances from the tip:
+        #
+        #   max_ring (red): Fixed at (max_length - min_length) from the tip.
+        #     Distance from RC = total_length - (max_length - min_length).
+        #     Reaches the sleeve exit when fully extended (total == max_length).
+        #     Hidden inside sleeve when retracted.
+        #
+        #   warn_ring (amber): 1m closer to the tip than max_ring.
+        #     Distance from RC = total_length - (max_length - min_length) + 1.
+        #     Emerges from the sleeve 1m before the max_ring does.
+        max_protrusion = self._max_length - self._min_length
+        max_ring_dist = total_length - max_protrusion
+        warn_ring_dist = max_ring_dist + 1.0
+
+        # min_warn_ring (amber): Fixed 1m from the inner boom tip.
+        #   Distance from RC = total_length - 1.0 (moves with telescoping).
+        #   As the gangway retracts, this ring approaches the sleeve exit.
+        #   It enters the sleeve when total_length == min_length + 1,
+        #   giving 1m warning before reaching minimum length.
+        min_warn_ring_dist = total_length - 1.0
+
+        for ring_t, dist in [
+            (self._max_ring_transform, max_ring_dist),
+            (self._warn_ring_transform, warn_ring_dist),
+            (self._min_warn_ring_transform, min_warn_ring_dist),
+        ]:
+            ring_t.Identity()
+            ring_t.Translate(0.0, dist, 0.0)  # position along boom axis
+            ring_t.RotateX(-boom_deg)
+            ring_t.RotateZ(-slew_deg)
+            ring_t.Translate(rc_x, rc_y, rc_z)
+            _set_vessel_pose(ring_t)
+
     @property
     def meshes_and_transforms(self) -> list[tuple[pv.PolyData, vtk.vtkTransform]]:
         """Return list of (mesh, transform) for all gangway parts."""
@@ -748,6 +840,18 @@ class GangwayGeometry:
             (self.tower_col_mesh, self._tower_col_transform),
             (self.outer_boom_mesh, self._outer_boom_transform),
             (self.inner_boom_mesh, self._inner_boom_transform),
+        ]
+
+    @property
+    def indicator_meshes_and_transforms(self) -> list[tuple[pv.PolyData, vtk.vtkTransform, str]]:
+        """Return list of (mesh, transform, color_key) for boom limit indicators.
+
+        color_key is 'max' (red) or 'warn' (amber).
+        """
+        return [
+            (self.max_ring_mesh, self._max_ring_transform, "max"),
+            (self.warn_ring_mesh, self._warn_ring_transform, "warn"),
+            (self.min_warn_ring_mesh, self._min_warn_ring_transform, "warn"),
         ]
 
 

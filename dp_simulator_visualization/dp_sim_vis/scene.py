@@ -17,6 +17,8 @@ OCEAN_CMAP = "ocean"  # blue-themed colourmap for the ocean (matplotlib built-in
 VESSEL_COLOR = "#D04030"  # dark red hull
 VESSEL_SUPER_COLOR = "#E8E0D0"  # off-white superstructure
 GANGWAY_COLOR = "#F0C040"  # yellow/gold for gangway equipment
+INDICATOR_MAX_COLOR = "#FF2020"   # red for max/min-length limit rings
+INDICATOR_WARN_COLOR = "#FFB020"  # amber for 1m-before-max warning ring
 TURBINE_COLOR = "#C0C0C0"  # light grey
 WATERLINE_COLOR = "#1A4A6A"  # dark blue for waterline reference
 GRID_COLOR = "#2A2A2A"       # dark grey for reference grid lines
@@ -143,16 +145,40 @@ class Scene:
         self._vessel_actor.SetUserTransform(self.vessel._vtk_transform)
 
         # ── Add gangway (articulated parts) ─────────────────────────
+        # Part indices: 0=tower_base, 1=tower_col, 2=outer_boom, 3=inner_boom.
+        # The outer boom sleeve is semi-transparent so the indicator rings
+        # on the inner boom are visible sliding through it.
         self._gangway_actors = []
         for i, (mesh, transform) in enumerate(self.vessel.gangway.meshes_and_transforms):
+            is_outer_boom = (i == 2)
             actor = self.plotter.add_mesh(
                 mesh,
                 color=GANGWAY_COLOR,
                 smooth_shading=True,
+                opacity=0.45 if is_outer_boom else 1.0,
                 name=f"gangway_{i}",
             )
             actor.SetUserTransform(transform)
             self._gangway_actors.append(actor)
+
+        # ── Add gangway boom limit indicator rings ────────────────────
+        _indicator_colors = {
+            "max": INDICATOR_MAX_COLOR,
+            "warn": INDICATOR_WARN_COLOR,
+            "min": INDICATOR_MAX_COLOR,
+        }
+        self._indicator_actors = []
+        for i, (mesh, transform, key) in enumerate(
+            self.vessel.gangway.indicator_meshes_and_transforms
+        ):
+            actor = self.plotter.add_mesh(
+                mesh,
+                color=_indicator_colors[key],
+                smooth_shading=False,
+                name=f"gangway_indicator_{i}",
+            )
+            actor.SetUserTransform(transform)
+            self._indicator_actors.append(actor)
 
         # ── Add turbine (static: spar + tower) ──────────────────────
         self._turbine_actor = self.plotter.add_mesh(
