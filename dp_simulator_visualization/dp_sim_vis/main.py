@@ -347,9 +347,11 @@ def run(args):
             st.vessel_north, st.vessel_east, st.vessel_heading,
         )
 
-        # Update strip charts with drift forces
+        # Update strip charts with drift and wind forces
         scene.update_strip_charts(
-            st.sim_time, st.drift_surge_kn, st.drift_sway_kn,
+            st.sim_time,
+            st.drift_surge_kn, st.drift_sway_kn,
+            st.wind_surge_kn, st.wind_sway_kn,
         )
 
         # FPS counter
@@ -390,6 +392,9 @@ def run(args):
             f"Drift:    Surge={st.drift_surge_kn:+.1f}kN  "
             f"Sway={st.drift_sway_kn:+.1f}kN  "
             f"Yaw={st.drift_yaw_knm:+.1f}kNm\n"
+            f"Wind:     Surge={st.wind_surge_kn:+.1f}kN  "
+            f"Sway={st.wind_sway_kn:+.1f}kN  "
+            f"Yaw={st.wind_yaw_knm:+.1f}kNm\n"
             f"WaveElev: C++={st.sim_wave_elevation:+.3f}m  "
             f"Py={py_wave_elev:+.3f}m  "
             f"diff={wave_diff:+.4f}m"

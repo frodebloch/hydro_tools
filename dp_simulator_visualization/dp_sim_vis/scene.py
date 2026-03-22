@@ -29,8 +29,10 @@ STRIP_WINDOW = 120.0  # visible time window [s]
 CHART_BG_COLOR = (0, 0, 0, 180)  # semi-transparent black
 CHART_TEXT_COLOR = (1.0, 1.0, 1.0)
 CHART_LABEL_COLOR = (0.8, 0.8, 0.8)
-DRIFT_SURGE_COLOR = "#40C0FF"  # cyan-blue for surge
-DRIFT_SWAY_COLOR = "#FF6040"   # orange-red for sway
+DRIFT_SURGE_COLOR = "#40C0FF"  # cyan-blue for drift surge
+DRIFT_SWAY_COLOR = "#FF6040"   # orange-red for drift sway
+WIND_SURGE_COLOR = "#40FF90"   # green for wind surge
+WIND_SWAY_COLOR = "#FFD040"    # yellow for wind sway
 
 
 class Scene:
@@ -339,33 +341,38 @@ class Scene:
         print(f"Force HUD: {mode}")
 
     def _build_strip_charts(self):
-        """Create 2D overlay strip charts for drift forces."""
+        """Create 2D overlay strip charts for drift + wind forces."""
         # Ring buffer arrays
         self._strip_t = np.zeros(STRIP_BUFFER)
         self._strip_drift_surge = np.zeros(STRIP_BUFFER)
         self._strip_drift_sway = np.zeros(STRIP_BUFFER)
+        self._strip_wind_surge = np.zeros(STRIP_BUFFER)
+        self._strip_wind_sway = np.zeros(STRIP_BUFFER)
         self._strip_head = 0
         self._strip_full = False
         self._hud_visible = True
 
         # Chart dimensions: right side, stacked vertically
-        # Leave room below for potential wind force charts later
         chart_w, chart_h = 0.30, 0.20
 
-        # ── Surge drift force chart (upper) ────────────────────────
+        # ── Surge force chart (upper) — drift + wind ────────────────
         self._surge_chart = pv.Chart2D(
             size=(chart_w, chart_h),
             loc=(0.68, 0.77),
         )
         self._surge_chart.background_color = CHART_BG_COLOR
-        self._surge_chart.title = "Wave Drift Surge [kN]"
+        self._surge_chart.title = "Surge Forces [kN]"
         self._surge_chart.x_label = "Time [s]"
         self._surge_chart.y_label = ""
         self._style_chart_axes(self._surge_chart)
 
-        self._surge_line = self._surge_chart.line(
+        self._drift_surge_line = self._surge_chart.line(
             np.zeros(2), np.zeros(2),
-            color=DRIFT_SURGE_COLOR, width=2.0,
+            color=DRIFT_SURGE_COLOR, width=2.0, label="Drift",
+        )
+        self._wind_surge_line = self._surge_chart.line(
+            np.zeros(2), np.zeros(2),
+            color=WIND_SURGE_COLOR, width=2.0, label="Wind",
         )
         # Zero reference line
         self._surge_chart.line(
@@ -373,20 +380,24 @@ class Scene:
             color="white", width=0.5, style="--",
         )
 
-        # ── Sway drift force chart (lower) ────────────────────────
+        # ── Sway force chart (lower) — drift + wind ────────────────
         self._sway_chart = pv.Chart2D(
             size=(chart_w, chart_h),
             loc=(0.68, 0.54),
         )
         self._sway_chart.background_color = CHART_BG_COLOR
-        self._sway_chart.title = "Wave Drift Sway [kN]"
+        self._sway_chart.title = "Sway Forces [kN]"
         self._sway_chart.x_label = "Time [s]"
         self._sway_chart.y_label = ""
         self._style_chart_axes(self._sway_chart)
 
-        self._sway_line = self._sway_chart.line(
+        self._drift_sway_line = self._sway_chart.line(
             np.zeros(2), np.zeros(2),
-            color=DRIFT_SWAY_COLOR, width=2.0,
+            color=DRIFT_SWAY_COLOR, width=2.0, label="Drift",
+        )
+        self._wind_sway_line = self._sway_chart.line(
+            np.zeros(2), np.zeros(2),
+            color=WIND_SWAY_COLOR, width=2.0, label="Wind",
         )
         # Zero reference line
         self._sway_chart.line(
@@ -407,7 +418,8 @@ class Scene:
             ax.GetLabelProperties().SetFontSize(9)
 
     def update_strip_charts(self, sim_time: float,
-                            drift_surge_kn: float, drift_sway_kn: float):
+                            drift_surge_kn: float, drift_sway_kn: float,
+                            wind_surge_kn: float = 0.0, wind_sway_kn: float = 0.0):
         """Push one sample into the strip charts. Called each frame."""
         if not self._hud_visible:
             return
@@ -416,6 +428,8 @@ class Scene:
         self._strip_t[h] = sim_time
         self._strip_drift_surge[h] = drift_surge_kn
         self._strip_drift_sway[h] = drift_sway_kn
+        self._strip_wind_surge[h] = wind_surge_kn
+        self._strip_wind_sway[h] = wind_sway_kn
 
         self._strip_head = (h + 1) % STRIP_BUFFER
         if self._strip_head == 0:
@@ -432,8 +446,10 @@ class Scene:
             return
 
         t_arr = self._strip_t[idx]
-        self._surge_line.update(t_arr, self._strip_drift_surge[idx])
-        self._sway_line.update(t_arr, self._strip_drift_sway[idx])
+        self._drift_surge_line.update(t_arr, self._strip_drift_surge[idx])
+        self._drift_sway_line.update(t_arr, self._strip_drift_sway[idx])
+        self._wind_surge_line.update(t_arr, self._strip_wind_surge[idx])
+        self._wind_sway_line.update(t_arr, self._strip_wind_sway[idx])
 
         # Scrolling X window
         t_max = sim_time
@@ -447,17 +463,25 @@ class Scene:
             # Find visible data within the time window
             visible = t_arr >= t_min
             if np.any(visible):
-                surge_vis = self._strip_drift_surge[idx][visible]
-                sway_vis = self._strip_drift_sway[idx][visible]
+                surge_drift_vis = self._strip_drift_surge[idx][visible]
+                surge_wind_vis = self._strip_wind_surge[idx][visible]
+                sway_drift_vis = self._strip_drift_sway[idx][visible]
+                sway_wind_vis = self._strip_wind_sway[idx][visible]
             else:
-                surge_vis = self._strip_drift_surge[idx]
-                sway_vis = self._strip_drift_sway[idx]
+                surge_drift_vis = self._strip_drift_surge[idx]
+                surge_wind_vis = self._strip_wind_surge[idx]
+                sway_drift_vis = self._strip_drift_sway[idx]
+                sway_wind_vis = self._strip_wind_sway[idx]
         else:
-            surge_vis = self._strip_drift_surge[idx]
-            sway_vis = self._strip_drift_sway[idx]
+            surge_drift_vis = self._strip_drift_surge[idx]
+            surge_wind_vis = self._strip_wind_surge[idx]
+            sway_drift_vis = self._strip_drift_sway[idx]
+            sway_wind_vis = self._strip_wind_sway[idx]
 
-        surge_max = max(10.0, np.max(np.abs(surge_vis)) * 1.2)
-        sway_max = max(10.0, np.max(np.abs(sway_vis)) * 1.2)
+        surge_max = max(10.0, np.max(np.abs(surge_drift_vis)) * 1.2,
+                        np.max(np.abs(surge_wind_vis)) * 1.2)
+        sway_max = max(10.0, np.max(np.abs(sway_drift_vis)) * 1.2,
+                       np.max(np.abs(sway_wind_vis)) * 1.2)
         self._surge_chart.y_range = [-surge_max, surge_max]
         self._sway_chart.y_range = [-sway_max, sway_max]
 
