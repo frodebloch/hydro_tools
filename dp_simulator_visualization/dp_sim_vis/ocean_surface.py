@@ -182,34 +182,56 @@ class OceanSurface:
 
     # ── Wave-following grid lines ──────────────────────────────────────
 
-    def build_grid_lines(self) -> list[pv.PolyData]:
+    def build_grid_lines(
+        self,
+        grid_spacing: float | None = None,
+        line_offsets: np.ndarray | None = None,
+    ) -> list[pv.PolyData]:
         """Create polyline meshes for a North/East reference grid.
 
         Returns a list of PolyData polylines at fixed N and E positions,
         spanning up to GRID_MAX_EXTENT around the centre.  Their Z
         coordinates are updated each frame by update_grid_lines().
+
+        Parameters
+        ----------
+        grid_spacing : float or None
+            Distance between grid lines [m].  When *None* (default),
+            ``GRID_SPACING`` (20 m) is used and lines are snapped to
+            world-coordinate multiples.  Only used when *line_offsets*
+            is not given.
+        line_offsets : ndarray or None
+            Explicit offsets from centre where grid lines should be placed
+            [m].  Used to align near-ocean grid lines exactly to far-ocean
+            vertex positions (which may be at half-cell offsets).
+            The same offsets are used for both N and E directions.
         """
+        if line_offsets is not None:
+            self._grid_line_offsets = np.asarray(line_offsets, dtype=np.float64)
+            self._grid_spacing = None
+        elif grid_spacing is not None:
+            self._grid_line_offsets = None
+            self._grid_spacing = grid_spacing
+        else:
+            self._grid_line_offsets = None
+            self._grid_spacing = GRID_SPACING
+
         half = min(self.size / 2.0, GRID_MAX_EXTENT)
+
+        n_positions, e_positions = self._compute_line_positions(half)
+
+        self._grid_lines: list[pv.PolyData] = []
+        self._grid_north_arrs: list[np.ndarray] = []
+        self._grid_east_arrs: list[np.ndarray] = []
+
         n_min = self.center_north - half
         n_max = self.center_north + half
         e_min = self.center_east - half
         e_max = self.center_east + half
-
-        # Snap grid origin to multiples of GRID_SPACING so lines stay at
-        # round-number world coordinates regardless of patch centre.
-        first_e = np.ceil(e_min / GRID_SPACING) * GRID_SPACING
-        first_n = np.ceil(n_min / GRID_SPACING) * GRID_SPACING
-
-        self._grid_lines: list[pv.PolyData] = []
-        # Coordinate arrays for each line's sample points (for elevation queries)
-        self._grid_north_arrs: list[np.ndarray] = []
-        self._grid_east_arrs: list[np.ndarray] = []
-
         n_samples = GRID_SAMPLES_PER_LINE
 
         # East-West lines (constant North, varying East)
-        n_pos = first_n
-        while n_pos <= n_max:
+        for n_pos in n_positions:
             east_arr = np.linspace(e_min, e_max, n_samples)
             north_arr = np.full(n_samples, n_pos)
             pts = np.column_stack([east_arr, north_arr, np.zeros(n_samples)])
@@ -217,11 +239,11 @@ class OceanSurface:
             self._grid_lines.append(line)
             self._grid_north_arrs.append(north_arr)
             self._grid_east_arrs.append(east_arr)
-            n_pos += GRID_SPACING
+
+        self._grid_n_ew_lines = len(n_positions)
 
         # North-South lines (constant East, varying North)
-        e_pos = first_e
-        while e_pos <= e_max:
+        for e_pos in e_positions:
             north_arr = np.linspace(n_min, n_max, n_samples)
             east_arr = np.full(n_samples, e_pos)
             pts = np.column_stack([east_arr, north_arr, np.zeros(n_samples)])
@@ -229,9 +251,43 @@ class OceanSurface:
             self._grid_lines.append(line)
             self._grid_north_arrs.append(north_arr)
             self._grid_east_arrs.append(east_arr)
-            e_pos += GRID_SPACING
 
         return self._grid_lines
+
+    def _compute_line_positions(self, half: float):
+        """Return (n_positions, e_positions) for grid lines."""
+        n_min = self.center_north - half
+        n_max = self.center_north + half
+        e_min = self.center_east - half
+        e_max = self.center_east + half
+
+        if self._grid_line_offsets is not None:
+            # Explicit offsets from centre — filter to those within the patch
+            offsets = self._grid_line_offsets
+            n_positions = [self.center_north + o for o in offsets
+                           if n_min <= self.center_north + o <= n_max]
+            e_positions = [self.center_east + o for o in offsets
+                           if e_min <= self.center_east + o <= e_max]
+        elif self._grid_spacing is not None:
+            spacing = self._grid_spacing
+            # Snap to round-number world coordinates
+            first_n = np.ceil(n_min / spacing) * spacing
+            first_e = np.ceil(e_min / spacing) * spacing
+            n_positions = []
+            pos = first_n
+            while pos <= n_max:
+                n_positions.append(pos)
+                pos += spacing
+            e_positions = []
+            pos = first_e
+            while pos <= e_max:
+                e_positions.append(pos)
+                pos += spacing
+        else:
+            n_positions = []
+            e_positions = []
+
+        return n_positions, e_positions
 
     def update_grid_lines(self, time: float):
         """Update grid line Z coordinates to follow the wave surface."""
@@ -250,27 +306,25 @@ class OceanSurface:
         """Update grid line XY sample positions after an ocean re-centre.
 
         Keeps the same PolyData objects (already added to the plotter) but
-        shifts their sample coordinates to the new ocean centre, snapping
-        to GRID_SPACING world coordinates.
+        shifts their sample coordinates to the new ocean centre.
         """
         if not hasattr(self, '_grid_lines'):
             return
 
         half = min(self.size / 2.0, GRID_MAX_EXTENT)
+        n_positions, e_positions = self._compute_line_positions(half)
+
         n_min = self.center_north - half
         n_max = self.center_north + half
         e_min = self.center_east - half
         e_max = self.center_east + half
-
-        first_e = np.ceil(e_min / GRID_SPACING) * GRID_SPACING
-        first_n = np.ceil(n_min / GRID_SPACING) * GRID_SPACING
-
         n_samples = GRID_SAMPLES_PER_LINE
         idx = 0
 
         # East-West lines (constant North, varying East)
-        n_pos = first_n
-        while n_pos <= n_max and idx < len(self._grid_lines):
+        for n_pos in n_positions:
+            if idx >= len(self._grid_lines):
+                break
             east_arr = np.linspace(e_min, e_max, n_samples)
             north_arr = np.full(n_samples, n_pos)
             self._grid_east_arrs[idx] = east_arr
@@ -280,11 +334,11 @@ class OceanSurface:
             pts[:, 1] = north_arr
             self._grid_lines[idx].points = pts
             idx += 1
-            n_pos += GRID_SPACING
 
         # North-South lines (constant East, varying North)
-        e_pos = first_e
-        while e_pos <= e_max and idx < len(self._grid_lines):
+        for e_pos in e_positions:
+            if idx >= len(self._grid_lines):
+                break
             north_arr = np.linspace(n_min, n_max, n_samples)
             east_arr = np.full(n_samples, e_pos)
             self._grid_north_arrs[idx] = north_arr
@@ -294,4 +348,3 @@ class OceanSurface:
             pts[:, 1] = north_arr
             self._grid_lines[idx].points = pts
             idx += 1
-            e_pos += GRID_SPACING

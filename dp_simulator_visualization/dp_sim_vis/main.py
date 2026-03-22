@@ -169,6 +169,7 @@ def run(args):
         size=args.ocean_size,
         resolution=args.grid_res,
     )
+
     vessel = VesselGeometry()
     turbine = TurbineGeometry()
 
@@ -277,20 +278,25 @@ def run(args):
                     n_d = len(st.directions)
                     print(f"[wave] Rebuilt wave model: {n_f} freqs x {n_d} dirs, "
                           f"seed={st.random_seed}")
-                    # Far ocean shares the same wave model — just update its reference
+                    # Far ocean shares the same wave model
                     if far_ocean is not None:
                         far_ocean.wave = wave_elevation
 
 
-        # Follow vessel — snap ocean centre in grid-aligned steps
-        shifted = ocean.follow(st.vessel_north, st.vessel_east)
+        # Follow vessel — snap ocean centre in grid-aligned steps.
+        # When a far ocean exists, snap by its cell size so that
+        # near-zone grid lines stay aligned with far-ocean edges.
+        if far_ocean is not None:
+            snap = far_ocean.size / (far_ocean.resolution - 1)
+        else:
+            snap = 20.0  # default GRID_SPACING
+        shifted = ocean.follow(st.vessel_north, st.vessel_east, snap_step=snap)
         if shifted and far_ocean is not None:
             # Keep far ocean centred on the same point so the inner hole
             # stays aligned with the near ocean patch.
             far_ocean.center_north = ocean.center_north
             far_ocean.center_east = ocean.center_east
             far_ocean._rebuild_grid_coords()
-
         # Update ocean surface
         ocean.update(st.sim_time)
         ocean.update_grid_lines(st.sim_time)

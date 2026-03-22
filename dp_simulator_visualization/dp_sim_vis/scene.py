@@ -96,6 +96,8 @@ class Scene:
                 show_scalar_bar=False,
                 opacity=0.85,
                 smooth_shading=False,
+                show_edges=True,
+                edge_color="#0A3050",
                 name="far_ocean",
             )
 
@@ -131,12 +133,23 @@ class Scene:
         )
 
         # ── Add reference grid lines on the ocean surface ──────────
-        grid_lines = self.ocean.build_grid_lines()
+        # When a far ocean is present, align grid lines exactly to its
+        # vertex positions so the polylines connect seamlessly with the
+        # far ocean's show_edges wireframe at the boundary.
+        line_offsets = None
+        if self.far_ocean is not None:
+            far_half = self.far_ocean.size / 2.0
+            far_res = self.far_ocean.resolution
+            # Vertex offsets from centre — identical to np.linspace formula
+            line_offsets = np.linspace(-far_half, far_half, far_res)
+        grid_lines = self.ocean.build_grid_lines(line_offsets=line_offsets)
+        # When grid lines are aligned to far ocean edges, use matching colour
+        grid_color = "#0A3050" if self.far_ocean is not None else GRID_COLOR
         self._grid_actors = []
         for i, line in enumerate(grid_lines):
             actor = self.plotter.add_mesh(
                 line,
-                color=GRID_COLOR,
+                color=grid_color,
                 line_width=1,
                 opacity=0.5,
                 name=f"grid_{i}",
