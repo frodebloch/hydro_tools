@@ -29,10 +29,8 @@ STRIP_WINDOW = 120.0  # visible time window [s]
 CHART_BG_COLOR = (0, 0, 0, 180)  # semi-transparent black
 CHART_TEXT_COLOR = (1.0, 1.0, 1.0)
 CHART_LABEL_COLOR = (0.8, 0.8, 0.8)
-DRIFT_SURGE_COLOR = "#40C0FF"  # cyan-blue for drift surge
-DRIFT_SWAY_COLOR = "#FF6040"   # orange-red for drift sway
-WIND_SURGE_COLOR = "#40FF90"   # green for wind surge
-WIND_SWAY_COLOR = "#FFD040"    # yellow for wind sway
+DRIFT_COLOR = "#40C0FF"  # cyan-blue for drift forces
+WIND_COLOR = "#40FF90"   # green for wind forces
 
 
 class Scene:
@@ -368,11 +366,11 @@ class Scene:
 
         self._drift_surge_line = self._surge_chart.line(
             np.zeros(2), np.zeros(2),
-            color=DRIFT_SURGE_COLOR, width=2.0, label="Drift",
+            color=DRIFT_COLOR, width=2.0, label="Drift",
         )
         self._wind_surge_line = self._surge_chart.line(
             np.zeros(2), np.zeros(2),
-            color=WIND_SURGE_COLOR, width=2.0, label="Wind",
+            color=WIND_COLOR, width=2.0, label="Wind",
         )
         # Zero reference line
         self._surge_chart.line(
@@ -393,11 +391,11 @@ class Scene:
 
         self._drift_sway_line = self._sway_chart.line(
             np.zeros(2), np.zeros(2),
-            color=DRIFT_SWAY_COLOR, width=2.0, label="Drift",
+            color=DRIFT_COLOR, width=2.0,
         )
         self._wind_sway_line = self._sway_chart.line(
             np.zeros(2), np.zeros(2),
-            color=WIND_SWAY_COLOR, width=2.0, label="Wind",
+            color=WIND_COLOR, width=2.0,
         )
         # Zero reference line
         self._sway_chart.line(
@@ -407,8 +405,15 @@ class Scene:
 
         self.plotter.add_chart(self._surge_chart, self._sway_chart)
 
+        # Legend only on surge chart (top-left); sway uses same colours
+        surge_legend = vtk.vtkChartXY.GetLegend(self._surge_chart)
+        surge_legend.SetHorizontalAlignment(0)  # LEFT
+        surge_legend.SetVerticalAlignment(2)    # TOP
+        sway_legend = vtk.vtkChartXY.GetLegend(self._sway_chart)
+        sway_legend.SetVisible(False)
+
     def _style_chart_axes(self, chart):
-        """Apply consistent text styling to a chart's axes and legend."""
+        """Apply consistent text styling to a chart's axes."""
         chart.GetTitleProperties().SetColor(*CHART_TEXT_COLOR)
         chart.GetTitleProperties().SetFontSize(12)
         for ax in (chart.x_axis, chart.y_axis):
@@ -416,10 +421,6 @@ class Scene:
             ax.GetTitleProperties().SetFontSize(10)
             ax.GetLabelProperties().SetColor(*CHART_LABEL_COLOR)
             ax.GetLabelProperties().SetFontSize(9)
-        # Place legend at top-left so it doesn't hide the newest values
-        legend = vtk.vtkChartXY.GetLegend(chart)
-        legend.SetHorizontalAlignment(0)  # LEFT
-        legend.SetVerticalAlignment(2)    # TOP
 
     def update_strip_charts(self, sim_time: float,
                             drift_surge_kn: float, drift_sway_kn: float,
