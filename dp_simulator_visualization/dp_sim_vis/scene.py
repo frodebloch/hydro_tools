@@ -23,6 +23,15 @@ TURBINE_COLOR = "#C0C0C0"  # light grey
 WATERLINE_COLOR = "#1A4A6A"  # dark blue for waterline reference
 GRID_COLOR = "#2A2A2A"       # dark grey for reference grid lines
 
+# Strip chart configuration
+STRIP_BUFFER = 1800   # samples in ring buffer (~120s at 15fps)
+STRIP_WINDOW = 120.0  # visible time window [s]
+CHART_BG_COLOR = (0, 0, 0, 180)  # semi-transparent black
+CHART_TEXT_COLOR = (1.0, 1.0, 1.0)
+CHART_LABEL_COLOR = (0.8, 0.8, 0.8)
+DRIFT_SURGE_COLOR = "#40C0FF"  # cyan-blue for surge
+DRIFT_SWAY_COLOR = "#FF6040"   # orange-red for sway
+
 
 class Scene:
     """Manages the 3D visualization scene.
@@ -283,6 +292,10 @@ class Scene:
         # ── Key bindings ──────────────────────────────────────────
         self.plotter.add_key_event("f", self._toggle_follow)
         self.plotter.add_key_event("r", self._reset_camera)
+        self.plotter.add_key_event("h", self._toggle_hud)
+
+        # ── Strip charts (drift forces HUD) ────────────────────────
+        self._build_strip_charts()
 
         self._initialized = True
 
@@ -316,6 +329,137 @@ class Scene:
         self._follow_vessel = not self._follow_vessel
         mode = "ON" if self._follow_vessel else "OFF"
         print(f"Follow vessel: {mode}")
+
+    def _toggle_hud(self):
+        """Toggle strip chart HUD visibility."""
+        self._hud_visible = not self._hud_visible
+        self._surge_chart.visible = self._hud_visible
+        self._sway_chart.visible = self._hud_visible
+        mode = "ON" if self._hud_visible else "OFF"
+        print(f"Force HUD: {mode}")
+
+    def _build_strip_charts(self):
+        """Create 2D overlay strip charts for drift forces."""
+        # Ring buffer arrays
+        self._strip_t = np.zeros(STRIP_BUFFER)
+        self._strip_drift_surge = np.zeros(STRIP_BUFFER)
+        self._strip_drift_sway = np.zeros(STRIP_BUFFER)
+        self._strip_head = 0
+        self._strip_full = False
+        self._hud_visible = True
+
+        # Chart dimensions: right side, stacked vertically
+        # Leave room below for potential wind force charts later
+        chart_w, chart_h = 0.30, 0.20
+
+        # ── Surge drift force chart (upper) ────────────────────────
+        self._surge_chart = pv.Chart2D(
+            size=(chart_w, chart_h),
+            loc=(0.68, 0.77),
+        )
+        self._surge_chart.background_color = CHART_BG_COLOR
+        self._surge_chart.title = "Wave Drift Surge [kN]"
+        self._surge_chart.x_label = "Time [s]"
+        self._surge_chart.y_label = ""
+        self._style_chart_axes(self._surge_chart)
+
+        self._surge_line = self._surge_chart.line(
+            np.zeros(2), np.zeros(2),
+            color=DRIFT_SURGE_COLOR, width=2.0,
+        )
+        # Zero reference line
+        self._surge_chart.line(
+            [0, 1], [0, 0],
+            color="white", width=0.5, style="--",
+        )
+
+        # ── Sway drift force chart (lower) ────────────────────────
+        self._sway_chart = pv.Chart2D(
+            size=(chart_w, chart_h),
+            loc=(0.68, 0.54),
+        )
+        self._sway_chart.background_color = CHART_BG_COLOR
+        self._sway_chart.title = "Wave Drift Sway [kN]"
+        self._sway_chart.x_label = "Time [s]"
+        self._sway_chart.y_label = ""
+        self._style_chart_axes(self._sway_chart)
+
+        self._sway_line = self._sway_chart.line(
+            np.zeros(2), np.zeros(2),
+            color=DRIFT_SWAY_COLOR, width=2.0,
+        )
+        # Zero reference line
+        self._sway_chart.line(
+            [0, 1], [0, 0],
+            color="white", width=0.5, style="--",
+        )
+
+        self.plotter.add_chart(self._surge_chart, self._sway_chart)
+
+    def _style_chart_axes(self, chart):
+        """Apply consistent text styling to a chart's axes."""
+        chart.GetTitleProperties().SetColor(*CHART_TEXT_COLOR)
+        chart.GetTitleProperties().SetFontSize(12)
+        for ax in (chart.x_axis, chart.y_axis):
+            ax.GetTitleProperties().SetColor(*CHART_TEXT_COLOR)
+            ax.GetTitleProperties().SetFontSize(10)
+            ax.GetLabelProperties().SetColor(*CHART_LABEL_COLOR)
+            ax.GetLabelProperties().SetFontSize(9)
+
+    def update_strip_charts(self, sim_time: float,
+                            drift_surge_kn: float, drift_sway_kn: float):
+        """Push one sample into the strip charts. Called each frame."""
+        if not self._hud_visible:
+            return
+
+        h = self._strip_head
+        self._strip_t[h] = sim_time
+        self._strip_drift_surge[h] = drift_surge_kn
+        self._strip_drift_sway[h] = drift_sway_kn
+
+        self._strip_head = (h + 1) % STRIP_BUFFER
+        if self._strip_head == 0:
+            self._strip_full = True
+
+        # Extract ordered slice for display
+        if self._strip_full:
+            idx = np.arange(self._strip_head,
+                            self._strip_head + STRIP_BUFFER) % STRIP_BUFFER
+        else:
+            idx = np.arange(0, self._strip_head)
+
+        if len(idx) < 2:
+            return
+
+        t_arr = self._strip_t[idx]
+        self._surge_line.update(t_arr, self._strip_drift_surge[idx])
+        self._sway_line.update(t_arr, self._strip_drift_sway[idx])
+
+        # Scrolling X window
+        t_max = sim_time
+        t_min = max(0.0, t_max - STRIP_WINDOW)
+        self._surge_chart.x_range = [t_min, t_max]
+        self._sway_chart.x_range = [t_min, t_max]
+
+        # Auto-scale Y axis based on visible data
+        # Use symmetric range with some margin, minimum ±10 kN
+        if self._strip_full:
+            # Find visible data within the time window
+            visible = t_arr >= t_min
+            if np.any(visible):
+                surge_vis = self._strip_drift_surge[idx][visible]
+                sway_vis = self._strip_drift_sway[idx][visible]
+            else:
+                surge_vis = self._strip_drift_surge[idx]
+                sway_vis = self._strip_drift_sway[idx]
+        else:
+            surge_vis = self._strip_drift_surge[idx]
+            sway_vis = self._strip_drift_sway[idx]
+
+        surge_max = max(10.0, np.max(np.abs(surge_vis)) * 1.2)
+        sway_max = max(10.0, np.max(np.abs(sway_vis)) * 1.2)
+        self._surge_chart.y_range = [-surge_max, surge_max]
+        self._sway_chart.y_range = [-sway_max, sway_max]
 
     def _reset_camera(self):
         """Reset camera to default position."""

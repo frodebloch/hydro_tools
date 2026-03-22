@@ -74,6 +74,16 @@ class SimulatorState:
     # Wave elevation from C++ simulator (at vessel LF position)
     sim_wave_elevation: float = 0.0
 
+    # Drift forces [kN] and yaw moment [kN-m] (from VesselSimulatorForcesTopic)
+    drift_surge_kn: float = 0.0
+    drift_sway_kn: float = 0.0
+    drift_yaw_knm: float = 0.0
+
+    # Wind forces [kN] and yaw moment [kN-m]
+    wind_surge_kn: float = 0.0
+    wind_sway_kn: float = 0.0
+    wind_yaw_knm: float = 0.0
+
     # Wave parameters
     wave: WaveSpectrumParams = field(default_factory=WaveSpectrumParams)
     swell: WaveSpectrumParams = field(default_factory=WaveSpectrumParams)
@@ -139,6 +149,16 @@ class UdpReceiver:
                 self.state.vessel_east = msg["ned_east"]
             if "waveElevation" in msg:
                 self.state.sim_wave_elevation = msg["waveElevation"]
+            if "driftForces" in msg:
+                df = msg["driftForces"]
+                self.state.drift_surge_kn = df.get("surge", 0.0)
+                self.state.drift_sway_kn = df.get("sway", 0.0)
+                self.state.drift_yaw_knm = df.get("yaw", 0.0)
+            if "windForces" in msg:
+                wf = msg["windForces"]
+                self.state.wind_surge_kn = wf.get("surge", 0.0)
+                self.state.wind_sway_kn = wf.get("sway", 0.0)
+                self.state.wind_yaw_knm = wf.get("yaw", 0.0)
 
         # ── Simulation time: {"OceanSimulationTime": 123.4}
         if "OceanSimulationTime" in msg:

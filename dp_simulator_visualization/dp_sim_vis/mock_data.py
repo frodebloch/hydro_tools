@@ -185,5 +185,26 @@ class MockDataGenerator:
             state=gw_state,
         )
 
+        # ── Mock drift forces (body-fixed, kN / kN-m) ─────────────────
+        # Mean drift (always negative surge = opposing bow seas, small sway)
+        mean_drift_surge = -30.0  # kN, head seas push vessel astern
+        mean_drift_sway = -5.0    # kN, small lateral component
+
+        # Slowly-varying component — wave group envelope difference frequencies
+        # Periods ~60-120s, amplitudes ~50-100% of mean
+        slow_drift_surge = 25.0 * np.sin(2 * np.pi / 90.0 * t + 0.3) \
+                         + 15.0 * np.sin(2 * np.pi / 65.0 * t + 1.7)
+        slow_drift_sway = 12.0 * np.sin(2 * np.pi / 80.0 * t + 0.9) \
+                        + 8.0 * np.sin(2 * np.pi / 110.0 * t + 2.1)
+
+        self.state.drift_surge_kn = mean_drift_surge + slow_drift_surge
+        self.state.drift_sway_kn = mean_drift_sway + slow_drift_sway
+        self.state.drift_yaw_knm = 5.0 * np.sin(2 * np.pi / 75.0 * t + 1.2)
+
+        # ── Mock wind forces (body-fixed, kN / kN-m) ──────────────────
+        self.state.wind_surge_kn = -20.0 + 5.0 * np.sin(0.05 * t)
+        self.state.wind_sway_kn = -10.0 + 3.0 * np.sin(0.04 * t + 0.5)
+        self.state.wind_yaw_knm = -8.0 + 2.0 * np.sin(0.03 * t + 1.0)
+
         self.state.last_update = time.time()
         return self.state

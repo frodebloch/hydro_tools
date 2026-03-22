@@ -84,6 +84,7 @@ def run(args):
     print("  Scroll      — zoom")
     print("  Shift+drag  — pan")
     print("  f           — toggle follow vessel")
+    print("  h           — toggle force HUD")
     print("  r           — reset camera")
     print("  q           — quit")
     print()
@@ -346,6 +347,11 @@ def run(args):
             st.vessel_north, st.vessel_east, st.vessel_heading,
         )
 
+        # Update strip charts with drift forces
+        scene.update_strip_charts(
+            st.sim_time, st.drift_surge_kn, st.drift_sway_kn,
+        )
+
         # FPS counter
         frame_count[0] += 1
         now = time.time()
@@ -381,6 +387,9 @@ def run(args):
             f"Gangway:  {gw_state_str}  "
             f"Slew={gw.slewing_angle:.1f} Boom={gw.boom_angle:+.1f} "
             f"H={gw.height:.1f}m L={gw.total_length:.1f}m\n"
+            f"Drift:    Surge={st.drift_surge_kn:+.1f}kN  "
+            f"Sway={st.drift_sway_kn:+.1f}kN  "
+            f"Yaw={st.drift_yaw_knm:+.1f}kNm\n"
             f"WaveElev: C++={st.sim_wave_elevation:+.3f}m  "
             f"Py={py_wave_elev:+.3f}m  "
             f"diff={wave_diff:+.4f}m"
