@@ -121,16 +121,7 @@ class OceanSurface:
                 self.center_north = center_north
             if center_east is not None:
                 self.center_east = center_east
-            half = self.size / 2.0
-            n_vals = np.linspace(
-                self.center_north - half, self.center_north + half, self.resolution
-            )
-            e_vals = np.linspace(
-                self.center_east - half, self.center_east + half, self.resolution
-            )
-            self._e_grid, self._n_grid = np.meshgrid(e_vals, n_vals)
-            self._pts_buf[:, 0] = self._e_grid.ravel()
-            self._pts_buf[:, 1] = self._n_grid.ravel()
+            self._rebuild_grid_coords()
 
         # Compute wave elevation over the grid (positive down in NED, negate for VTK Z-up)
         z = -self.wave.elevation(time, self._n_grid.ravel(), self._e_grid.ravel())
@@ -148,6 +139,38 @@ class OceanSurface:
         vtk_scalars.SetName("elevation")
         self.mesh.GetPointData().SetScalars(vtk_scalars)
         self.mesh.GetPointData().Modified()
+
+    def follow(self, vessel_north: float, vessel_east: float,
+               snap_step: float = GRID_SPACING) -> bool:
+        """Re-centre the ocean if the vessel has moved beyond one snap step.
+
+        Returns True if the grid was shifted, False otherwise.
+        The snap step defaults to GRID_SPACING (20m) so the near ocean
+        jumps in grid-aligned increments — no visual pop because the
+        wave model evaluates at absolute world coordinates.
+        """
+        target_n = round(vessel_north / snap_step) * snap_step
+        target_e = round(vessel_east / snap_step) * snap_step
+        if target_n == self.center_north and target_e == self.center_east:
+            return False
+        self.center_north = target_n
+        self.center_east = target_e
+        self._rebuild_grid_coords()
+        self._rebuild_grid_line_coords()
+        return True
+
+    def _rebuild_grid_coords(self):
+        """Recompute the E/N grid arrays and update the points buffer XY."""
+        half = self.size / 2.0
+        n_vals = np.linspace(
+            self.center_north - half, self.center_north + half, self.resolution
+        )
+        e_vals = np.linspace(
+            self.center_east - half, self.center_east + half, self.resolution
+        )
+        self._e_grid, self._n_grid = np.meshgrid(e_vals, n_vals)
+        self._pts_buf[:, 0] = self._e_grid.ravel()
+        self._pts_buf[:, 1] = self._n_grid.ravel()
 
     @property
     def z_range(self) -> tuple[float, float]:
@@ -222,3 +245,53 @@ class OceanSurface:
             pts = line.points
             pts[:, 2] = z
             line.points = pts
+
+    def _rebuild_grid_line_coords(self):
+        """Update grid line XY sample positions after an ocean re-centre.
+
+        Keeps the same PolyData objects (already added to the plotter) but
+        shifts their sample coordinates to the new ocean centre, snapping
+        to GRID_SPACING world coordinates.
+        """
+        if not hasattr(self, '_grid_lines'):
+            return
+
+        half = min(self.size / 2.0, GRID_MAX_EXTENT)
+        n_min = self.center_north - half
+        n_max = self.center_north + half
+        e_min = self.center_east - half
+        e_max = self.center_east + half
+
+        first_e = np.ceil(e_min / GRID_SPACING) * GRID_SPACING
+        first_n = np.ceil(n_min / GRID_SPACING) * GRID_SPACING
+
+        n_samples = GRID_SAMPLES_PER_LINE
+        idx = 0
+
+        # East-West lines (constant North, varying East)
+        n_pos = first_n
+        while n_pos <= n_max and idx < len(self._grid_lines):
+            east_arr = np.linspace(e_min, e_max, n_samples)
+            north_arr = np.full(n_samples, n_pos)
+            self._grid_east_arrs[idx] = east_arr
+            self._grid_north_arrs[idx] = north_arr
+            pts = self._grid_lines[idx].points
+            pts[:, 0] = east_arr
+            pts[:, 1] = north_arr
+            self._grid_lines[idx].points = pts
+            idx += 1
+            n_pos += GRID_SPACING
+
+        # North-South lines (constant East, varying North)
+        e_pos = first_e
+        while e_pos <= e_max and idx < len(self._grid_lines):
+            north_arr = np.linspace(n_min, n_max, n_samples)
+            east_arr = np.full(n_samples, e_pos)
+            self._grid_north_arrs[idx] = north_arr
+            self._grid_east_arrs[idx] = east_arr
+            pts = self._grid_lines[idx].points
+            pts[:, 0] = east_arr
+            pts[:, 1] = north_arr
+            self._grid_lines[idx].points = pts
+            idx += 1
+            e_pos += GRID_SPACING

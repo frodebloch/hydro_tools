@@ -270,6 +270,15 @@ def run(args):
                         far_ocean.wave = wave_elevation
 
 
+        # Follow vessel — snap ocean centre in grid-aligned steps
+        shifted = ocean.follow(st.vessel_north, st.vessel_east)
+        if shifted and far_ocean is not None:
+            # Keep far ocean centred on the same point so the inner hole
+            # stays aligned with the near ocean patch.
+            far_ocean.center_north = ocean.center_north
+            far_ocean.center_east = ocean.center_east
+            far_ocean._rebuild_grid_coords()
+
         # Update ocean surface
         ocean.update(st.sim_time)
         ocean.update_grid_lines(st.sim_time)
