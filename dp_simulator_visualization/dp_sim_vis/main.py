@@ -1,5 +1,12 @@
 """Main entry point — argument parsing, component wiring, and animation loop."""
 
+# Prevent NumPy/OpenBLAS/MKL from spawning threads that saturate all cores
+# during the real-time wave elevation loop.  Must be set before numpy import.
+import os
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+
 import argparse
 import sys
 import time
@@ -63,6 +70,13 @@ def parse_args(argv=None):
         default=None,
         help="Path to offshore_structures.prototxt config file. "
         "When provided, fixed wind turbines are placed in the scene.",
+    )
+    p.add_argument(
+        "--far-grid-res",
+        type=int,
+        default=150,
+        help="Far ocean grid resolution — vertices per side (default: 150). "
+        "Reduce to 50-80 on slower machines.",
     )
     return p.parse_args(argv)
 
@@ -131,12 +145,10 @@ def run(args):
 
     # If we have fixed turbines, create a two-level ocean:
     #   - Near ocean: 300m, 80x80, full spectrum (same as without turbines)
-    #   - Far ocean:  covers entire farm, 50x50, SAME wave model (exact boundary match)
+    #   - Far ocean:  covers entire farm, configurable resolution, SAME wave model
     # Using the same wave model guarantees perfect coherence at the boundary.
-    # The far ocean has fewer vertices (~2500 vs 6400) so its elevation cost
-    # is proportionally lower, while cell spacing at 1760m is ~35m — fine at distance.
     far_ocean = None
-    FAR_OCEAN_RES = 50
+    far_res = args.far_grid_res
     if fixed_turbines:
         max_extent = max(
             max(abs(ft.north) for ft in fixed_turbines),
@@ -146,11 +158,11 @@ def run(args):
         far_ocean = OceanSurface(
             wave_elevation=wave_elevation,
             size=far_ocean_size,
-            resolution=FAR_OCEAN_RES,
+            resolution=far_res,
             inner_hole=args.ocean_size / 2.0,  # cut out near-ocean footprint
         )
-        print(f"Far ocean: {far_ocean_size:.0f}m, {FAR_OCEAN_RES}x{FAR_OCEAN_RES} "
-              f"(cell ~{far_ocean_size/FAR_OCEAN_RES:.1f}m, full spectrum)")
+        print(f"Far ocean: {far_ocean_size:.0f}m, {far_res}x{far_res} "
+              f"(cell ~{far_ocean_size/far_res:.1f}m, full spectrum)")
 
     ocean = OceanSurface(
         wave_elevation=wave_elevation,
