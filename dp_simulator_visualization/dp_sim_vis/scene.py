@@ -408,7 +408,7 @@ class Scene:
         self.plotter.add_chart(self._surge_chart, self._sway_chart)
 
     def _style_chart_axes(self, chart):
-        """Apply consistent text styling to a chart's axes."""
+        """Apply consistent text styling to a chart's axes and legend."""
         chart.GetTitleProperties().SetColor(*CHART_TEXT_COLOR)
         chart.GetTitleProperties().SetFontSize(12)
         for ax in (chart.x_axis, chart.y_axis):
@@ -416,6 +416,10 @@ class Scene:
             ax.GetTitleProperties().SetFontSize(10)
             ax.GetLabelProperties().SetColor(*CHART_LABEL_COLOR)
             ax.GetLabelProperties().SetFontSize(9)
+        # Place legend at top-left so it doesn't hide the newest values
+        legend = vtk.vtkChartXY.GetLegend(chart)
+        legend.SetHorizontalAlignment(0)  # LEFT
+        legend.SetVerticalAlignment(2)    # TOP
 
     def update_strip_charts(self, sim_time: float,
                             drift_surge_kn: float, drift_sway_kn: float,
