@@ -13,12 +13,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 from .vessel import VesselConfig
 from .catenary import TowWireConfig
-from .plough import PloughConfig, SoilProperties
+from .plough import PloughConfig, SoilProperties, StochasticSoilConfig
 from .dp_controller import DPControllerConfig
-from .environment import EnvironmentConfig
+from .environment import EnvironmentConfig, WaveDriftConfig
 from .simulation import SimulationConfig, run_simulation, SimulationResult
 from .plotting import (plot_overview, plot_force_breakdown, plot_layback_analysis,
-                       plot_catenary_snapshot, print_summary)
+                       plot_catenary_snapshot, plot_stochastic_soil,
+                       print_summary)
 from .catenary import CatenaryModel
 
 
@@ -89,9 +90,9 @@ def scenario_steady_state(water_depth: float = 100.0, plough_mass_t: float = 25.
         env=EnvironmentConfig(
             water_depth=water_depth,
             current_speed=0.3,
-            current_direction=180.0,  # head current
+            current_direction=0.0,    # head current (from ahead)
             wind_speed=8.0,
-            wind_direction=180.0,     # headwind
+            wind_direction=0.0,       # headwind (from ahead)
         ),
         track_start=(0.0, 0.0),
         track_end=(duration * speed * 2, 0.0),
@@ -147,9 +148,9 @@ def scenario_hard_soil(water_depth: float = 100.0, plough_mass_t: float = 25.0,
         env=EnvironmentConfig(
             water_depth=water_depth,
             current_speed=0.3,
-            current_direction=180.0,
+            current_direction=0.0,    # head current (from ahead)
             wind_speed=8.0,
-            wind_direction=180.0,
+            wind_direction=0.0,       # headwind (from ahead)
         ),
         track_start=(0.0, 0.0),
         track_end=(duration * speed * 2, 0.0),
@@ -206,9 +207,9 @@ def scenario_plough_stop(water_depth: float = 100.0, plough_mass_t: float = 25.0
         env=EnvironmentConfig(
             water_depth=water_depth,
             current_speed=0.3,
-            current_direction=180.0,
+            current_direction=0.0,    # head current (from ahead)
             wind_speed=8.0,
-            wind_direction=180.0,
+            wind_direction=0.0,       # headwind (from ahead)
         ),
         track_start=(0.0, 0.0),
         track_end=(duration * speed * 2, 0.0),
@@ -262,6 +263,132 @@ def scenario_plough_comparison(water_depth: float = 100.0,
         res, cfg = scenario_steady_state(water_depth, mass, speed, duration)
         results[mass] = (res, cfg)
     return results
+
+
+# =============================================================================
+# Scenario 6: Stochastic soil — 1 hour in challenging seabed
+# =============================================================================
+
+def scenario_stochastic_soil(water_depth: float = 20.0, plough_mass_t: float = 25.0,
+                              speed: float = 0.06, duration: float = 3600.0,
+                              seed: int = 42) -> SimulationResult:
+    """
+    1-hour ploughing simulation in challenging, heterogeneous seabed.
+
+    Calibrated against real operational data showing:
+      - Tow tension: mean ~30-40t, range 5-100t
+      - Vessel speed: ~0.05-0.15 m/s, inversely correlated with tension
+      - Extended soft soil zones (5-10 min duration)
+      - High-frequency tension variability with occasional large spikes
+
+    Uses shallow water (default 20m) which is typical for nearshore cable
+    burial — the short catenary gives stiff coupling so plough force
+    variations transmit directly to the vessel, matching operational data.
+
+    Parameters:
+        water_depth: Water depth [m]
+        plough_mass_t: Plough mass [tonnes]
+        speed: Desired base ploughing speed [m/s] (~0.06 m/s DP setpoint;
+               effective mean ~0.12 m/s with tension-speed modulation and
+               wave drift compensation offset)
+        duration: Simulation duration [s] (3600 = 1 hour)
+        seed: Random seed for reproducibility
+    """
+    # Tuned stochastic soil parameters to match operational data
+    stochastic_cfg = StochasticSoilConfig(
+        # Fractional Gaussian noise for broadband soil variability
+        hurst=0.90,                 # PSD ~ f^-0.8 (close to pink noise)
+        fgn_cov=0.50,              # 50% COV — creates the characteristic spread
+        fgn_dt=0.2,               # Match simulation dt
+        fgn_duration=duration + 200.0,  # Extra margin for transient
+
+        # Spike events (boulders, hard layers)
+        spike_rate=0.005,           # ~1 spike per 200s
+        spike_amplitude_mean=1.4,   # Mean spike is 1.4x base (moderate)
+        spike_amplitude_std=0.3,    # Tight variability (less extreme spikes)
+        spike_duration_mean=12.0,   # 12s average spike (broad, like real data)
+        spike_duration_std=8.0,     # Std of spike duration — some very broad
+
+        # Soil zone transitions
+        zone_normal_to_soft_rate=0.00025,  # ~1 soft zone per 4000s (~1 per hour)
+        zone_normal_to_hard_rate=0.0002,   # ~1 hard zone per 5000s (rare)
+        zone_soft_to_normal_rate=0.002,    # Soft zone ~500s (~8 min)
+        zone_hard_to_normal_rate=0.005,    # Hard zone ~200s (~3 min)
+        zone_soft_factor=0.15,             # Tension drops to 15% in soft zone
+        zone_hard_factor=1.6,              # Tension increases to 160% in hard zone
+        zone_transition_tau=15.0,          # 15s smooth transition
+        min_resistance_fraction=0.02,      # Min 2% of base resistance
+        seed=seed,
+    )
+
+    plough_cfg = make_plough_config(plough_mass_t)
+    plough_cfg.stochastic_soil = stochastic_cfg
+
+    # Shorter wire for shallow water — tighter coupling
+    wire_cfg = TowWireConfig(
+        diameter=0.076,
+        linear_mass=25.0,
+        total_length=max(water_depth * 3.0, 200.0),
+    )
+
+    config = SimulationConfig(
+        dt=0.2,                     # 0.2s step (adequate for 1hr sim)
+        duration=duration,
+        vessel=make_vessel_config(),
+        wire=wire_cfg,
+        plough=plough_cfg,
+        soil=SoilProperties(
+            undrained_shear_strength=15e3,  # Su = 15 kPa (firm clay)
+            submerged_unit_weight=8.0e3,
+        ),
+        dp=DPControllerConfig(
+            T_surge=120.0,          # Standard surge response
+            zeta_surge=0.8,
+            Kp_speed=0.05,          # Strong speed control gain
+            Ki_speed=0.01,          # Strong integral for wave drift offset
+            tow_force_feedforward=0.85,  # 85% feedforward for force compensation
+            wind_feedforward=0.8,
+            # Tension-based speed modulation (ploughing mode)
+            tension_speed_modulation=True,
+            tension_nominal=320e3,         # ~32t nominal (below mean ~37t → net speed increase)
+            tension_speed_gain=8e-7,       # Speed adjustment per N tension excess
+            tension_speed_filter_tau=5.0,  # 5s filter — fast response to tension changes
+            tension_speed_max_reduction=0.10,  # Max speed reduction from high tension
+            tension_speed_max_increase=0.08,   # Max speed increase from low tension
+        ),
+        env=EnvironmentConfig(
+            water_depth=water_depth,
+            current_speed=0.2,
+            current_direction=0.0,    # Head current (from ahead)
+            wind_speed=6.0,
+            wind_direction=20.0,      # Quartering headwind (from ahead, slight offset)
+            waves=WaveDriftConfig(
+                Hs=1.2,                        # Moderate swell
+                Tp=7.5,                        # Typical North Sea swell period
+                wave_direction=0.0,            # Head seas (waves from ahead)
+                C_drift=5000.0,                # Mean drift coefficient
+                sv_cov=0.8,                    # Slowly-varying drift COV
+                sv_tau=60.0,                   # ~1 min slowly-varying filter
+                first_order_surge_factor=0.0,  # Filtered out of operational speed data
+                seed=seed + 1000,              # Different seed from soil (uncorrelated)
+            ),
+        ),
+        track_start=(0.0, 0.0),
+        track_end=(duration * speed * 2, 0.0),
+        track_speed=speed,
+    )
+
+    print(f"\n{'='*60}")
+    print(f"SCENARIO: Stochastic soil — 1 hour challenging seabed")
+    print(f"  Depth: {water_depth} m | Plough: {plough_mass_t}t | Speed: {speed} m/s")
+    print(f"  Duration: {duration/60:.0f} min | dt: {config.dt} s")
+    print(f"  Soil zones: normal/soft(x{stochastic_cfg.zone_soft_factor})"
+          f"/hard(x{stochastic_cfg.zone_hard_factor})")
+    print(f"{'='*60}")
+
+    result = run_simulation(config)
+    print_summary(result, config)
+    return result, config
 
 
 # =============================================================================
@@ -369,10 +496,19 @@ def run_all_scenarios():
     print("\n\n--- PLOUGH MASS COMPARISON ---")
     plough_results = scenario_plough_comparison(100, [25, 35], 0.5, 600)
 
+    # 7. Stochastic soil - 1 hour challenging seabed
+    print("\n\n--- STOCHASTIC SOIL: 1 HOUR CHALLENGING SEABED ---")
+    res_stoch, cfg_stoch = scenario_stochastic_soil()
+    plot_stochastic_soil(res_stoch,
+        title="Tow tension-based vessel speed variations\n"
+              "during ploughing operation in challenging seabed / 1 hour period",
+        save_path="results/stochastic_soil_1hr.png")
+
     return {
         'baseline': (res_base, cfg_base),
         'hard_soil': (res_hard, cfg_hard),
         'plough_stop': (res_stop, cfg_stop),
         'depth_comparison': depth_results,
         'plough_comparison': plough_results,
+        'stochastic_soil': (res_stoch, cfg_stoch),
     }

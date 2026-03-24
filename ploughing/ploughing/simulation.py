@@ -91,6 +91,8 @@ class SimulationResult:
     # Environment
     wind_force_surge: np.ndarray = None
     wind_force_sway: np.ndarray = None
+    wave_force_surge: np.ndarray = None
+    wave_force_sway: np.ndarray = None
 
     # Safety
     wire_safety_factor: np.ndarray = None
@@ -193,6 +195,7 @@ def run_simulation(config: SimulationConfig,
                  'tow_force_surge', 'tow_force_sway', 'tow_moment_yaw',
                  'plough_soil_force', 'plough_friction_force', 'plough_total_resistance',
                  'wind_force_surge', 'wind_force_sway',
+                 'wave_force_surge', 'wave_force_sway',
                  'wire_safety_factor',
                  'thrust_utilization_surge', 'thrust_utilization_sway']:
         setattr(res, attr, np.zeros(n_steps))
@@ -204,6 +207,9 @@ def run_simulation(config: SimulationConfig,
     # --- Simulation loop ---
     for i in range(n_steps):
         ti = t[i]
+
+        # Mark new timestep for plough stochastic state caching
+        plough.advance_step()
 
         # --- Process events ---
         while event_idx < len(events) and events[event_idx][0] <= ti:
@@ -220,6 +226,7 @@ def run_simulation(config: SimulationConfig,
 
         # --- Environment ---
         wind_force = env.wind_force_body(vessel_sim.psi)
+        wave_force = env.wave_drift_force_body(vessel_sim.psi, dt)
         current_body = env.current_force_body(vessel_sim.u, vessel_sim.v,
                                                vessel_sim.psi, vessel_model)
         inline_current = env.inline_current_speed(track_dir)
@@ -275,11 +282,12 @@ def run_simulation(config: SimulationConfig,
             vessel_sim.u, vessel_sim.v, vessel_sim.r,
             tow_force_body=tow_force_on_vessel,
             wind_force_body=wind_force,
+            tow_tension_horizontal=cat_result['horizontal_force'],
         )
 
         # --- Vessel dynamics ---
-        # Total external forces = tow + wind (current modifies relative velocity)
-        tau_external = tow_force_on_vessel + wind_force
+        # Total external forces = tow + wind + waves (current modifies relative velocity)
+        tau_external = tow_force_on_vessel + wind_force + wave_force
 
         # Adjust vessel velocities for current (speed through water)
         # The hydrodynamic forces use speed through water
@@ -330,6 +338,9 @@ def run_simulation(config: SimulationConfig,
 
         res.wind_force_surge[i] = wind_force[0]
         res.wind_force_sway[i] = wind_force[1]
+
+        res.wave_force_surge[i] = wave_force[0]
+        res.wave_force_sway[i] = wave_force[1]
 
         res.wire_safety_factor[i] = cat_result['safety_factor']
 

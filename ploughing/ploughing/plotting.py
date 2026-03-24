@@ -219,6 +219,77 @@ def plot_layback_analysis(res: SimulationResult, title: str = "Layback Analysis"
     plt.show()
 
 
+def plot_stochastic_soil(res: SimulationResult,
+                         title: str = "Tow tension-based vessel speed variations\n"
+                                      "during ploughing operation in challenging seabed / 1 hour period",
+                         save_path: str = None,
+                         trim_start: float = 120.0):
+    """
+    Dual-axis plot matching real operational data format:
+    tow tension (orange, left axis) and vessel speed (blue, right axis)
+    with clock-time x-axis (HH:MM:SS).
+
+    Designed to visually compare with real ploughing operational logs.
+
+    Parameters:
+        res: SimulationResult
+        title: Plot title
+        save_path: Path to save figure (optional)
+        trim_start: Seconds to trim from start to remove initial transient
+    """
+    import matplotlib.dates as mdates
+    from datetime import datetime, timedelta
+
+    fig, ax1 = plt.subplots(1, 1, figsize=(16, 7))
+    fig.suptitle(title, fontsize=13, fontweight='bold')
+
+    # Trim initial transient
+    dt = res.time[1] - res.time[0]
+    i_start = int(trim_start / dt)
+    t = res.time[i_start:]
+
+    # Tow tension in tonnes.
+    # In shallow water the catenary is nearly horizontal, so the horizontal
+    # component of the wire tension closely equals the plough resistance.
+    # We use plough total resistance as it represents the instantaneous
+    # horizontal pull that a tow wire load cell at the vessel would measure
+    # (the quasi-static catenary solution underestimates variability since
+    # it filters through the plough inertia before reaching the wire).
+    tension_t = res.plough_total_resistance[i_start:] / (1e3 * 9.81)
+    # Vessel speed through water (surge)
+    speed = res.u[i_start:]
+
+    # Create datetime x-axis starting at 10:30:00 (matching real data style)
+    t0 = datetime(2026, 3, 24, 10, 30, 0)
+    times = [t0 + timedelta(seconds=float(ti - t[0])) for ti in t]
+
+    # --- Tow tension (orange, left axis) ---
+    ax1.plot(times, tension_t, color='tab:orange', linewidth=0.6, alpha=0.9)
+    ax1.set_ylabel('Tow Tension (t)', fontsize=11)
+    ax1.set_ylim(0, 150)
+    ax1.set_xlabel('')
+    ax1.tick_params(axis='y')
+    ax1.grid(True, alpha=0.3)
+
+    # --- Vessel speed (blue, right axis) ---
+    ax2 = ax1.twinx()
+    ax2.plot(times, speed, color='tab:blue', linewidth=0.7, alpha=0.9)
+    ax2.set_ylabel('Vessel Speed (m/s)', fontsize=11)
+    ax2.set_ylim(-0.05, 0.5)
+    ax2.tick_params(axis='y')
+
+    # Format x-axis as HH:MM:SS
+    ax1.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
+    ax1.xaxis.set_major_locator(mdates.MinuteLocator(interval=5))
+    fig.autofmt_xdate(rotation=45, ha='right')
+
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"  Saved: {save_path}")
+    plt.show()
+
+
 def print_summary(res: SimulationResult, config=None):
     """Print summary statistics of the simulation."""
     print("=" * 60)

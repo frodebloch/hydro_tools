@@ -56,6 +56,17 @@ class DPControllerConfig:
     # Gain scheduling: reduce gains at higher speeds
     speed_gain_reduction: float = 0.3
 
+    # Tension-based speed modulation (ploughing mode)
+    # When enabled, the speed setpoint is reduced when tow tension exceeds
+    # the nominal level, and increased when tension is below nominal.
+    # This mimics the real DP/operator behavior during ploughing.
+    tension_speed_modulation: bool = False
+    tension_nominal: float = 350e3       # Nominal tow tension [N] (~35t)
+    tension_speed_gain: float = 3e-7     # Speed reduction per N excess tension [m/s / N]
+    tension_speed_filter_tau: float = 20.0  # Filter time constant on tension [s]
+    tension_speed_max_reduction: float = 0.08  # Max speed reduction [m/s]
+    tension_speed_max_increase: float = 0.05   # Max speed increase [m/s]
+
 
 class DPController:
     """
@@ -136,6 +147,9 @@ class DPController:
         # Anti-windup limits
         self.integral_limit = self.max_thrust * config.integral_limit_fraction
 
+        # Tension-based speed modulation state
+        self._tension_filtered = config.tension_nominal
+
     def set_track(self, waypoints: list, speed: float):
         """Set the track to follow."""
         self.waypoints = [np.array(wp) for wp in waypoints]
@@ -212,7 +226,8 @@ class DPController:
     def step(self, x: float, y: float, psi: float,
              u: float, v: float, r: float,
              tow_force_body: np.ndarray = None,
-             wind_force_body: np.ndarray = None) -> np.ndarray:
+             wind_force_body: np.ndarray = None,
+             tow_tension_horizontal: float = None) -> np.ndarray:
         """
         Compute one control step.
 
@@ -223,6 +238,7 @@ class DPController:
             r: Yaw rate [rad/s]
             tow_force_body: Estimated tow force in body frame [Fx, Fy, Mz]
             wind_force_body: Estimated wind force in body frame [Fx, Fy, Mz]
+            tow_tension_horizontal: Measured horizontal tow tension [N] (for speed modulation)
 
         Returns:
             tau_command: Thrust command [Fx_surge, Fy_sway, Mz_yaw] in body frame
@@ -235,7 +251,24 @@ class DPController:
             wind_force_body = np.zeros(3)
 
         # --- Track errors ---
+        # Tension-based speed modulation: adjust speed setpoint based on measured tension
+        effective_desired_speed = self.desired_speed
+        if self.cfg.tension_speed_modulation and tow_tension_horizontal is not None:
+            alpha_t = dt / (self.cfg.tension_speed_filter_tau + dt)
+            self._tension_filtered = ((1 - alpha_t) * self._tension_filtered +
+                                       alpha_t * tow_tension_horizontal)
+            tension_excess = self._tension_filtered - self.cfg.tension_nominal
+            speed_delta = -self.cfg.tension_speed_gain * tension_excess
+            speed_delta = np.clip(speed_delta,
+                                   -self.cfg.tension_speed_max_reduction,
+                                   self.cfg.tension_speed_max_increase)
+            effective_desired_speed = max(0.01, self.desired_speed + speed_delta)
+
+        # Temporarily adjust desired speed for error computation
+        saved_speed = self.desired_speed
+        self.desired_speed = effective_desired_speed
         errors = self.compute_track_errors(x, y, psi, u, v)
+        self.desired_speed = saved_speed
         e_ct = errors['cross_track']
         e_speed = errors['speed_error']
         e_psi = errors['heading_error']
