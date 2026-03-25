@@ -21,6 +21,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+import matplotlib.patheffects as pe
 import numpy as np
 import xarray as xr
 
@@ -31,7 +32,10 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Tampen bounding box
 LAT_MIN, LAT_MAX = 61.0, 61.5
-LON_MIN, LON_MAX = 1.5, 2.5
+LON_MIN, LON_MAX = 1.5, 3.0
+
+# Hywind Tampen floating wind farm (11 x 8.6 MW, Equinor)
+HYWIND_LAT, HYWIND_LON = 61.330, 2.700
 
 
 def find_tampen_indices(ds: xr.Dataset) -> dict:
@@ -188,6 +192,18 @@ def plot_surface_snapshots(lat, lon, u, v, speed, times, depths, date):
         ax.set_xlabel("Lon [°E]")
         ax.set_ylabel("Lat [°N]")
         ax.set_aspect("equal")
+
+        # Hywind Tampen marker
+        ax.plot(HYWIND_LON, HYWIND_LAT, marker="*", color="red",
+                markersize=12, markeredgecolor="white",
+                markeredgewidth=0.8, zorder=10)
+        if i == 0:  # label on first panel only to avoid clutter
+            ax.annotate(
+                "Hywind Tampen", (HYWIND_LON, HYWIND_LAT),
+                textcoords="offset points", xytext=(6, -10),
+                fontsize=7, color="white", fontweight="bold",
+                path_effects=[pe.withStroke(linewidth=2, foreground="black")],
+            )
 
     fig.suptitle(f"Tampen — Surface Currents (NorKyst v3 800m)\n{date}",
                  fontsize=13, fontweight="bold")

@@ -22,6 +22,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
+import matplotlib.patheffects as pe
 import numpy as np
 import xarray as xr
 
@@ -32,7 +33,10 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Tampen bounding box
 LAT_MIN, LAT_MAX = 61.0, 61.5
-LON_MIN, LON_MAX = 1.5, 2.5
+LON_MIN, LON_MAX = 1.5, 3.0
+
+# Hywind Tampen floating wind farm (11 x 8.6 MW, Equinor)
+HYWIND_LAT, HYWIND_LON = 61.330, 2.700
 
 FPS = 4
 DPI = 150
@@ -154,6 +158,16 @@ def main():
     ax.set_ylabel("Lat [°N]")
     ax.set_aspect("equal")
     fig.colorbar(pcm, ax=ax, shrink=0.8, label="Current speed [m/s]")
+
+    # Hywind Tampen marker (static — stays on all frames)
+    ax.plot(HYWIND_LON, HYWIND_LAT, marker="*", color="red", markersize=14,
+            markeredgecolor="white", markeredgewidth=0.8, zorder=10)
+    ax.annotate(
+        "Hywind Tampen", (HYWIND_LON, HYWIND_LAT),
+        textcoords="offset points", xytext=(8, -12),
+        fontsize=9, color="white", fontweight="bold",
+        path_effects=[pe.withStroke(linewidth=2.5, foreground="black")],
+    )
 
     t_str = str(times[0])[:16].replace("T", " ")
     title = ax.set_title(f"Tampen — Surface Currents\n{t_str} UTC",
