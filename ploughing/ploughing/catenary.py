@@ -39,6 +39,7 @@ class TowWireConfig:
     linear_mass: float = 25.0       # Mass per unit length in air [kg/m]
     steel_density: float = 7850.0   # Wire density [kg/m^3]
     young_modulus: float = 100e9    # Young's modulus [Pa] (wire rope ~100 GPa)
+    fill_factor: float = 0.55       # Wire rope metallic area / gross area [-]
     breaking_load: float = 2000e3   # Minimum breaking load [N] (~200t)
     Cd_normal: float = 1.2          # Normal drag coefficient [-]
     total_length: float = 2500.0    # Total wire length available [m]
@@ -54,9 +55,9 @@ class TowWireConfig:
 
     @property
     def axial_stiffness(self) -> float:
-        """EA [N]."""
+        """EA [N] — uses fill_factor to account for wire rope construction."""
         area = np.pi * self.diameter**2 / 4.0
-        return self.young_modulus * area
+        return self.young_modulus * area * self.fill_factor
 
 
 class CatenaryModel:

@@ -8,10 +8,11 @@ Wave drift forces are the dominant environmental disturbance for
 DP vessels in the surge direction. They consist of:
   - Mean wave drift force (steady, proportional to Hs^2)
   - Slowly-varying drift (difference-frequency, 30-200s periods)
-  - 1st order wave-frequency oscillation (at peak wave period)
 
-These forces create the characteristic 'noisy' vessel speed signal
-seen in real ploughing operational data.
+First-order wave surge is modelled separately as a displacement offset
+applied to the tow point in simulation.py (bypassing the DP wave filter),
+which modulates the catenary layback at wave frequency to produce the
+characteristic 'hairy' tension texture seen in real operational data.
 """
 
 import numpy as np
@@ -25,8 +26,12 @@ class WaveDriftConfig:
     A simplified spectral wave drift model for a cable laying vessel.
     The mean drift force scales as Hs^2. The slowly-varying component
     is modelled as filtered noise with power proportional to the mean
-    drift, and the 1st-order wave oscillation is a sinusoidal surge
-    at the peak wave period.
+    drift.
+
+    First-order wave surge is handled as a displacement offset in
+    simulation.py, not as a force here. The first_order_surge_factor
+    parameter (RAO) is read by simulation.py to compute the surge
+    displacement amplitude = RAO * Hs/2.
     """
     Hs: float = 0.0                # Significant wave height [m] (0 = no waves)
     Tp: float = 8.0               # Peak wave period [s]
@@ -41,9 +46,14 @@ class WaveDriftConfig:
     sv_cov: float = 0.8           # COV of slowly-varying drift [-]
     sv_tau: float = 60.0          # Filter time constant [s] (~1 min)
 
-    # 1st order surge oscillation amplitude factor
-    # Surge amplitude ≈ factor * Hs [m/s velocity amplitude]
-    first_order_surge_factor: float = 0.015  # [m/s per m Hs]
+    # 1st order wave surge: RAO for displacement [m/m]
+    # Surge amplitude = RAO * Hs/2
+    # For a 130m cable layer at Tp=7.5s (L/Lpp~0.68):
+    #   RAO ~ 0.3-0.5 m/m → amplitude ~ 0.18-0.30m in Hs=1.2m
+    # This oscillation modulates the catenary layback at wave frequency,
+    # producing the "hairy" tension texture seen in real operational data.
+    # The DP wave filter prevents the controller from fighting this motion.
+    first_order_surge_factor: float = 0.40  # Surge RAO [m/m of wave amplitude]
 
     # Random seed for wave drift (None = random)
     seed: int = None
@@ -165,7 +175,9 @@ class EnvironmentModel:
         Combines:
           - Mean wave drift force (steady, proportional to Hs^2)
           - Slowly-varying drift (difference-frequency envelope, 30-200s)
-          - 1st order wave-frequency surge oscillation (~Tp period)
+
+        Note: 1st-order wave surge is applied as a displacement offset in
+        simulation.py, not as a force here.
 
         Parameters:
             psi: Vessel heading [rad]
@@ -199,14 +211,12 @@ class EnvironmentModel:
         F_sv = F_mean * wc.sv_cov * self._sv_drift_state
 
         # --- 1st order wave-frequency oscillation ---
-        omega_p = 2 * np.pi / wc.Tp
-        # Surge velocity oscillation amplitude
-        surge_vel_amp = wc.first_order_surge_factor * wc.Hs
-        # Force to produce this velocity oscillation (F = M * a = M * omega * v_amp)
-        # Approximate with vessel surge added mass
-        # vessel.displacement is already mass [kg], add ~5% surge added mass
-        M_surge = self.vessel.displacement * 1.05  # rough added mass
-        F_wave1 = M_surge * omega_p * surge_vel_amp * np.sin(omega_p * self._time + self._wave_phase)
+        # NOTE: First-order wave surge is now modelled as a displacement offset
+        # applied directly to the tow point position in simulation.py (bypassing
+        # the DP controller, which is correct — real DP wave filters exclude
+        # wave-frequency motion from feedback).  The force-based approach here
+        # is disabled to avoid double-counting.
+        F_wave1 = 0.0
 
         # Total drift force magnitude (along wave propagation direction)
         F_total = F_mean + F_sv + F_wave1

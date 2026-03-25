@@ -93,21 +93,28 @@ class StochasticSoilConfig:
     """
     Configuration for stochastic soil resistance model.
 
-    The model generates realistic time-varying soil resistance by
+    ** All parameters are SPATIAL (per metre) — soil is a property of **
+    ** position along the seabed, not time. **
+
+    The model generates realistic position-varying soil resistance by
     superimposing several processes:
 
     1. Base resistance: deterministic, from soil mechanics (Nc*Su*w*d)
     2. Fractional Gaussian noise (fGn): models the broad-band soil
-       heterogeneity that a plough encounters as it advances.  Soil
-       properties (Su, grain size, layering) vary at every spatial
-       scale from centimetres to hundreds of metres, giving a 1/f-type
-       power spectrum.  The Hurst exponent H controls the spectral
-       slope: PSD ~ f^(-(2H-1)).  H~0.85-0.95 gives the "colored"
+       heterogeneity along the seabed.  Soil properties (Su, grain size,
+       layering) vary at every spatial scale from centimetres to hundreds
+       of metres, giving a 1/f-type power spectrum.  The Hurst exponent H
+       controls the spectral slope: PSD ~ k^(-(2H-1)) where k is
+       spatial frequency [1/m].  H~0.85-0.95 gives the "colored"
        appearance seen in real operational data.
     3. Spike events: boulders, hard layers, shell beds
-       Modelled as Poisson arrivals with random amplitude
-    4. Soil zone transitions: extended periods of soft or hard soil
-       Modelled as a Markov chain with transition rates between zones
+       Modelled as Poisson arrivals per metre with random amplitude
+    4. Soil zone transitions: extended regions of soft or hard soil
+       Modelled as a Markov chain with transition rates per metre
+
+    The conversion from spatial to temporal frequency depends on plough
+    speed:  f_temporal = f_spatial * V_plough.  A faster plough sees
+    higher temporal frequencies for the same spatial heterogeneity.
 
     Based on real operational data showing:
       - Mean tension ~30-40t
@@ -115,45 +122,44 @@ class StochasticSoilConfig:
       - Range 5-100t
       - Power at all temporal scales from seconds to minutes
       - Spectral slope approximately -1 (pink noise)
-      - Extended soft zones (5-10 min) where tension drops to 5-20t
+      - Extended soft zones (50-100m) where tension drops to 5-20t
       - Occasional very high spikes near 100t
     """
-    # Fractional Gaussian noise — replaces the old slow/fast filter pair
-    # with a single broadband process that has power at all frequencies
+    # Fractional Gaussian noise — broadband spatial soil variability
     hurst: float = 0.90          # Hurst exponent (0.5=white, 1.0=pink)
-                                  # 0.90 gives PSD ~ f^-0.8, close to pink
+                                  # 0.90 gives PSD ~ k^-0.8, close to pink
     fgn_cov: float = 0.55        # COV of the fGn soil factor [-]
                                   # Controls overall amplitude of soil variability
-    fgn_lp_tau: float = 4.0      # Low-pass filter tau [s] applied to fGn
-                                  # Attenuates HF content above ~2*pi*tau period
-                                  # Physically: plough body length (~8m) and mass (~25t)
-                                  # smooth out the fastest soil heterogeneities; the
-                                  # share itself is only ~0.2-0.3m wide (the cable
+    fgn_lp_length: float = 0.5   # Spatial low-pass filter length [m]
+                                  # Attenuates variability shorter than this scale.
+                                  # Physically: plough body length (~8m) and share
+                                  # width (~0.3m) smooth out sub-metre heterogeneity;
+                                  # the share itself is only ~0.2-0.3m wide (the cable
                                   # passes through it and is buried by the furrow
-                                  # closing behind), but the plough inertia provides
-                                  # the dominant mechanical low-pass effect
+                                  # closing behind), but the plough body + inertia
+                                  # provides the dominant mechanical low-pass effect.
 
-    # Simulation parameters (set automatically by PloughModel.__init__)
-    fgn_dt: float = 0.2          # Time step for fGn generation [s]
-    fgn_duration: float = 3600.0 # Total duration for pre-generation [s]
+    # Spatial sampling for fGn pre-generation
+    fgn_dx: float = 0.025        # Spatial sample interval [m]
+    fgn_length: float = 600.0    # Total length of pre-generated seabed [m]
 
-    # Spike events (boulders, hard layers)
-    spike_rate: float = 0.005   # Mean spike rate [1/s] (~1 spike per 200s)
+    # Spike events (boulders, hard layers) — all rates and sizes in METRES
+    spike_rate: float = 0.04     # Mean spike rate [1/m] (~1 spike per 25m)
     spike_amplitude_mean: float = 2.0   # Mean spike amplitude as multiplier of base
     spike_amplitude_std: float = 0.8    # Std of spike amplitude multiplier
-    spike_duration_mean: float = 5.0    # Mean spike duration [s]
-    spike_duration_std: float = 3.0     # Std of spike duration [s]
+    spike_length_mean: float = 0.6      # Mean spike length [m] along seabed
+    spike_length_std: float = 0.4       # Std of spike length [m]
 
-    # Soil zone transitions (Markov model)
+    # Soil zone transitions (Markov model) — rates per METRE
     # Zones: 'normal', 'soft', 'hard'
-    # Transition rates [1/s] — mean time in zone = 1/rate_out
-    zone_normal_to_soft_rate: float = 0.0005    # ~1 transition per 2000s
-    zone_normal_to_hard_rate: float = 0.0003    # ~1 transition per 3300s
-    zone_soft_to_normal_rate: float = 0.003     # mean soft zone duration ~330s (~5 min)
-    zone_hard_to_normal_rate: float = 0.005     # mean hard zone duration ~200s (~3 min)
+    # Transition rates [1/m] — mean distance in zone = 1/rate_out
+    zone_normal_to_soft_rate: float = 0.002     # ~1 transition per 500m
+    zone_normal_to_hard_rate: float = 0.0015    # ~1 transition per 670m
+    zone_soft_to_normal_rate: float = 0.015     # mean soft zone length ~67m
+    zone_hard_to_normal_rate: float = 0.04      # mean hard zone length ~25m
     zone_soft_factor: float = 0.35              # Resistance multiplier in soft zone
-    zone_hard_factor: float = 2.0               # Resistance multiplier in hard zone
-    zone_transition_tau: float = 30.0           # Smooth transition time constant [s]
+    zone_hard_factor: float = 1.4               # Resistance multiplier in hard zone
+    zone_transition_length: float = 2.0         # Smooth transition over this distance [m]
 
     # Minimum resistance (plough always has some soil contact)
     min_resistance_fraction: float = 0.1  # Minimum as fraction of base
@@ -250,6 +256,32 @@ class PloughConfig:
     # Tow attachment point on plough (from plough CG)
     tow_attachment_height: float = 1.5  # Height of tow point above seabed [m]
 
+    # Nonlinear force-speed relationship
+    # Real ploughs have strongly speed-dependent resistance due to:
+    #   - Soil strain rate effects: Su increases with strain rate (logarithmic)
+    #   - Inertial/dynamic soil loading: accelerating displaced soil mass
+    #   - Furrow geometry: at higher speeds the full furrow cross-section is
+    #     maintained; at low speeds partial furrow collapse reduces resistance
+    #   - Hydrodynamic suction on plough body in saturated soil
+    #
+    # Modelled as a power law: F_soil(V) = F_base * (V / V_ref)^n
+    #   n = 0    → speed-independent (old model)
+    #   n = 0.3  → moderate speed dependence (sandy soils)
+    #   n = 0.5  → strong speed dependence (soft clays with high rate effects)
+    #   n = 0.4  → typical for mixed seabed conditions
+    #
+    # F_base (from base_soil_cutting_force) is calibrated at V = speed_reference.
+    # At lower speeds resistance drops; at higher speeds it increases.
+    # This provides natural self-regulation: hard soil → vessel slows →
+    # resistance drops → vessel recovers.  Without this, speed-resistance
+    # feedback relies entirely on the artificial tension-speed modulation.
+    #
+    # A tanh(V / speed_breakout) ramp is applied for V → 0 to model the
+    # transition from static (no cutting) to dynamic (full cutting) resistance.
+    speed_power_exponent: float = 0.4    # Power law exponent n [-]
+    speed_reference: float = 0.12        # Reference speed for F_base calibration [m/s]
+    speed_breakout: float = 0.02         # Breakout speed for static→dynamic ramp [m/s]
+
     # Stochastic soil model
     stochastic_soil: StochasticSoilConfig = field(default_factory=StochasticSoilConfig)
 
@@ -277,17 +309,22 @@ class PloughModel:
         self._rng = np.random.default_rng(sc.seed)
         self._spike_active = False
         self._spike_factor = 1.0
-        self._spike_remaining = 0.0  # Time remaining in current spike [s]
+        self._spike_remaining = 0.0  # Distance remaining in current spike [m]
 
-        # Pre-generate fractional Gaussian noise for soil variability
-        n_fgn = int(sc.fgn_duration / sc.fgn_dt) + 1
+        # Pre-generate fractional Gaussian noise for spatial soil variability.
+        # The fGn sequence represents soil heterogeneity along the seabed,
+        # sampled every fgn_dx metres.  The plough reads this sequence as
+        # it advances, so faster ploughing gives higher temporal frequency
+        # content (correct physical behaviour).
+        n_fgn = int(sc.fgn_length / sc.fgn_dx) + 1
         fgn_raw = generate_fgn(n_fgn, sc.hurst, self._rng)
 
-        # Apply low-pass filter to attenuate high-frequency content.
-        # The plough share integrates soil over its width, and plough
-        # inertia smooths out the very fastest force changes.
-        if sc.fgn_lp_tau > 0:
-            alpha = sc.fgn_dt / (sc.fgn_lp_tau + sc.fgn_dt)
+        # Apply spatial low-pass filter to attenuate sub-metre heterogeneity.
+        # The plough share integrates soil over its width, and the plough body
+        # length (~8m) + inertia smooths out the very finest spatial features.
+        if sc.fgn_lp_length > 0:
+            # Filter constant: number of dx steps per length scale
+            alpha = sc.fgn_dx / (sc.fgn_lp_length + sc.fgn_dx)
             fgn_filtered = np.empty_like(fgn_raw)
             fgn_filtered[0] = fgn_raw[0]
             for k in range(1, len(fgn_raw)):
@@ -300,8 +337,9 @@ class PloughModel:
         else:
             self._fgn_sequence = fgn_raw
 
-        self._fgn_index = 0  # Current index into fGn sequence
-        self._fgn_dt = sc.fgn_dt
+        self._fgn_index = 0      # Current index into fGn sequence
+        self._fgn_dx = sc.fgn_dx # Spatial sample interval [m]
+        self._distance_accumulator = 0.0  # Sub-sample distance accumulator [m]
 
         # Soil zone state (Markov chain)
         self._zone = 'normal'           # Current zone: 'normal', 'soft', 'hard'
@@ -317,6 +355,7 @@ class PloughModel:
         self._stochastic_call_id = -1     # call_id of last stochastic update
         self._cached_soil_factor = 1.0    # cached total stochastic factor
         self._call_id = 0                 # incremented by advance_step()
+        self._pending_distance_step = 0.0 # distance to advance this step [m]
 
     def base_soil_cutting_force(self) -> float:
         """
@@ -345,18 +384,30 @@ class PloughModel:
 
         return F_cut * self._hard_soil_factor
 
-    def advance_step(self):
+    def advance_step(self, distance_step: float = 0.0):
         """Mark the start of a new simulation timestep.
 
         Must be called once per timestep BEFORE any force calculations.
         This ensures the stochastic state advances exactly once per step.
+
+        Parameters:
+            distance_step: Distance the plough advanced this step [m].
+                           Typically = plough.speed * dt.  If zero (plough
+                           stopped), the stochastic soil state does NOT
+                           change — the plough sees the same soil until
+                           it moves again.
         """
         self._call_id += 1
+        self._pending_distance_step = distance_step
 
-    def _update_stochastic_state(self, dt: float) -> float:
+    def _update_stochastic_state(self, distance_step: float) -> float:
         """
-        Advance stochastic soil state by one timestep and return the
+        Advance stochastic soil state by a spatial step and return the
         total multiplicative factor.
+
+        All rates and lengths are SPATIAL (per metre along the seabed).
+        If distance_step == 0, the plough hasn't moved and soil state
+        doesn't change (returns cached value or initial state).
 
         Uses call_id (set by advance_step()) to ensure the state only
         advances once per simulation timestep, even if called multiple
@@ -368,48 +419,59 @@ class PloughModel:
 
         sc = self.cfg.stochastic_soil
 
+        # If plough hasn't moved, soil doesn't change
+        if distance_step <= 0:
+            self._stochastic_call_id = self._call_id
+            return self._cached_soil_factor
+
         # --- Update soil zone (Markov chain transitions) ---
+        # Transition probabilities per metre traversed
         if self._zone == 'normal':
-            if self._rng.random() < sc.zone_normal_to_soft_rate * dt:
+            if self._rng.random() < sc.zone_normal_to_soft_rate * distance_step:
                 self._zone = 'soft'
                 self._zone_factor_target = sc.zone_soft_factor
-            elif self._rng.random() < sc.zone_normal_to_hard_rate * dt:
+            elif self._rng.random() < sc.zone_normal_to_hard_rate * distance_step:
                 self._zone = 'hard'
                 self._zone_factor_target = sc.zone_hard_factor
         elif self._zone == 'soft':
-            if self._rng.random() < sc.zone_soft_to_normal_rate * dt:
+            if self._rng.random() < sc.zone_soft_to_normal_rate * distance_step:
                 self._zone = 'normal'
                 self._zone_factor_target = 1.0
         elif self._zone == 'hard':
-            if self._rng.random() < sc.zone_hard_to_normal_rate * dt:
+            if self._rng.random() < sc.zone_hard_to_normal_rate * distance_step:
                 self._zone = 'normal'
                 self._zone_factor_target = 1.0
 
-        # Smooth zone transition (1st-order filter)
-        alpha_zone = dt / (sc.zone_transition_tau + dt)
+        # Smooth zone transition (spatial 1st-order filter)
+        alpha_zone = distance_step / (sc.zone_transition_length + distance_step)
         self._zone_factor = (1 - alpha_zone) * self._zone_factor + alpha_zone * self._zone_factor_target
 
         # --- Fractional Gaussian noise soil variability ---
-        # Read current fGn value (pre-generated broadband process)
+        # Accumulate distance and advance fGn index when we've moved fgn_dx
+        self._distance_accumulator += distance_step
+        steps = int(self._distance_accumulator / self._fgn_dx)
+        if steps > 0:
+            self._fgn_index += steps
+            self._distance_accumulator -= steps * self._fgn_dx
+
+        # Read current fGn value (pre-generated broadband spatial process)
         idx = min(self._fgn_index, len(self._fgn_sequence) - 1)
         fgn_value = self._fgn_sequence[idx]
-        # Advance index (one step per dt; if dt != fgn_dt, nearest sample)
-        self._fgn_index += max(1, round(dt / self._fgn_dt))
 
         # --- Update spike events ---
         if self._spike_active:
-            self._spike_remaining -= dt
+            self._spike_remaining -= distance_step  # remaining distance [m]
             if self._spike_remaining <= 0:
                 self._spike_active = False
                 self._spike_factor = 1.0
         else:
-            # Check for new spike (Poisson process)
-            if self._rng.random() < sc.spike_rate * dt:
+            # Check for new spike (Poisson process per metre)
+            if self._rng.random() < sc.spike_rate * distance_step:
                 self._spike_active = True
                 self._spike_factor = max(1.0,
                     self._rng.normal(sc.spike_amplitude_mean, sc.spike_amplitude_std))
-                self._spike_remaining = max(1.0,
-                    self._rng.normal(sc.spike_duration_mean, sc.spike_duration_std))
+                self._spike_remaining = max(0.1,
+                    self._rng.normal(sc.spike_length_mean, sc.spike_length_std))
 
         # Combine factors:
         # Zone affects the mean level, but noise is only partially suppressed.
@@ -439,17 +501,21 @@ class PloughModel:
         """
         Soil cutting force with stochastic variability [N].
 
-        The stochastic model produces time-varying resistance using
+        The stochastic model produces spatially-varying resistance using
         fractional Gaussian noise (fGn) to capture the broad-band soil
         heterogeneity observed in real ploughing operations.
         Includes soil zone transitions (soft/hard patches) and spike events.
+
+        The distance_step used for stochastic state advancement is set by
+        advance_step() at the start of each timestep.
         """
         F_base = self.base_soil_cutting_force()
 
         if not self.stochastic_enabled:
             return F_base
 
-        total_factor = self._update_stochastic_state(dt)
+        distance_step = self._pending_distance_step
+        total_factor = self._update_stochastic_state(distance_step)
 
         return F_base * total_factor
 
@@ -476,7 +542,28 @@ class PloughModel:
         Total horizontal resistance force on the plough [N].
 
         Sum of soil cutting (stochastic), skid friction, and hydrodynamic drag.
-        In soft soil zones, skid friction also reduces (plough is less embedded).
+
+        The soil cutting force has a nonlinear speed dependence modelled as:
+
+            F_soil(V) = F_base * stochastic * cutting_ramp * rate_factor
+
+        where:
+            cutting_ramp = tanh(V / V_breakout)
+                Smooth transition from static (no cutting) to dynamic resistance.
+                A stationary plough has no cutting force — only passive earth
+                pressure (captured by the residual skid friction).
+
+            rate_factor = (V / V_ref)^n
+                Power-law speed dependence from soil strain rate effects,
+                inertial soil loading, and furrow geometry.  Sub-linear (n<1)
+                so resistance increases with speed but at a decreasing rate.
+                At V = V_ref, rate_factor = 1.0 (F_base is calibrated here).
+
+        This nonlinearity provides natural self-regulation:
+            - Hard soil → vessel slows → resistance drops → vessel recovers
+            - Soft soil → vessel speeds up → resistance increases → stabilizes
+        Without it, the speed-resistance feedback relies entirely on the
+        artificial tension-speed modulation in the DP controller.
         """
         if self.is_stopped:
             return 0.0
@@ -486,12 +573,25 @@ class PloughModel:
         F_drag = self.hydrodynamic_drag(speed, current_speed)
 
         # In soft zones, plough is less embedded — reduce skid friction too
-        # Use sqrt of zone factor for friction (less reduction than soil)
         friction_zone_factor = max(np.sqrt(self._zone_factor), 0.3)
         F_friction *= friction_zone_factor
 
-        # Speed dependence: at zero speed, only static resistance
-        speed_factor = 1.0 + 0.1 * abs(speed)
+        # Nonlinear force-speed relationship
+        V = abs(speed)
+        V_ref = self.cfg.speed_reference
+        V_breakout = self.cfg.speed_breakout
+        n = self.cfg.speed_power_exponent
+
+        # Static→dynamic cutting ramp
+        cutting_ramp = np.tanh(V / V_breakout)
+
+        # Power-law rate factor: (V/V_ref)^n, normalized to 1.0 at V_ref
+        if V > 1e-8:
+            rate_factor = (V / V_ref) ** n
+        else:
+            rate_factor = 0.0
+
+        speed_factor = cutting_ramp * rate_factor
 
         return (F_soil * speed_factor + F_friction + F_drag)
 

@@ -18,6 +18,17 @@ Typical DP natural periods:
     - Surge: 60-150 s (omega_n ~ 0.04-0.1 rad/s)
     - Sway:  60-150 s
     - Yaw:   30-60 s  (yaw responds faster)
+
+Surge control modes:
+    - 'speed': Direct speed PID (Kp_speed, Ki_speed on speed error).
+      Optionally includes tension-speed modulation for ploughing.
+    - 'position': Position-tracking mode (moving waypoint along track).
+      A reference point advances at the commanded speed. The surge PID
+      controls along-track position error using the same omega_n/zeta
+      formulation as the sway/yaw axes. Speed variation emerges naturally
+      from the catenary tension "fighting" the position controller P-term.
+      This is physically realistic for DP systems that implement track mode
+      using only position control (no dedicated speed controller).
 """
 
 import numpy as np
@@ -27,6 +38,16 @@ from dataclasses import dataclass
 @dataclass
 class DPControllerConfig:
     """DP controller tuning parameters."""
+    # Surge control mode: 'speed' or 'position'
+    #   'speed':    Direct speed PID on along-track velocity error.
+    #   'position': Moving-waypoint position PID. A reference point moves
+    #               along the track at the commanded speed. The surge axis
+    #               uses a full Kp/Ki/Kd on the along-track position error.
+    #               Speed variation emerges naturally from disturbances
+    #               (catenary tension, wave drift) fighting the position
+    #               controller, without any explicit tension-speed feedback.
+    surge_mode: str = 'speed'
+
     # Natural periods [s] and damping ratios [-]
     # These define the closed-loop response bandwidth
     T_surge: float = 120.0      # Surge natural period [s]
@@ -40,6 +61,7 @@ class DPControllerConfig:
     integral_factor: float = 10.0   # Integral 10x slower than proportional
 
     # Speed controller (force = Kp * mass * speed_error)
+    # Only used when surge_mode='speed'
     Kp_speed: float = 0.02         # Speed proportional gain (non-dim, * mass)
     Ki_speed: float = 0.001        # Speed integral gain (non-dim, * mass)
 
@@ -60,12 +82,37 @@ class DPControllerConfig:
     # When enabled, the speed setpoint is reduced when tow tension exceeds
     # the nominal level, and increased when tension is below nominal.
     # This mimics the real DP/operator behavior during ploughing.
+    # Only used when surge_mode='speed'.
     tension_speed_modulation: bool = False
-    tension_nominal: float = 350e3       # Nominal tow tension [N] (~35t)
-    tension_speed_gain: float = 3e-7     # Speed reduction per N excess tension [m/s / N]
+    tension_nominal: float = 380e3       # Nominal tow tension [N] (~38t)
+    tension_speed_gain: float = 0.5e-6   # Speed reduction per N excess tension [m/s / N]
     tension_speed_filter_tau: float = 20.0  # Filter time constant on tension [s]
-    tension_speed_max_reduction: float = 0.08  # Max speed reduction [m/s]
-    tension_speed_max_increase: float = 0.05   # Max speed increase [m/s]
+    tension_speed_max_reduction: float = 0.07  # Max speed reduction [m/s]
+    tension_speed_max_increase: float = 0.08   # Max speed increase [m/s]
+
+    # --- High-tension slowdown (safety override) ---
+    # Deterministic override that decelerates the vessel when tow tension
+    # exceeds operator-set thresholds.  This is a separate safety system
+    # from the proportional tension-speed modulation above.
+    #
+    # Stage 1: tension > T_stage1 → decelerate at decel_rate [m/s^2]
+    # Stage 2: tension > T_stage2 → decelerate at 2 × decel_rate
+    # E-stop:  tension > T_estop  → immediate zero speed command
+    #
+    # IMPORTANT: After a slowdown event, the system shall NOT catch up
+    # to the average set speed.  The speed setpoint ramps back to the
+    # base setpoint at the acceleration rate, and the speed integrator
+    # and position reference are reset to prevent any overshoot.
+    #
+    # Applies to both 'speed' and 'position' surge modes.
+    high_tension_slowdown: bool = False
+    tension_stage1: float = 600e3        # Stage 1 threshold [N] (~61t)
+    tension_stage2: float = 750e3        # Stage 2 threshold [N] (~76t)
+    tension_estop: float = 900e3         # Emergency stop threshold [N] (~92t)
+    slowdown_decel_rate: float = 0.005   # Operator-set deceleration rate [m/s^2]
+    slowdown_accel_rate: float = 0.003   # Rate to ramp speed back up after release [m/s^2]
+    slowdown_filter_tau: float = 5.0     # Filter on tension for slowdown decisions [s]
+    slowdown_min_speed: float = 0.0      # Minimum speed during slowdown [m/s] (0 = full stop allowed)
 
 
 class DPController:
@@ -91,7 +138,7 @@ class DPController:
         self.mass = vessel_mass
 
         # Compute PID gains from natural frequency and damping
-        # Surge
+        # Surge (position-tracking mode)
         omega_surge = 2 * np.pi / config.T_surge
         self.Kp_surge = omega_surge**2 * vessel_mass['surge']
         self.Kd_surge = 2 * config.zeta_surge * omega_surge * vessel_mass['surge']
@@ -109,7 +156,7 @@ class DPController:
         self.Kd_yaw = 2 * config.zeta_yaw * omega_yaw * vessel_mass['yaw']
         self.Ki_yaw = (omega_yaw / config.integral_factor)**2 * vessel_mass['yaw']
 
-        # Speed controller gains (scaled by mass)
+        # Speed controller gains (scaled by mass) — only for surge_mode='speed'
         self.Kp_speed_gain = config.Kp_speed * vessel_mass['surge']
         self.Ki_speed_gain = config.Ki_speed * vessel_mass['surge']
 
@@ -122,10 +169,12 @@ class DPController:
         # Filtered errors
         self.err_sway_filt = 0.0
         self.err_yaw_filt = 0.0
+        self.err_surge_filt = 0.0    # For position-tracking mode
 
         # Previous errors (for derivative)
         self.prev_err_sway = 0.0
         self.prev_err_yaw = 0.0
+        self.prev_err_surge = 0.0    # For position-tracking mode
 
         # Mode
         self.mode = 'track_following'
@@ -135,6 +184,12 @@ class DPController:
         self.current_wp_index = 0
         self.desired_speed = 0.5
         self.desired_heading = 0.0
+
+        # Position-tracking reference state
+        # along_track_ref is the reference position that moves at desired_speed
+        self._along_track_ref = None       # Initialized on first step
+        self._track_origin = None          # wp0 of current segment
+        self._track_dir_vec = None         # Unit vector along track
 
         # Output
         self.tau_command = np.array([0.0, 0.0, 0.0])
@@ -150,6 +205,21 @@ class DPController:
         # Tension-based speed modulation state
         self._tension_filtered = config.tension_nominal
 
+        # High-tension slowdown state
+        # The slowdown system maintains its own speed setpoint that ramps
+        # down during high tension and ramps back up when tension clears.
+        # This is the effective ceiling on speed — the actual speed command
+        # is min(desired_speed, slowdown_speed_setpoint).
+        self._slowdown_state = 'NORMAL'     # NORMAL, STAGE1, STAGE2, ESTOP
+        self._slowdown_tension_filt = 0.0   # Filtered tension for slowdown decisions
+        self._slowdown_speed = config.tension_nominal  # Will be initialized properly
+        self._slowdown_speed_initialized = False
+
+        # Control action breakdown (for diagnostics/plotting)
+        # Updated each step BEFORE rate limiting and saturation
+        self._last_surge_ff = 0.0       # Feedforward component [N]
+        self._last_surge_pid = 0.0      # PID/PI feedback component [N]
+
     def set_track(self, waypoints: list, speed: float):
         """Set the track to follow."""
         self.waypoints = [np.array(wp) for wp in waypoints]
@@ -159,6 +229,14 @@ class DPController:
             dx = waypoints[1][0] - waypoints[0][0]
             dy = waypoints[1][1] - waypoints[0][1]
             self.desired_heading = np.arctan2(dy, dx)
+
+            # Initialize position-tracking reference state
+            self._track_origin = np.array(waypoints[0])
+            track_vec = np.array(waypoints[1]) - np.array(waypoints[0])
+            track_len = np.linalg.norm(track_vec)
+            self._track_dir_vec = track_vec / max(track_len, 1e-3)
+            # along_track_ref starts at the vessel's initial position (wp0)
+            self._along_track_ref = 0.0  # Will be initialized on first step
 
     def set_thrust_limits(self, max_surge: float, max_sway: float, max_yaw: float):
         """Set maximum thrust/moment capacity."""
@@ -250,42 +328,31 @@ class DPController:
         if wind_force_body is None:
             wind_force_body = np.zeros(3)
 
-        # --- Track errors ---
-        # Tension-based speed modulation: adjust speed setpoint based on measured tension
-        effective_desired_speed = self.desired_speed
-        if self.cfg.tension_speed_modulation and tow_tension_horizontal is not None:
-            alpha_t = dt / (self.cfg.tension_speed_filter_tau + dt)
-            self._tension_filtered = ((1 - alpha_t) * self._tension_filtered +
-                                       alpha_t * tow_tension_horizontal)
-            tension_excess = self._tension_filtered - self.cfg.tension_nominal
-            speed_delta = -self.cfg.tension_speed_gain * tension_excess
-            speed_delta = np.clip(speed_delta,
-                                   -self.cfg.tension_speed_max_reduction,
-                                   self.cfg.tension_speed_max_increase)
-            effective_desired_speed = max(0.01, self.desired_speed + speed_delta)
-
-        # Temporarily adjust desired speed for error computation
-        saved_speed = self.desired_speed
-        self.desired_speed = effective_desired_speed
+        # --- Track errors (for cross-track and heading) ---
         errors = self.compute_track_errors(x, y, psi, u, v)
-        self.desired_speed = saved_speed
         e_ct = errors['cross_track']
-        e_speed = errors['speed_error']
         e_psi = errors['heading_error']
+        track_angle = errors.get('track_angle', psi)
+
+        # --- High-tension slowdown (safety override) ---
+        # Computes a speed ceiling that ramps down during high tension events.
+        # Applied as a cap on the speed setpoint in both control modes.
+        slowdown_speed_ceiling = self._update_high_tension_slowdown(
+            tow_tension_horizontal, dt)
+
+        # --- Surge control: position-tracking or speed mode ---
+        if self.cfg.surge_mode == 'position':
+            tau_surge_pid = self._surge_position_control(
+                x, y, psi, u, v, errors, dt, slowdown_speed_ceiling)
+        else:
+            tau_surge_pid = self._surge_speed_control(
+                u, v, psi, errors, dt, tow_tension_horizontal,
+                slowdown_speed_ceiling)
 
         # --- Filter errors (1st order lowpass) ---
         alpha = dt / (self.cfg.error_filter_tau + dt)
         self.err_sway_filt = (1 - alpha) * self.err_sway_filt + alpha * e_ct
         self.err_yaw_filt = (1 - alpha) * self.err_yaw_filt + alpha * e_psi
-
-        # --- PID: Surge (speed control along track) ---
-        self.int_speed += e_speed * dt
-        self.int_speed = np.clip(self.int_speed,
-                                  -self.integral_limit[0] / max(self.Ki_speed_gain, 1),
-                                  self.integral_limit[0] / max(self.Ki_speed_gain, 1))
-
-        tau_surge_pid = (self.Kp_speed_gain * e_speed +
-                         self.Ki_speed_gain * self.int_speed)
 
         # --- PID: Sway (cross-track correction) ---
         # Error derivative
@@ -302,7 +369,6 @@ class DPController:
         # Convention: positive cross_track = vessel is to starboard of track.
         # We need a force that pushes the vessel back TOWARD the track,
         # i.e., to port if CT > 0 → negative CT correction force.
-        track_angle = errors.get('track_angle', psi)
         ct_correction = -speed_factor * (
             self.Kp_sway * self.err_sway_filt +
             self.Ki_sway * self.int_sway +
@@ -336,6 +402,10 @@ class DPController:
         tau_ff -= self.cfg.tow_force_feedforward * tow_force_body
         tau_ff -= self.cfg.wind_feedforward * wind_force_body
 
+        # --- Store control action breakdown (before saturation/rate limiting) ---
+        self._last_surge_ff = tau_ff[0]
+        self._last_surge_pid = tau_surge_pid + tau_surge_body_from_ct
+
         # --- Total command ---
         tau = np.array([
             tau_surge_pid + tau_surge_body_from_ct + tau_ff[0],
@@ -360,9 +430,256 @@ class DPController:
 
         return tau
 
+    def _surge_speed_control(self, u, v, psi, errors, dt, tow_tension_horizontal,
+                             slowdown_speed_ceiling):
+        """
+        Surge control via speed PID with optional tension-speed modulation.
+
+        This is the original surge controller: a PI on speed error,
+        with optional tension-based setpoint adjustment.
+
+        The slowdown_speed_ceiling from the high-tension safety system is
+        applied as a hard cap on the effective speed setpoint.
+        """
+        # Tension-based speed modulation
+        effective_desired_speed = self.desired_speed
+        if self.cfg.tension_speed_modulation and tow_tension_horizontal is not None:
+            alpha_t = dt / (self.cfg.tension_speed_filter_tau + dt)
+            self._tension_filtered = ((1 - alpha_t) * self._tension_filtered +
+                                       alpha_t * tow_tension_horizontal)
+            tension_excess = self._tension_filtered - self.cfg.tension_nominal
+            speed_delta = -self.cfg.tension_speed_gain * tension_excess
+            speed_delta = np.clip(speed_delta,
+                                   -self.cfg.tension_speed_max_reduction,
+                                   self.cfg.tension_speed_max_increase)
+            effective_desired_speed = max(0.01, self.desired_speed + speed_delta)
+
+        # Apply high-tension slowdown ceiling (safety override takes priority)
+        effective_desired_speed = min(effective_desired_speed, slowdown_speed_ceiling)
+
+        # Speed error using the effective (possibly modulated) setpoint
+        # Compute speed along track
+        vel_ned = np.array([u * np.cos(psi) - v * np.sin(psi),
+                            u * np.sin(psi) + v * np.cos(psi)])
+        track_angle = errors.get('track_angle', psi)
+        track_dir = np.array([np.cos(track_angle), np.sin(track_angle)])
+        speed_along_track = np.dot(vel_ned, track_dir)
+        e_speed = effective_desired_speed - speed_along_track
+
+        self.int_speed += e_speed * dt
+        self.int_speed = np.clip(self.int_speed,
+                                  -self.integral_limit[0] / max(self.Ki_speed_gain, 1),
+                                  self.integral_limit[0] / max(self.Ki_speed_gain, 1))
+
+        return self.Kp_speed_gain * e_speed + self.Ki_speed_gain * self.int_speed
+
+    def _surge_position_control(self, x, y, psi, u, v, errors, dt,
+                                slowdown_speed_ceiling):
+        """
+        Surge control via position-tracking PID.
+
+        A reference point moves along the track at the commanded speed.
+        The controller applies PID on the along-track position error
+        (reference - actual). This produces natural speed variation when
+        external forces (catenary tension, wave drift) push the vessel
+        away from the reference — the "fighting" between P-term and
+        catenary that occurs in real DP track-mode systems.
+
+        The slowdown_speed_ceiling limits the reference advance rate.
+        When the reference is slowed or stopped, the position error
+        naturally decreases, reducing thrust.
+
+        Gains are omega_n/zeta-based, identical to sway/yaw:
+            Kp = omega_n^2 * M_surge         [N/m]
+            Ki = (omega_n/10)^2 * M_surge     [N/(m·s)]
+            Kd = 2*zeta*omega_n * M_surge     [N/(m/s)]
+        """
+        # Track geometry
+        track_angle = errors.get('track_angle', psi)
+        track_dir = np.array([np.cos(track_angle), np.sin(track_angle)])
+
+        # Along-track position of vessel (relative to track origin)
+        if self._track_origin is not None:
+            pos_from_origin = np.array([x, y]) - self._track_origin
+            along_track_actual = np.dot(pos_from_origin, self._track_dir_vec)
+        else:
+            along_track_actual = errors.get('along_track', 0.0)
+
+        # Initialize reference on first call (start at vessel's current position)
+        if self._along_track_ref is None or self._along_track_ref == 0.0:
+            self._along_track_ref = along_track_actual
+
+        # Advance reference at commanded speed, capped by slowdown ceiling.
+        # During a high-tension slowdown, the reference advances slower (or
+        # stops), so the vessel naturally decelerates.  When tension clears,
+        # the reference resumes at desired_speed — it does NOT jump ahead
+        # to catch up because the integrator was reset on state transition.
+        ref_speed = min(self.desired_speed, slowdown_speed_ceiling)
+        self._along_track_ref += ref_speed * dt
+
+        # Position error: positive means vessel is BEHIND the reference
+        e_pos = self._along_track_ref - along_track_actual
+
+        # Velocity error: reference velocity is the capped speed, not the
+        # base desired_speed.  During slowdown the derivative term should
+        # not fight the deceleration.
+        vel_ned = np.array([u * np.cos(psi) - v * np.sin(psi),
+                            u * np.sin(psi) + v * np.cos(psi)])
+        speed_along_track = np.dot(vel_ned, track_dir)
+        e_vel = ref_speed - speed_along_track
+
+        # Filter the position error
+        alpha = dt / (self.cfg.error_filter_tau + dt)
+        self.err_surge_filt = (1 - alpha) * self.err_surge_filt + alpha * e_pos
+
+        # Derivative of filtered error
+        de_surge = (self.err_surge_filt - self.prev_err_surge) / dt if dt > 0 else 0.0
+
+        # Integral with anti-windup
+        self.int_surge += self.err_surge_filt * dt
+        self.int_surge = np.clip(self.int_surge,
+                                  -self.integral_limit[0] / max(self.Ki_surge, 1),
+                                  self.integral_limit[0] / max(self.Ki_surge, 1))
+
+        # PID force in along-track direction
+        F_along_track = (self.Kp_surge * self.err_surge_filt +
+                         self.Ki_surge * self.int_surge +
+                         self.Kd_surge * de_surge)
+
+        # Project along-track force into body frame (surge component)
+        # For a vessel heading close to the track direction, this is mostly surge
+        angle_diff = track_angle - psi
+        tau_surge = F_along_track * np.cos(angle_diff)
+
+        self.prev_err_surge = self.err_surge_filt
+
+        return tau_surge
+
+    def _update_high_tension_slowdown(self, tow_tension_horizontal: float,
+                                       dt: float) -> float:
+        """
+        High-tension slowdown safety system.
+
+        Monitors filtered tow tension against operator-set thresholds and
+        returns a speed ceiling that ramps down during high tension events
+        and ramps back up when tension clears.
+
+        State machine:
+            NORMAL → STAGE1  when T_filt > T_stage1
+            STAGE1 → STAGE2  when T_filt > T_stage2
+            STAGE2 → ESTOP   when T_filt > T_estop
+            any    → NORMAL  when T_filt < T_stage1 (with hysteresis)
+            STAGE2 → STAGE1  when T_filt < T_stage2
+            ESTOP  → STAGE2  when T_filt < T_estop
+
+        The speed ceiling ramps DOWN at the prescribed deceleration rate
+        while in any slowdown state, and ramps UP at the acceleration rate
+        when returning to NORMAL.  The ramp-up is capped at the base
+        desired_speed — never above it — so the system does NOT catch up.
+
+        Parameters:
+            tow_tension_horizontal: Current measured horizontal tension [N]
+            dt: Time step [s]
+
+        Returns:
+            Speed ceiling [m/s] to be applied as min(desired_speed, ceiling)
+        """
+        cfg = self.cfg
+
+        if not cfg.high_tension_slowdown:
+            return self.desired_speed
+
+        # Initialize on first call
+        if not self._slowdown_speed_initialized:
+            self._slowdown_speed = self.desired_speed
+            self._slowdown_tension_filt = tow_tension_horizontal if tow_tension_horizontal else 0.0
+            self._slowdown_speed_initialized = True
+
+        # Filter tension (fast filter — need to catch real peaks, not just trends)
+        if tow_tension_horizontal is not None:
+            alpha = dt / (cfg.slowdown_filter_tau + dt)
+            self._slowdown_tension_filt = ((1 - alpha) * self._slowdown_tension_filt +
+                                            alpha * tow_tension_horizontal)
+
+        T = self._slowdown_tension_filt
+        prev_state = self._slowdown_state
+
+        # --- State transitions ---
+        if self._slowdown_state == 'NORMAL':
+            if T >= cfg.tension_estop:
+                self._slowdown_state = 'ESTOP'
+            elif T >= cfg.tension_stage2:
+                self._slowdown_state = 'STAGE2'
+            elif T >= cfg.tension_stage1:
+                self._slowdown_state = 'STAGE1'
+
+        elif self._slowdown_state == 'STAGE1':
+            if T >= cfg.tension_estop:
+                self._slowdown_state = 'ESTOP'
+            elif T >= cfg.tension_stage2:
+                self._slowdown_state = 'STAGE2'
+            elif T < cfg.tension_stage1:
+                self._slowdown_state = 'NORMAL'
+
+        elif self._slowdown_state == 'STAGE2':
+            if T >= cfg.tension_estop:
+                self._slowdown_state = 'ESTOP'
+            elif T < cfg.tension_stage1:
+                self._slowdown_state = 'NORMAL'
+            elif T < cfg.tension_stage2:
+                self._slowdown_state = 'STAGE1'
+
+        elif self._slowdown_state == 'ESTOP':
+            if T < cfg.tension_stage1:
+                self._slowdown_state = 'NORMAL'
+            elif T < cfg.tension_stage2:
+                self._slowdown_state = 'STAGE1'
+            elif T < cfg.tension_estop:
+                self._slowdown_state = 'STAGE2'
+
+        # --- Speed ramp ---
+        if self._slowdown_state == 'ESTOP':
+            # Immediate zero speed
+            self._slowdown_speed = cfg.slowdown_min_speed
+
+        elif self._slowdown_state == 'STAGE2':
+            # Decelerate at 2× rate
+            self._slowdown_speed -= 2.0 * cfg.slowdown_decel_rate * dt
+            self._slowdown_speed = max(self._slowdown_speed, cfg.slowdown_min_speed)
+
+        elif self._slowdown_state == 'STAGE1':
+            # Decelerate at 1× rate
+            self._slowdown_speed -= cfg.slowdown_decel_rate * dt
+            self._slowdown_speed = max(self._slowdown_speed, cfg.slowdown_min_speed)
+
+        elif self._slowdown_state == 'NORMAL':
+            # Ramp back up toward desired_speed (never above it)
+            self._slowdown_speed += cfg.slowdown_accel_rate * dt
+            self._slowdown_speed = min(self._slowdown_speed, self.desired_speed)
+
+        # --- On state transitions: reset integrators to prevent catch-up ---
+        if self._slowdown_state != prev_state:
+            if self._slowdown_state != 'NORMAL':
+                # Entering or escalating slowdown: reset speed integrator
+                # to prevent accumulated error from causing a speed surge
+                # when tension drops.
+                self.int_speed = 0.0
+            elif prev_state != 'NORMAL':
+                # Returning to NORMAL from any slowdown state: reset both
+                # speed and position integrators so the controller does not
+                # try to catch up the distance lost during the slowdown.
+                self.int_speed = 0.0
+                self.int_surge = 0.0
+                self.err_surge_filt = 0.0
+                self.prev_err_surge = 0.0
+
+        return self._slowdown_speed
+
     def reset_integrators(self):
         """Reset all integral states."""
         self.int_surge = 0.0
         self.int_sway = 0.0
         self.int_yaw = 0.0
         self.int_speed = 0.0
+        self.err_surge_filt = 0.0
+        self.prev_err_surge = 0.0

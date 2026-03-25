@@ -19,6 +19,7 @@ from .environment import EnvironmentConfig, WaveDriftConfig
 from .simulation import SimulationConfig, run_simulation, SimulationResult
 from .plotting import (plot_overview, plot_force_breakdown, plot_layback_analysis,
                        plot_catenary_snapshot, plot_stochastic_soil,
+                       plot_dp_mode_comparison,
                        print_summary)
 from .catenary import CatenaryModel
 
@@ -38,11 +39,53 @@ def make_vessel_config() -> VesselConfig:
     )
 
 
+def compute_wire_length(water_depth: float, vessel_draft: float = 7.8,
+                        T_h_expected: float = 301e3, buffer: float = 75.0,
+                        wire_submerged_weight: float = None) -> float:
+    """
+    Compute deployed wire length from inextensible catenary arc length + buffer.
+
+    In real ploughing operations, wire deployment is managed so that only a
+    small buffer (50-100m) sits on the seabed at operating tension.  This
+    avoids excessive grounded wire (which complicates the spring model) while
+    ensuring enough reserve to handle tension fluctuations without lifting
+    the plough off the seabed.
+
+    Parameters:
+        water_depth: Water depth [m]
+        vessel_draft: Vessel draft [m] (tow point depth)
+        T_h_expected: Expected horizontal tension at plough [N]
+                      (~301 kN for Su=12kPa firm clay at 0.12 m/s)
+        buffer: Extra wire beyond catenary arc length [m]
+                Sits on seabed as reserve. 50-100m typical.
+        wire_submerged_weight: Wire submerged weight [N/m].
+                               If None, computed from default 76mm/25kg/m wire.
+
+    Returns:
+        Total wire length [m]
+    """
+    if wire_submerged_weight is None:
+        # Default 76mm, 25 kg/m wire rope
+        rho_water = 1025.0
+        diameter = 0.076
+        area = np.pi * diameter**2 / 4.0
+        wire_submerged_weight = 25.0 * 9.81 - rho_water * 9.81 * area
+
+    h = water_depth - vessel_draft
+    if h < 1.0:
+        h = 1.0
+    w = wire_submerged_weight
+    a = T_h_expected / w
+    D = a * np.arccosh(1.0 + h / a)
+    s = a * np.sinh(D / a)
+
+    wire_length = s + buffer
+    return max(wire_length, 150.0)  # minimum 150m for very shallow water
+
+
 def make_wire_config(water_depth: float) -> TowWireConfig:
-    """Tow wire sized for the depth."""
-    # Wire length needs to be at least ~1.5x water depth for catenary
-    wire_length = max(water_depth * 2.5, 500.0)
-    wire_length = min(wire_length, 4000.0)
+    """Tow wire sized for the depth: catenary arc length + buffer."""
+    wire_length = compute_wire_length(water_depth)
 
     return TowWireConfig(
         diameter=0.076,
@@ -269,8 +312,8 @@ def scenario_plough_comparison(water_depth: float = 100.0,
 # Scenario 6: Stochastic soil — 1 hour in challenging seabed
 # =============================================================================
 
-def scenario_stochastic_soil(water_depth: float = 20.0, plough_mass_t: float = 25.0,
-                              speed: float = 0.06, duration: float = 3600.0,
+def scenario_stochastic_soil(water_depth: float = 30.0, plough_mass_t: float = 25.0,
+                              speed: float = 0.12, duration: float = 3600.0,
                               seed: int = 42) -> SimulationResult:
     """
     1-hour ploughing simulation in challenging, heterogeneous seabed.
@@ -288,35 +331,37 @@ def scenario_stochastic_soil(water_depth: float = 20.0, plough_mass_t: float = 2
     Parameters:
         water_depth: Water depth [m]
         plough_mass_t: Plough mass [tonnes]
-        speed: Desired base ploughing speed [m/s] (~0.06 m/s DP setpoint;
-               effective mean ~0.12 m/s with tension-speed modulation and
-               wave drift compensation offset)
+        speed: Desired base ploughing speed [m/s] (DP setpoint; tension-speed
+               modulation adjusts effective speed ±0.10 m/s around this value
+               in response to soil resistance variations)
         duration: Simulation duration [s] (3600 = 1 hour)
         seed: Random seed for reproducibility
     """
     # Tuned stochastic soil parameters to match operational data
+    # All rates and lengths are SPATIAL (per metre along seabed).
+    # Converted from temporal parameters using reference speed ~0.12 m/s.
     stochastic_cfg = StochasticSoilConfig(
         # Fractional Gaussian noise for broadband soil variability
         hurst=0.90,                 # PSD ~ f^-0.8 (close to pink noise)
         fgn_cov=0.50,              # 50% COV — creates the characteristic spread
-        fgn_dt=0.2,               # Match simulation dt
-        fgn_duration=duration + 200.0,  # Extra margin for transient
+        fgn_dx=0.025,              # 2.5 cm spatial sample interval
+        fgn_length=600.0,          # 600m of pre-generated seabed
 
-        # Spike events (boulders, hard layers)
-        spike_rate=0.005,           # ~1 spike per 200s
+        # Spike events (boulders, hard layers) — per metre
+        spike_rate=0.04,            # ~1 spike per 25m
         spike_amplitude_mean=1.4,   # Mean spike is 1.4x base (moderate)
         spike_amplitude_std=0.3,    # Tight variability (less extreme spikes)
-        spike_duration_mean=12.0,   # 12s average spike (broad, like real data)
-        spike_duration_std=8.0,     # Std of spike duration — some very broad
+        spike_length_mean=1.4,      # 1.4m average spike extent along seabed
+        spike_length_std=1.0,       # Std of spike length
 
-        # Soil zone transitions
-        zone_normal_to_soft_rate=0.00025,  # ~1 soft zone per 4000s (~1 per hour)
-        zone_normal_to_hard_rate=0.0002,   # ~1 hard zone per 5000s (rare)
-        zone_soft_to_normal_rate=0.002,    # Soft zone ~500s (~8 min)
-        zone_hard_to_normal_rate=0.005,    # Hard zone ~200s (~3 min)
+        # Soil zone transitions — rates per metre
+        zone_normal_to_soft_rate=0.002,    # ~1 soft zone per 500m
+        zone_normal_to_hard_rate=0.0015,   # ~1 hard zone per 670m
+        zone_soft_to_normal_rate=0.015,    # Soft zone ~67m long
+        zone_hard_to_normal_rate=0.06,     # Hard zone ~17m long
         zone_soft_factor=0.15,             # Tension drops to 15% in soft zone
-        zone_hard_factor=1.6,              # Tension increases to 160% in hard zone
-        zone_transition_tau=15.0,          # 15s smooth transition
+        zone_hard_factor=1.4,              # Tension increases to 140% in hard zone
+        zone_transition_length=2.0,        # 2m smooth transition
         min_resistance_fraction=0.02,      # Min 2% of base resistance
         seed=seed,
     )
@@ -324,11 +369,11 @@ def scenario_stochastic_soil(water_depth: float = 20.0, plough_mass_t: float = 2
     plough_cfg = make_plough_config(plough_mass_t)
     plough_cfg.stochastic_soil = stochastic_cfg
 
-    # Shorter wire for shallow water — tighter coupling
+    # Wire length: catenary arc length at operating tension + buffer.
     wire_cfg = TowWireConfig(
         diameter=0.076,
         linear_mass=25.0,
-        total_length=max(water_depth * 3.0, 200.0),
+        total_length=compute_wire_length(water_depth),
     )
 
     config = SimulationConfig(
@@ -342,19 +387,27 @@ def scenario_stochastic_soil(water_depth: float = 20.0, plough_mass_t: float = 2
             submerged_unit_weight=8.0e3,
         ),
         dp=DPControllerConfig(
-            T_surge=120.0,          # Standard surge response
-            zeta_surge=0.8,
-            Kp_speed=0.05,          # Strong speed control gain
-            Ki_speed=0.01,          # Strong integral for wave drift offset
+            surge_mode='speed',
+            T_surge=114.0,          # Surge natural period [s] → omega_n=0.055 rad/s
+            zeta_surge=0.9,         # Slightly overdamped (station-keeping typical)
+            Kp_speed=0.099,         # 2*zeta*omega_n = 0.099 (non-dim, ×M_surge)
+            Ki_speed=0.003,         # omega_n^2 = 0.003 (non-dim, ×M_surge)
             tow_force_feedforward=0.85,  # 85% feedforward for force compensation
             wind_feedforward=0.8,
             # Tension-based speed modulation (ploughing mode)
+            # Mimics operator/auto-pilot adjusting speed in response to tow tension.
+            # tension_nominal set at ~35t — the self-consistent mean tension when
+            # the nonlinear F(V) model is active and V_mean ≈ 0.12 m/s.  The
+            # nonlinear force-speed relationship (F ∝ V^0.4) provides the primary
+            # self-regulation: hard soil → vessel slows → resistance drops.
+            # The tension-speed modulation adds a secondary feedback that mimics
+            # operator intervention (reducing setpoint in sustained hard soil).
             tension_speed_modulation=True,
-            tension_nominal=320e3,         # ~32t nominal (below mean ~37t → net speed increase)
-            tension_speed_gain=8e-7,       # Speed adjustment per N tension excess
-            tension_speed_filter_tau=5.0,  # 5s filter — fast response to tension changes
-            tension_speed_max_reduction=0.10,  # Max speed reduction from high tension
-            tension_speed_max_increase=0.08,   # Max speed increase from low tension
+            tension_nominal=350e3,         # ~35t (self-consistent with nonlinear F(V))
+            tension_speed_gain=0.5e-6,     # Moderate: ~0.025 m/s per 50kN excess
+            tension_speed_filter_tau=20.0,  # 20s filter — recovers from hard patches
+            tension_speed_max_reduction=0.07,  # Max 0.07 m/s reduction → V_min ≈ 0.05
+            tension_speed_max_increase=0.08,   # Max 0.08 m/s increase → V_max ≈ 0.20
         ),
         env=EnvironmentConfig(
             water_depth=water_depth,
@@ -369,7 +422,7 @@ def scenario_stochastic_soil(water_depth: float = 20.0, plough_mass_t: float = 2
                 C_drift=5000.0,                # Mean drift coefficient
                 sv_cov=0.8,                    # Slowly-varying drift COV
                 sv_tau=60.0,                   # ~1 min slowly-varying filter
-                first_order_surge_factor=0.0,  # Filtered out of operational speed data
+                first_order_surge_factor=0.3,  # Surge RAO [m/m] at Tp=7.5s
                 seed=seed + 1000,              # Different seed from soil (uncorrelated)
             ),
         ),
@@ -389,6 +442,209 @@ def scenario_stochastic_soil(water_depth: float = 20.0, plough_mass_t: float = 2
     result = run_simulation(config)
     print_summary(result, config)
     return result, config
+
+
+# =============================================================================
+# Scenario 7: DP mode comparison — speed control vs position control
+# =============================================================================
+
+def scenario_dp_mode_comparison(water_depth: float = 30.0, plough_mass_t: float = 25.0,
+                                 speed: float = 0.12, duration: float = 3600.0,
+                                 seed: int = 42):
+    """
+    Compare speed-control and position-control DP modes on the same soil.
+
+    Runs two 1-hour simulations with identical stochastic soil, environment,
+    vessel, and plough — only the DP surge controller differs:
+
+    1. Speed control: PI on speed error + tension-based speed modulation.
+       The speed setpoint is adjusted based on filtered tow tension —
+       high tension slows the vessel down, low tension speeds it up.
+       Speed variation is engineered through the explicit feedback loop.
+
+    2. Position control: PID on along-track position error.
+       A reference point moves along the track at constant speed.
+       Speed variation emerges naturally from catenary tension "fighting"
+       the position controller P-term. No explicit tension feedback.
+
+    Returns dict with both results for comparison.
+    """
+    # Common stochastic soil configuration — SPATIAL (per metre)
+    # Tuned to match real operational data: tension mean ~35t, range 5-100t,
+    # rich broadband variability at all temporal scales, occasional spikes,
+    # and extended soft zones where tension drops to 5-20t.
+    stochastic_cfg = StochasticSoilConfig(
+        hurst=0.90,                 # PSD ~ f^-0.8 (close to pink noise)
+        fgn_cov=0.75,              # 75% COV — wider variability for [5,100]t range
+        fgn_dx=0.025,              # 2.5 cm spatial sample interval
+        fgn_lp_length=5.0,         # 5m LP filter — the plough body (~8m long) and
+                                    # its active failure wedge integrate soil properties
+                                    # over several metres.  This smooths sub-metre noise
+                                    # while preserving variability at scales > 10m.
+        fgn_length=600.0,          # 600m of pre-generated seabed
+
+        # Spike events — boulders, hard layers, cobble lenses
+        spike_rate=0.05,            # ~1 spike per 20m
+        spike_amplitude_mean=2.5,   # Mean spike 2.5x base (bigger spikes for 100t peaks)
+        spike_amplitude_std=0.8,    # Wide variability in spike size
+        spike_length_mean=1.5,      # ~1.5m spike extent
+        spike_length_std=1.0,       # Variable spike length
+
+        # Soil zone transitions
+        zone_normal_to_soft_rate=0.003,    # ~1 soft zone per 330m
+        zone_normal_to_hard_rate=0.002,    # ~1 hard zone per 500m
+        zone_soft_to_normal_rate=0.015,    # Soft zone ~67m long (~9 min at 0.12 m/s)
+        zone_hard_to_normal_rate=0.06,     # Hard zone ~17m long
+        zone_soft_factor=0.10,             # Tension drops to 10% in soft zone (deeper drops)
+        zone_hard_factor=1.60,             # Tension rises to 160% in hard zone
+        zone_transition_length=2.0,        # 2m smooth transition
+        min_resistance_fraction=0.02,      # Min 2% of base
+        seed=seed,
+    )
+
+    # Wire length: catenary arc length at operating tension + buffer.
+    wire_cfg = TowWireConfig(
+        diameter=0.076, linear_mass=25.0,
+        total_length=compute_wire_length(water_depth),
+    )
+
+    soil = SoilProperties(
+        undrained_shear_strength=12e3,  # Su = 12 kPa (reduced from 15)
+        submerged_unit_weight=8.0e3,
+    )
+
+    env_cfg = EnvironmentConfig(
+        water_depth=water_depth,
+        current_speed=0.2,
+        current_direction=0.0,
+        wind_speed=6.0,
+        wind_direction=20.0,
+        waves=WaveDriftConfig(
+            Hs=1.2, Tp=7.5, wave_direction=0.0,
+            C_drift=5000.0, sv_cov=0.8, sv_tau=60.0,
+            first_order_surge_factor=0.3,  # Surge RAO [m/m] at Tp=7.5s
+            seed=seed + 1000,
+        ),
+    )
+
+    def make_plough():
+        """Fresh plough config with stochastic soil (same seed each time)."""
+        pcfg = make_plough_config(plough_mass_t)
+        pcfg.stochastic_soil = StochasticSoilConfig(
+            hurst=stochastic_cfg.hurst,
+            fgn_cov=stochastic_cfg.fgn_cov,
+            fgn_dx=stochastic_cfg.fgn_dx,
+            fgn_length=stochastic_cfg.fgn_length,
+            spike_rate=stochastic_cfg.spike_rate,
+            spike_amplitude_mean=stochastic_cfg.spike_amplitude_mean,
+            spike_amplitude_std=stochastic_cfg.spike_amplitude_std,
+            spike_length_mean=stochastic_cfg.spike_length_mean,
+            spike_length_std=stochastic_cfg.spike_length_std,
+            zone_normal_to_soft_rate=stochastic_cfg.zone_normal_to_soft_rate,
+            zone_normal_to_hard_rate=stochastic_cfg.zone_normal_to_hard_rate,
+            zone_soft_to_normal_rate=stochastic_cfg.zone_soft_to_normal_rate,
+            zone_hard_to_normal_rate=stochastic_cfg.zone_hard_to_normal_rate,
+            zone_soft_factor=stochastic_cfg.zone_soft_factor,
+            zone_hard_factor=stochastic_cfg.zone_hard_factor,
+            zone_transition_length=stochastic_cfg.zone_transition_length,
+            min_resistance_fraction=stochastic_cfg.min_resistance_fraction,
+            seed=seed,
+        )
+        return pcfg
+
+    # -----------------------------------------------------------------------
+    # Run 1: Speed control with tension-speed modulation
+    # -----------------------------------------------------------------------
+    print(f"\n{'='*60}")
+    print(f"SCENARIO: DP Mode Comparison — Speed Control")
+    print(f"  Setpoint: {speed} m/s with tension-speed modulation")
+    print(f"{'='*60}")
+
+    # Speed control: vessel tracks the desired speed, with tension-speed
+    # modulation creating speed variation.  High soil resistance → slow down,
+    # low resistance → speed up.  tension_nominal is set near the mean
+    # plough resistance (~36t) so modulation is centered around zero.
+    # With spatial soil, the modulation must be gentle to avoid positive
+    # feedback (slow → stuck in hard patch → slower).
+    config_speed = SimulationConfig(
+        dt=0.2, duration=duration,
+        vessel=make_vessel_config(), wire=wire_cfg,
+        plough=make_plough(), soil=soil,
+        dp=DPControllerConfig(
+            surge_mode='speed',
+            T_surge=114.0, zeta_surge=0.9,
+            Kp_speed=0.099, Ki_speed=0.003,
+            tow_force_feedforward=0.85,
+            wind_feedforward=0.8,
+            # Tension-speed modulation: mimics operator/auto-pilot adjusting
+            # speed based on tow tension.  With the elastic catenary spring,
+            # the natural tension variability from soil drives speed changes.
+            tension_speed_modulation=True,
+            tension_nominal=410e3,          # ~42t — tuned to center the modulation so
+                                            # that the mean speed stays near the setpoint.
+            tension_speed_gain=0.7e-6,      # ~0.035 m/s per 50kN excess tension
+            tension_speed_filter_tau=15.0,   # 15s filter — faster response to tension changes
+            tension_speed_max_reduction=0.08,  # Max 0.08 m/s reduction → V_min ≈ 0.04
+            tension_speed_max_increase=0.08,   # Max 0.08 m/s increase → V_max ≈ 0.20
+            # High-tension slowdown (safety override)
+            high_tension_slowdown=True,
+            tension_stage1=690e3,            # Stage 1: ~70t — begin deceleration
+            tension_stage2=834e3,            # Stage 2: ~85t — double decel rate
+            tension_estop=980e3,             # E-stop: ~100t — immediate stop
+            slowdown_decel_rate=0.005,       # 0.005 m/s^2 — operator-set decel rate
+            slowdown_accel_rate=0.005,       # 0.005 m/s^2 — match decel for symmetric recovery
+            slowdown_filter_tau=5.0,         # 5s filter on tension for slowdown decisions
+            slowdown_min_speed=0.0,          # Allow full stop
+        ),
+        env=env_cfg,
+        track_start=(0.0, 0.0),
+        track_end=(duration * speed * 2, 0.0),
+        track_speed=speed,
+    )
+    res_speed = run_simulation(config_speed)
+    print_summary(res_speed, config_speed)
+
+    # -----------------------------------------------------------------------
+    # Run 2: Position control (moving waypoint)
+    # -----------------------------------------------------------------------
+    print(f"\n{'='*60}")
+    print(f"SCENARIO: DP Mode Comparison — Position Control")
+    print(f"  Reference speed: {speed} m/s (constant, no tension feedback)")
+    print(f"{'='*60}")
+
+    # Position control: the reference moves at the target mean speed.
+    # Speed variation emerges from catenary tension fighting the PID.
+    config_pos = SimulationConfig(
+        dt=0.2, duration=duration,
+        vessel=make_vessel_config(), wire=wire_cfg,
+        plough=make_plough(), soil=soil,
+        dp=DPControllerConfig(
+            surge_mode='position',
+            T_surge=114.0, zeta_surge=0.9,
+            tow_force_feedforward=0.7,   # Lower FF → more for PID to fight
+            wind_feedforward=0.8,
+            # High-tension slowdown (same safety limits as speed control)
+            high_tension_slowdown=True,
+            tension_stage1=690e3,
+            tension_stage2=834e3,
+            tension_estop=980e3,
+            slowdown_decel_rate=0.005,
+            slowdown_accel_rate=0.005,
+            slowdown_filter_tau=5.0,
+            slowdown_min_speed=0.0,
+        ),
+        env=env_cfg,
+        track_start=(0.0, 0.0),
+        track_end=(duration * speed * 2, 0.0),
+        track_speed=speed,
+    )
+    res_pos = run_simulation(config_pos)
+    print_summary(res_pos, config_pos)
+
+    return {
+        'speed_control': (res_speed, config_speed),
+        'position_control': (res_pos, config_pos),
+    }
 
 
 # =============================================================================
