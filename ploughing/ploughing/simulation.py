@@ -140,17 +140,11 @@ def run_simulation(config: SimulationConfig,
                             config.track_end[0] - config.track_start[0])
     heading = np.radians(config.initial_heading) if config.initial_heading != 0.0 else track_dir
 
-    # Quadratic soil-inertial damping coefficient (defined here for use in
-    # both the equilibrium calculation and the simulation loop).
-    # See detailed comments below where _C_soil_drag is also referenced.
-    _C_soil_drag = 3000e3  # [N/(m/s)^2] — see comments below
-    _V_ref_drag = config.track_speed  # reference speed for drag baseline
-
     # Compute initial layback from catenary equilibrium:
     # The plough resistance at the desired speed determines the required
     # horizontal tension T_h, which sets the catenary geometry.
-    # The soil-inertial drag is zero at V_ref by construction (see below),
-    # so no drag correction is needed in the equilibrium calculation.
+    # total_resistance() includes both quasi-static soil cutting and
+    # dynamic soil inertial drag (C_d * rho * A * V^2) at operating speed.
     plough_resistance_initial = plough.total_resistance(config.track_speed)
     T_h_initial = max(plough_resistance_initial, 10e3)
     cat_init = catenary.solve_catenary(
@@ -186,46 +180,14 @@ def run_simulation(config: SimulationConfig,
     event_idx = 0
 
     # Plough dynamics: effective mass for Newton's 2nd law (along-track).
-    # A plough cutting a furrow through saturated soil entrains a large
-    # volume of soil + water that must be accelerated with the plough body.
-    # The entrained mass includes:
-    #   - Soil in the active failure wedge ahead of the share (~2-4x plough mass)
-    #   - Water in the furrow behind and around the plough body
-    #   - Hydrodynamic added mass of a bluff body near the seabed
-    # Studies on subsea ploughs (Cathie & Wintgens 2001, Palmer & King 2008)
-    # suggest effective mass factors of 3-8x dry mass in soft-firm clays.
-    # We use 5x as a representative value for firm clay conditions.
-    # This high effective mass provides the natural mechanical low-pass
-    # filtering that prevents the plough from responding to every spatial
-    # fluctuation in soil resistance — matching the observed smooth plough
-    # speed response in operational data.
-    plough_mass = config.plough.mass * 5.0
-
-    # Soil-inertial damping: at higher speeds, the plough must displace
-    # more soil per unit time.  The volume flow rate of displaced soil
-    # scales with V, and the dynamic pressure on the plough body scales
-    # with V^2.  This gives a quadratic damping term:
-    #   F_soil_drag = C_soil * max(0, V^2 - V_ref^2)
-    # where C_soil [N/(m/s)^2] is calibrated so the damping is zero at
-    # the operating speed (V_ref) and grows rapidly above it.
-    #
-    # The drag at V_ref is already implicitly included in the calibrated
-    # base resistance F_base — there's no need to add it again.  The
-    # excess drag term captures the ADDITIONAL dynamic soil loading that
-    # occurs when the plough moves faster than the calibration speed:
-    # inertial effects from accelerating more soil per unit time, increased
-    # dynamic pressure on the failure wedge, and seabed suction.
-    #
-    # At V=0.12 (V_ref): F = 0        (absorbed into F_base)
-    # At V=0.18:          F = C * 0.018 ≈ 108 kN  (moderate)
-    # At V=0.24:          F = C * 0.043 ≈ 259 kN  (significant)
-    # At V=0.30:          F = C * 0.076 ≈ 454 kN  (dominant — limits speed)
-    #
-    # Physical basis: a 3m wide × 1.5m deep plough displaces ~4.5 m^2
-    # cross-section of saturated soil (rho ~ 2000 kg/m^3).  Dynamic
-    # pressure loading: F ~ 0.5 * rho * A * V^2 * C_d with C_d ~ 3-5
-    # for bluff body in granular flow, plus seabed suction effects.
-    # _C_soil_drag is defined above (before equilibrium calculation).
+    # The plough body (25-35 t dry) plus entrained soil and hydrodynamic
+    # added mass.  For a narrow-furrow plough (share ~0.3 m wide, burial
+    # ~1.5 m deep, furrow cross-section ~0.45 m^2):
+    #   - Active failure wedge ahead of share: ~1-1.5 m^3 at ~2 t/m^3 ≈ 2-3 t
+    #   - Hydrodynamic added mass (bluff body near seabed): ~5-10 t
+    #   - Soil adhering to skids and body: ~5-10 t
+    # Total effective mass ≈ 2x dry mass.
+    plough_mass = config.plough.mass * 2.0
 
     # --- Pre-compute catenary spring table: T_h(layback) ---
     # The catenary acts as a nonlinear spring between vessel and plough.
@@ -578,7 +540,7 @@ def run_simulation(config: SimulationConfig,
         tow_force_on_vessel = wire_force_body.copy()
 
         # --- Plough dynamics: Newton's 2nd law along track ---
-        #     m * dV/dt = T_h(D) - F_resist(V) - F_soil_drag(V)
+        #     m * dV/dt = T_h(D) - F_resist(V)
         #
         # Implicit Euler with coupled catenary spring:
         #   The catenary tension T_h depends on the horizontal distance D
@@ -591,8 +553,14 @@ def run_simulation(config: SimulationConfig,
         #   the speed excursion.
         #
         #   g(V) = m/dt * (V - V_old)
-        #        + F_resist(V) + C_soil * V^2
+        #        + F_resist(V)
         #        - T_h(D_old - (V - V_vessel) * dt) = 0
+        #
+        # F_resist(V) = total_resistance(V) which includes:
+        #   - Quasi-static soil cutting * tanh ramp
+        #   - Dynamic soil inertial drag (C_d * rho * A * V^2)
+        #   - Skid friction
+        #   - Hydrodynamic drag
         #
         # g is monotonically increasing in V (inertia + resistance increase
         # with V, and T_h decreases with V via the spring coupling), so
@@ -607,11 +575,8 @@ def run_simulation(config: SimulationConfig,
                 # Coupled spring: predict where the plough would be
                 D_predicted = horizontal_distance - (V - _V_vessel) * dt
                 T_h_predicted = cat_spring(D_predicted)
-                # Soil-inertial drag: excess above V_ref^2
-                F_soil_drag = _C_soil_drag * max(0.0, V**2 - _V_ref_drag**2)
                 return (m_over_dt * (V - V_old)
                         + plough.total_resistance(max(V, 0.0), inline_current)
-                        + F_soil_drag
                         - T_h_predicted)
 
             # Newton iterations (typically converges in 2-4 steps)

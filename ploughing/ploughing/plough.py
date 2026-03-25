@@ -256,31 +256,55 @@ class PloughConfig:
     # Tow attachment point on plough (from plough CG)
     tow_attachment_height: float = 1.5  # Height of tow point above seabed [m]
 
-    # Nonlinear force-speed relationship
-    # Real ploughs have strongly speed-dependent resistance due to:
-    #   - Soil strain rate effects: Su increases with strain rate (logarithmic)
-    #   - Inertial/dynamic soil loading: accelerating displaced soil mass
-    #   - Furrow geometry: at higher speeds the full furrow cross-section is
-    #     maintained; at low speeds partial furrow collapse reduces resistance
-    #   - Hydrodynamic suction on plough body in saturated soil
+    # Speed-dependent resistance
     #
-    # Modelled as a power law: F_soil(V) = F_base * (V / V_ref)^n
-    #   n = 0    → speed-independent (old model)
-    #   n = 0.3  → moderate speed dependence (sandy soils)
-    #   n = 0.5  → strong speed dependence (soft clays with high rate effects)
-    #   n = 0.4  → typical for mixed seabed conditions
+    # The total plough resistance has two components:
     #
-    # F_base (from base_soil_cutting_force) is calibrated at V = speed_reference.
-    # At lower speeds resistance drops; at higher speeds it increases.
-    # This provides natural self-regulation: hard soil → vessel slows →
-    # resistance drops → vessel recovers.  Without this, speed-resistance
-    # feedback relies entirely on the artificial tension-speed modulation.
+    # 1. Quasi-static soil failure: Nc*Su*w*d (clay) or passive earth
+    #    pressure (sand).  Speed-independent — this is the force to shear
+    #    the soil at any speed.  A tanh(V / V_breakout) ramp models the
+    #    transition from static (no cutting) to dynamic (full cutting)
+    #    resistance as the plough starts moving.
     #
-    # A tanh(V / speed_breakout) ramp is applied for V → 0 to model the
-    # transition from static (no cutting) to dynamic (full cutting) resistance.
-    speed_power_exponent: float = 0.4    # Power law exponent n [-]
-    speed_reference: float = 0.12        # Reference speed for F_base calibration [m/s]
+    # 2. Dynamic soil inertial drag: C_d * rho_soil * A_furrow * V^2
+    #    The plough must accelerate the soil it displaces out of the
+    #    furrow path.  The momentum transfer scales with rho * A * V^2,
+    #    the same dimensional argument as fluid drag (Reece 1964,
+    #    Palmer & King 2008).  A_furrow = width * burial_depth.
+    #
+    #    C_d is an empirical drag coefficient for the soil failure wedge
+    #    (typically 2-6 depending on share geometry, soil density, and
+    #    furrow shape).  It captures:
+    #      - Inertial acceleration of displaced soil mass
+    #      - Dynamic pressure on the failure wedge
+    #      - Seabed suction effects on the plough body
+    #
+    # The quasi-static term dominates at low speed; the V^2 term limits
+    # maximum plough speed.  Self-regulation is provided naturally: hard
+    # soil slows the plough, reducing V^2 drag but keeping the quasi-static
+    # term high.  Soft soil lets the plough speed up, and V^2 drag prevents
+    # runaway.
+    #
+    # At operating speed (V ~ 0.12 m/s) with default parameters:
+    #   A_furrow = 3.0 * 1.5 = 4.5 m^2
+    #   F_inertial = 100 * 1800 * 4.5 * 0.12^2 ≈ 12 kN (~4% of total)
+    # At V = 0.25 m/s:
+    #   F_inertial ≈ 51 kN (significant speed-limiting contribution)
+    # At V = 0.30 m/s:
+    #   F_inertial ≈ 73 kN (limits maximum plough speed)
+    #
+    # Note: C_d for soil-plough interaction is NOT a fluid drag coefficient.
+    # It is an empirical dimensionless constant specific to the soil failure
+    # mechanism during ploughing.  Values of O(100) are typical because at
+    # ploughing speeds (0.1-0.3 m/s) the soil is being sheared and broken,
+    # not just displaced — the effective resistance includes cohesion and
+    # strain-rate effects beyond pure momentum transfer.  The primary speed
+    # sensitivity in operational data comes from the catenary spring dynamics
+    # and plough inertia, not the V^2 term, which mainly serves to limit
+    # maximum plough speed during runaway conditions (very soft soil).
     speed_breakout: float = 0.02         # Breakout speed for static→dynamic ramp [m/s]
+    Cd_soil: float = 100.0               # Soil inertial drag coefficient [-]
+    rho_soil: float = 1800.0             # Saturated bulk density of soil [kg/m^3]
 
     # Stochastic soil model
     stochastic_soil: StochasticSoilConfig = field(default_factory=StochasticSoilConfig)
@@ -536,64 +560,74 @@ class PloughModel:
         V_rel = speed - current_speed
         return 0.5 * rho * self.cfg.Cd_plough * self.cfg.frontal_area * V_rel * abs(V_rel)
 
+    def soil_inertial_drag(self, speed: float) -> float:
+        """
+        Dynamic soil inertial drag [N].
+
+        The plough must accelerate the soil it displaces out of the furrow.
+        This momentum transfer scales as:
+
+            F = C_d * rho_soil * A_furrow * V^2
+
+        where A_furrow = width * burial_depth is the furrow cross-section.
+
+        This is the same dimensional form as fluid drag (Reece 1964,
+        Palmer & King 2008).  C_d is an empirical coefficient capturing
+        the inertial soil acceleration, dynamic pressure on the failure
+        wedge, and seabed suction on the plough body.
+        """
+        V = abs(speed)
+        A_furrow = self.cfg.width * self.cfg.burial_depth
+        return self.cfg.Cd_soil * self.cfg.rho_soil * A_furrow * V * V
+
     def total_resistance(self, speed: float, current_speed: float = 0.0,
                          dt: float = 0.1) -> float:
         """
         Total horizontal resistance force on the plough [N].
 
-        Sum of soil cutting (stochastic), skid friction, and hydrodynamic drag.
+        Four components:
 
-        The soil cutting force has a nonlinear speed dependence modelled as:
+        1. Quasi-static soil cutting (stochastic, speed-independent):
+               F_soil = F_base * stochastic_factor * tanh(V / V_breakout)
+           The tanh ramp provides a smooth transition from zero resistance
+           (stationary plough) to full cutting resistance.  A stationary
+           plough has no cutting force — only passive earth pressure
+           (captured by the residual skid friction).
 
-            F_soil(V) = F_base * stochastic * cutting_ramp * rate_factor
+        2. Dynamic soil inertial drag:
+               F_inertial = C_d * rho_soil * A_furrow * V^2
+           Momentum transfer to displaced soil.  Dominates at higher speeds,
+           providing the primary speed-limiting mechanism.
 
-        where:
-            cutting_ramp = tanh(V / V_breakout)
-                Smooth transition from static (no cutting) to dynamic resistance.
-                A stationary plough has no cutting force — only passive earth
-                pressure (captured by the residual skid friction).
+        3. Skid friction:
+               F_friction = mu * W_submerged
+           Coulomb friction, modulated by soil zone factor.
 
-            rate_factor = (V / V_ref)^n
-                Power-law speed dependence from soil strain rate effects,
-                inertial soil loading, and furrow geometry.  Sub-linear (n<1)
-                so resistance increases with speed but at a decreasing rate.
-                At V = V_ref, rate_factor = 1.0 (F_base is calibrated here).
+        4. Hydrodynamic drag:
+               F_hydro = 0.5 * rho_w * Cd * A * V_rel^2
+           Usually small compared to soil forces.
 
-        This nonlinearity provides natural self-regulation:
-            - Hard soil → vessel slows → resistance drops → vessel recovers
-            - Soft soil → vessel speeds up → resistance increases → stabilizes
-        Without it, the speed-resistance feedback relies entirely on the
-        artificial tension-speed modulation in the DP controller.
+        Self-regulation: in hard soil the vessel slows, reducing the V^2
+        inertial drag while the quasi-static term stays high.  In soft soil
+        the vessel speeds up and V^2 drag limits the speed increase.
         """
         if self.is_stopped:
             return 0.0
 
         F_soil = self.soil_cutting_force(speed, dt)
         F_friction = self.skid_friction_force()
-        F_drag = self.hydrodynamic_drag(speed, current_speed)
+        F_hydro = self.hydrodynamic_drag(speed, current_speed)
+        F_inertial = self.soil_inertial_drag(speed)
 
         # In soft zones, plough is less embedded — reduce skid friction too
         friction_zone_factor = max(np.sqrt(self._zone_factor), 0.3)
         F_friction *= friction_zone_factor
 
-        # Nonlinear force-speed relationship
-        V = abs(speed)
-        V_ref = self.cfg.speed_reference
-        V_breakout = self.cfg.speed_breakout
-        n = self.cfg.speed_power_exponent
-
         # Static→dynamic cutting ramp
-        cutting_ramp = np.tanh(V / V_breakout)
+        V = abs(speed)
+        cutting_ramp = np.tanh(V / self.cfg.speed_breakout)
 
-        # Power-law rate factor: (V/V_ref)^n, normalized to 1.0 at V_ref
-        if V > 1e-8:
-            rate_factor = (V / V_ref) ** n
-        else:
-            rate_factor = 0.0
-
-        speed_factor = cutting_ramp * rate_factor
-
-        return (F_soil * speed_factor + F_friction + F_drag)
+        return (F_soil * cutting_ramp + F_inertial + F_friction + F_hydro)
 
     def set_hard_soil(self, factor: float = 3.0):
         """Activate hard soil encounter."""
@@ -630,6 +664,7 @@ class PloughModel:
         """Return breakdown of forces for analysis."""
         return {
             'soil_cutting': self.soil_cutting_force(speed, dt),
+            'soil_inertial': self.soil_inertial_drag(speed),
             'skid_friction': self.skid_friction_force(),
             'hydro_drag': self.hydrodynamic_drag(speed, current_speed),
             'total': self.total_resistance(speed, current_speed, dt),

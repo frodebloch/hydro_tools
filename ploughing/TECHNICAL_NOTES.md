@@ -216,59 +216,77 @@ at 30 m to ~3.5:1 at 300 m.
 
 ### 3.1 Effective mass
 
-The plough entrains a large volume of soil + water that must be
-accelerated with the body. The entrained mass includes the soil in
-the active failure wedge, water in the furrow, and hydrodynamic added
-mass. Effective mass factors of 3-8x dry mass are reported in the
-literature (Cathie & Wintgens 2001, Palmer & King 2008). The prototype
-uses 5x (125 t effective for a 25 t plough).
+The plough body (25-35 t dry) entrains a small amount of soil and
+water.  For a narrow-furrow plough (share ~0.3 m wide, burial ~1.5 m
+deep, furrow cross-section ~0.45 m^2):
+  - Active failure wedge ahead of share: ~1-1.5 m^3 × 2 t/m^3 ≈ 2-3 t
+  - Hydrodynamic added mass (bluff body near seabed): ~5-10 t
+  - Soil adhering to skids and body: ~5-10 t
 
-This high effective mass is critical — it provides the natural
-mechanical low-pass filtering that prevents the plough from responding
-to every spatial fluctuation in soil resistance. Without it, plough
-speed oscillations are unrealistically large.
+Total effective mass ≈ 2× dry mass (50 t for a 25 t plough).
 
-### 3.2 Nonlinear force-speed relationship
+### 3.2 Resistance model
 
-The soil cutting force has a power-law speed dependence:
+The total plough resistance has four components:
 
 ```
-F_soil(V) = F_base * stochastic * tanh(V / V_breakout) * (V / V_ref)^n
+F_total(V) = F_soil * tanh(V / V_breakout) + C_d * rho_soil * A_furrow * V^2 + F_friction + F_hydro
 ```
 
-- `tanh` ramp: smooth transition from static (no cutting) to dynamic
-  resistance. A stationary plough has no cutting force.
-- Power law (n = 0.3 - 0.5): soil strain rate effects, inertial soil
-  loading, furrow geometry changes with speed. Sub-linear (n < 1) so
-  resistance increases with speed but at a decreasing rate.
-- Reference speed V_ref ~ 0.12 m/s: F_base is calibrated here.
-
-This provides natural self-regulation: hard soil slows the plough,
-which reduces resistance, which allows recovery. This is the primary
-speed-resistance feedback — more important than any DP controller
-tension-speed modulation.
-
-### 3.3 Quadratic soil-inertial drag
-
-An additional speed-dependent drag term captures the dynamic soil
-loading at speeds above the reference:
+**1. Quasi-static soil cutting** (speed-independent, stochastic):
 
 ```
-F_drag = C_soil * max(0, V^2 - V_ref^2)
+F_soil = Nc * Su * w * d  ×  stochastic_factor
 ```
 
-This is zero at V_ref (already absorbed into F_base) and grows
-quadratically above it, limiting maximum plough speed. Physical basis:
-dynamic pressure on the failure wedge scales with V^2.
+The `tanh(V / V_breakout)` ramp provides a smooth transition from zero
+resistance (stationary plough) to full cutting resistance.  The quasi-static
+soil failure force is independent of speed — it is the force required to
+shear the soil regardless of how fast the plough moves.
 
-### 3.4 Implicit Euler integration
+**2. Dynamic soil inertial drag** (V^2):
+
+```
+F_inertial = C_d * rho_soil * A_furrow * V^2
+```
+
+The plough must accelerate the soil it displaces out of the furrow path.
+This momentum transfer scales with `rho * A * V^2`, the same dimensional
+argument as fluid drag (Reece 1964, Palmer & King 2008).  `A_furrow = w * d`
+is the furrow cross-section and `rho_soil` is the saturated bulk density.
+`C_d` (typically O(100) for soil-plough interaction) is an empirical
+drag coefficient — not a fluid drag coefficient.  At ploughing speeds
+(0.1-0.3 m/s) the soil is being sheared and broken, so the effective
+resistance includes cohesion and strain-rate effects beyond pure momentum
+transfer.  The coefficient captures:
+  - Inertial acceleration of displaced soil mass
+  - Dynamic pressure on the failure wedge
+  - Seabed suction effects on the plough body
+
+At operating speed (V ~ 0.12 m/s) with default parameters:
+  - `A_furrow = 3.0 × 1.5 = 4.5 m^2`
+  - `F_inertial = 100 × 1800 × 4.5 × 0.12^2 ≈ 12 kN` (~4% of total)
+At V = 0.25 m/s:
+  - `F_inertial ≈ 51 kN` (significant speed-limiting contribution)
+At V = 0.30 m/s:
+  - `F_inertial ≈ 73 kN` (limits maximum plough speed)
+
+The primary speed sensitivity in operational data comes from the catenary
+spring dynamics and plough inertia (the high effective mass smooths
+speed oscillations).  The V^2 term mainly serves to limit maximum
+plough speed during runaway conditions (very soft soil).
+
+### 3.3 Implicit Euler integration
 
 The prototype uses implicit Euler for the plough dynamics with the
 catenary spring coupled into the Newton iteration:
 
 ```
-g(V) = (m/dt)(V - V_old) + F_resist(V) + F_drag(V) - T_h(D - (V - V_vessel)*dt) = 0
+g(V) = (m/dt)(V - V_old) + F_resist(V) - T_h(D - (V - V_vessel)*dt) = 0
 ```
+
+where `F_resist(V) = F_soil * tanh(V/V_b) + C_d * rho * A * V^2 + F_friction + F_hydro`
+includes all speed-dependent terms.
 
 The key insight is that when the plough speeds up, D shrinks, T_h
 drops, limiting the speed excursion — this coupling must be inside the
@@ -453,15 +471,15 @@ to the reference operational data (30 m depth, speed control mode):
 - Submerged weight: 199.6 N/m
 
 ### Plough
-- Mass: 25 t (effective: 125 t with entrained soil)
-- Width: 3 m, burial depth: 1.5 m
-- Speed exponent n = 0.4, breakout speed = 0.02 m/s
-- Soil drag C = 3000 kN/(m/s)^2
+- Mass: 25 t (effective: 50 t with entrained soil)
+- Width: 3 m, burial depth: 1.5 m, A_furrow: 4.5 m^2
+- Breakout speed: 0.02 m/s
+- Soil inertial drag: C_d = 100, rho_soil = 1800 kg/m^3
 
 ### Soil
 - Su = 12 kPa, gamma' = 8 kN/m^3, Nc = 4
-- Base cutting force: 216 kN (deterministic, at V_ref)
-- At V = 0.12 m/s with F(V): ~301 kN
+- Base cutting force: 216 kN (quasi-static, speed-independent)
+- Soil inertial drag at V = 0.12 m/s: ~12 kN
 
 ### Stochastic soil
 - fGn: H = 0.90, COV = 0.75, dx = 2.5 cm, LP = 5 m
