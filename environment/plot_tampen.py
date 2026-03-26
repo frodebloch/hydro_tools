@@ -37,19 +37,29 @@ LON_MIN, LON_MAX = 1.5, 3.0
 # Hywind Tampen floating wind farm (11 x 8.6 MW, Equinor)
 HYWIND_LAT, HYWIND_LON = 61.330, 2.700
 
+# Hywind zoom: ~5 km radius around the wind farm (~0.045° lat, ~0.09° lon)
+HYWIND_RADIUS_LAT = 0.045
+HYWIND_RADIUS_LON = 0.09
 
-def find_tampen_indices(ds: xr.Dataset) -> dict:
-    """Find Y/X index ranges that cover the Tampen area."""
-    lat2d = ds["lat"].values  # (Y, X)
-    lon2d = ds["lon"].values
 
+def find_bbox_indices(
+    lat2d: np.ndarray,
+    lon2d: np.ndarray,
+    lat_min: float,
+    lat_max: float,
+    lon_min: float,
+    lon_max: float,
+    buf: int = 5,
+    label: str = "Region",
+) -> dict:
+    """Find Y/X index ranges that cover a geographic bounding box."""
     mask = (
-        (lat2d >= LAT_MIN) & (lat2d <= LAT_MAX) &
-        (lon2d >= LON_MIN) & (lon2d <= LON_MAX)
+        (lat2d >= lat_min) & (lat2d <= lat_max) &
+        (lon2d >= lon_min) & (lon2d <= lon_max)
     )
 
     if not mask.any():
-        print("ERROR: No grid points found in Tampen bounding box!")
+        print(f"ERROR: No grid points found in {label} bounding box!")
         print(f"  lat range in data: {np.nanmin(lat2d):.2f} - {np.nanmax(lat2d):.2f}")
         print(f"  lon range in data: {np.nanmin(lon2d):.2f} - {np.nanmax(lon2d):.2f}")
         sys.exit(1)
@@ -60,20 +70,27 @@ def find_tampen_indices(ds: xr.Dataset) -> dict:
     y_start, y_end = np.where(rows)[0][[0, -1]]
     x_start, x_end = np.where(cols)[0][[0, -1]]
 
-    # Add small buffer
-    buf = 5
     y_start = max(0, y_start - buf)
     y_end = min(lat2d.shape[0] - 1, y_end + buf)
     x_start = max(0, x_start - buf)
     x_end = min(lat2d.shape[1] - 1, x_end + buf)
 
-    print(f"  Tampen indices: Y=[{y_start}:{y_end}], X=[{x_start}:{x_end}]")
+    print(f"  {label} indices: Y=[{y_start}:{y_end}], X=[{x_start}:{x_end}]")
     print(f"  Grid points: {y_end - y_start} x {x_end - x_start}")
 
     return {
         "Y": slice(y_start, y_end + 1),
         "X": slice(x_start, x_end + 1),
     }
+
+
+def find_tampen_indices(ds: xr.Dataset) -> dict:
+    """Find Y/X index ranges that cover the Tampen area."""
+    return find_bbox_indices(
+        ds["lat"].values, ds["lon"].values,
+        LAT_MIN, LAT_MAX, LON_MIN, LON_MAX,
+        buf=5, label="Tampen",
+    )
 
 
 def pick_random_day(ds: xr.Dataset) -> str:
@@ -130,11 +147,11 @@ def main():
           f"{lat.shape[0]}x{lat.shape[1]} spatial points")
 
     # ---- Plot 1: Surface current snapshots at 4 times ----
-    print("\n[1/4] Plotting surface current snapshots ...")
+    print("\n[1/5] Plotting surface current snapshots ...")
     plot_surface_snapshots(lat, lon, u, v, speed, times, depths, target_date)
 
     # ---- Plot 2: Time-depth current speed at center point ----
-    print("[2/4] Plotting current speed vs depth vs time ...")
+    print("[2/5] Plotting current speed vs depth vs time ...")
     cy, cx = lat.shape[0] // 2, lat.shape[1] // 2
     center_lat = lat[cy, cx]
     center_lon = lon[cy, cx]
@@ -142,16 +159,20 @@ def main():
                           center_lat, center_lon, target_date)
 
     # ---- Plot 3: Current direction vs depth vs time ----
-    print("[3/4] Plotting current direction vs depth vs time ...")
+    print("[3/5] Plotting current direction vs depth vs time ...")
     plot_time_depth_direction(u[:, :, cy, cx], v[:, :, cy, cx],
                              speed[:, :, cy, cx], times, depths,
                              center_lat, center_lon, target_date)
 
     # ---- Plot 4: Timeseries at selected depths ----
-    print("[4/4] Plotting current speed timeseries at depth levels ...")
+    print("[4/5] Plotting current speed timeseries at depth levels ...")
     plot_depth_timeseries(u[:, :, cy, cx], v[:, :, cy, cx],
                           speed[:, :, cy, cx], times, depths,
                           center_lat, center_lon, target_date)
+
+    # ---- Plot 5: Zoomed Hywind Tampen with full-resolution vectors ----
+    print("[5/5] Plotting zoomed Hywind Tampen snapshots ...")
+    plot_hywind_zoom_snapshots(lat, lon, u, v, speed, times, target_date)
 
     print(f"\nAll plots saved to: {OUT_DIR.resolve()}")
 
@@ -340,6 +361,98 @@ def plot_depth_timeseries(u_zt, v_zt, speed_zt, times, depths, lat, lon, date):
     ax2.set_xticklabels([str(t)[11:16] for t in times], rotation=45, fontsize=8)
 
     out = OUT_DIR / "04_tampen_depth_timeseries.png"
+    fig.savefig(out, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  Saved: {out}")
+
+
+def plot_hywind_zoom_snapshots(lat, lon, u, v, speed, times, date):
+    """4-panel zoomed surface current maps centred on Hywind Tampen,
+    with full-resolution quiver arrows (~300 m grid spacing)."""
+    # Extract zoom sub-region from the already-loaded Tampen data
+    hw_lat_min = HYWIND_LAT - HYWIND_RADIUS_LAT
+    hw_lat_max = HYWIND_LAT + HYWIND_RADIUS_LAT
+    hw_lon_min = HYWIND_LON - HYWIND_RADIUS_LON
+    hw_lon_max = HYWIND_LON + HYWIND_RADIUS_LON
+
+    mask = (
+        (lat >= hw_lat_min) & (lat <= hw_lat_max) &
+        (lon >= hw_lon_min) & (lon <= hw_lon_max)
+    )
+    rows = np.any(mask, axis=1)
+    cols = np.any(mask, axis=0)
+
+    if rows.sum() == 0 or cols.sum() == 0:
+        print("  WARNING: Hywind zoom area outside loaded Tampen data, skipping.")
+        return
+
+    r_idx = np.where(rows)[0]
+    c_idx = np.where(cols)[0]
+    r0, r1 = r_idx[0], r_idx[-1] + 1
+    c0, c1 = c_idx[0], c_idx[-1] + 1
+
+    z_lat = lat[r0:r1, c0:c1]
+    z_lon = lon[r0:r1, c0:c1]
+    z_u = u[:, 0, r0:r1, c0:c1]      # surface only
+    z_v = v[:, 0, r0:r1, c0:c1]
+    z_spd = speed[:, 0, r0:r1, c0:c1]
+
+    print(f"  Hywind zoom: {z_lat.shape[0]} x {z_lat.shape[1]} grid points "
+          f"(full resolution, no subsampling)")
+
+    n_times = len(times)
+    if n_times >= 4:
+        indices = [0, n_times // 4, n_times // 2, 3 * n_times // 4]
+    else:
+        indices = list(range(min(n_times, 4)))
+
+    fig, axes = plt.subplots(2, 2, figsize=(14, 12))
+    axes = axes.ravel()
+
+    vmax = float(np.nanpercentile(z_spd, 98))
+    vmax = max(vmax, 0.05)
+
+    for i, tidx in enumerate(indices):
+        ax = axes[i]
+        spd = z_spd[tidx]
+        uu = z_u[tidx]
+        vv = z_v[tidx]
+        t_str = str(times[tidx])[:16]
+
+        pcm = ax.pcolormesh(z_lon, z_lat, spd, cmap="cividis",
+                            shading="auto", vmin=0, vmax=vmax)
+
+        # Full-resolution quiver — every grid cell
+        ax.quiver(
+            z_lon, z_lat, uu, vv,
+            color="white", alpha=0.8, scale=3, width=0.004,
+            headwidth=4, headlength=5,
+        )
+
+        ax.set_title(f"{t_str} UTC", fontsize=10)
+        ax.set_xlabel("Lon [°E]")
+        ax.set_ylabel("Lat [°N]")
+        ax.set_aspect("equal")
+
+        # Hywind Tampen marker
+        ax.plot(HYWIND_LON, HYWIND_LAT, marker="*", color="red",
+                markersize=14, markeredgecolor="white",
+                markeredgewidth=0.8, zorder=10)
+        if i == 0:
+            ax.annotate(
+                "Hywind Tampen", (HYWIND_LON, HYWIND_LAT),
+                textcoords="offset points", xytext=(8, -12),
+                fontsize=8, color="white", fontweight="bold",
+                path_effects=[pe.withStroke(linewidth=2, foreground="black")],
+            )
+
+    fig.suptitle(
+        f"Hywind Tampen — Surface Currents (NorKyst v3, ~300 m resolution)\n{date}",
+        fontsize=13, fontweight="bold",
+    )
+    fig.colorbar(pcm, ax=axes, shrink=0.6, label="Current speed [m/s]")
+
+    out = OUT_DIR / "05_hywind_zoom_snapshots.png"
     fig.savefig(out, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"  Saved: {out}")
