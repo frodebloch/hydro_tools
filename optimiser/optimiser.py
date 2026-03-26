@@ -243,16 +243,18 @@ def make_man_l27_38() -> MuzzleDiagramEngine:
     Engine: 8-cylinder L27/38, MCR 2920 kW at 800 rpm.
     Gearbox ratio: 800/117.6 = 6.803.
     """
-    # Power limit envelope (red curve on the diagram)
-    # Digitised from the MCR line. At full rpm it's 2920 kW, falling
-    # at lower rpm roughly following a propeller-law shape with a floor.
+    # Power limit envelope — digitised from the muzzle diagram load limit
+    # curve using Engauge Digitizer (~/Downloads/load_limit.csv).
+    # Original x-axis is propeller RPM; converted to engine RPM (* 6.803).
+    # Last point capped at MCR = 2920 kW.
+    # This follows the propeller curve limit (L1-L3), NOT the constant-
+    # torque overload line (L1-L2) which was used in the previous
+    # (incorrect) digitisation.
     power_limit_rpm = [
-        480, 500, 520, 540, 560, 580, 600, 620, 640, 660,
-        680, 700, 720, 740, 760, 780, 800, 820,
+        476, 510, 544, 578, 612, 646, 685, 719, 763, 786, 800,
     ]
     power_limit_kw = [
-        1750, 1850, 1960, 2070, 2180, 2290, 2400, 2510, 2610, 2700,
-        2770, 2820, 2860, 2880, 2900, 2910, 2920, 2920,
+        635, 777, 941, 1124, 1332, 1557, 1858, 2155, 2596, 2848, 2920,
     ]
 
     # SFOC grid digitised from the blue contour curves.
