@@ -1182,3 +1182,123 @@ directional distribution.
 - This is where all the threads connect: measured spectrum (from vessel motions)
   → wave drift force (from QTF) → improved current estimation → better DP
   performance
+
+---
+
+## Session 2: Vessel-as-Wave-Buoy Implementation and Validation
+
+### PdStrip RAO Nondimensionalization (Critical Discovery)
+
+PdStrip reports RAOs with different conventions for translational vs rotational DOFs:
+
+- **Heave/Surge/Sway RAO** = amplitude / wave_amplitude [m/m, dimensional]
+  → approaches 1.0 at low frequency (vessel follows wave)
+- **Pitch/Roll/Yaw RAO** = amplitude / (k × wave_amplitude) [nondimensional]
+  → approaches 1.0 at low frequency (vessel follows wave slope)
+
+Where k = ω²/g is the deep-water wavenumber.
+
+**So actual pitch [rad] = RAO_nondim × k × wave_amplitude.**
+
+Confirmed in BruCon C++ (`brucon/libs/simulator/vessel_model/wave_response.cpp`, ~line 271):
+```cpp
+if (dof > 3) {
+    angle_factor = k;  // DOFs 4,5,6 (roll, pitch, yaw) get multiplied by k
+}
+```
+
+Without this k factor, pitch deconvolution was off by ~19× (dividing by RAO=0.88
+instead of RAO×k=0.044 at the peak wave period). With the correction, pitch-derived
+Hs matches heave-derived Hs within reason.
+
+### wave_buoy.py — Implementation
+
+The tool reads Brunvoll long-format CSV exports (semicolon-delimited, European
+decimal notation), loads PdStrip RAOs, and estimates wave parameters via spectral
+deconvolution.
+
+Architecture:
+1. Parse CSV → per-signal time series (dict of pd.Series with DatetimeIndex)
+2. Resample to uniform grid (linear interpolation)
+3. Apply analysis window (--window-min, --window-dur)
+4. Welch PSD for heave, pitch, roll
+5. Load PdStrip RAOs (bilinear interpolation on freq × angle grid)
+6. Heave-based Hs estimation (PRIMARY):
+   - S_wave(f) = S_heave(f) / |RAO_heave(f,θ)|²
+   - Only uses bins where |RAO| > min_rao (default 0.5)
+   - Scans all directions; Hs is insensitive to direction (RAO ≈ 1 at long periods)
+7. Direction estimation from heave-pitch cross-spectrum:
+   - Compares measured phase(S_hp) with predicted phase from RAOs
+   - Coherence-weighted scoring across frequency band around spectral peak
+   - Penalizes directions with small RAO magnitudes
+   - Has 180° ambiguity for encounter angles symmetric about stern
+8. Pitch-based estimation (SECONDARY, for comparison):
+   - S_wave(f) = S_pitch_rad²(f) / (|RAO_pitch|² × k²)
+   - Poorly conditioned: effective transfer function |RAO×k| ≈ 0.05 at peak
+   - Useful for direction estimation, not for Hs
+
+Command-line options:
+- `--rao`: PdStrip pdstrip.dat file
+- `--speed`: vessel speed for RAO selection (m/s)
+- `--fs`: resample frequency (Hz)
+- `--segment-sec`: Welch segment length
+- `--window-min` / `--window-dur`: analysis window
+- `--min-rao`: heave RAO threshold (default 0.5)
+- `--wave-dir`: override wave direction (skip estimation)
+
+### Validation Against NORA3 Hindcast
+
+Tested on vessel "Geir" (Lpp≈61m, beam≈13.5m, CPP+rudder+azimuth):
+- Location: 60.31°N, 9.69°W (west of Scotland/Shetland)
+- Date: 2021-06-27 12:00-13:30 UTC (90-minute window, stable heading ~232°)
+- Sea state: swell-dominated (NORA3: Hs_swell=1.64m Tp=9.2s from 110° ESE)
+
+Results at NORA3 wave direction (110° true):
+
+| Parameter | Heave estimate | NORA3 hindcast |
+|-----------|---------------|----------------|
+| Hs        | 1.50 m        | 1.70 m         |
+| Tp        | 8.9 s         | 9.2 s          |
+
+12% difference on Hs, 3% on Tp. The Hs gap is partly due to:
+- NORA3 nearest grid point is 1.4° away from the vessel position
+- Conservative min_rao=0.5 clips some valid frequency bins at enc=122°
+- With min_rao=0.3: Hs=1.56m (8% difference)
+
+Direction estimation correctly identifies 110° and 355° as top candidates
+(tied scores ≈ 0.405). These correspond to encounter angles 122° and 242°,
+which are symmetric about the stern — a known ambiguity for heave-pitch
+cross-spectrum methods.
+
+### Key Findings from Geir Dataset
+
+1. **Pitch has 4.3° static mean** — calibration/mounting offset, not real trim.
+   Doesn't affect spectral analysis (Welch detrend removes it).
+
+2. **Roll is unusable** — spectrum dominated by very low frequencies (Tp=341s),
+   confirming roll reduction tanks are active. Roll RMS=0.44° is tiny.
+
+3. **Heading changes ~180° at t≈140 min** — the 6-hour record must be windowed
+   to stationary heading segments. First 90 minutes has std=10.8°.
+
+4. **Wind from ~50° relative (port bow)**, true wind from ~266° (westerly).
+   Dominant swell from 110° (ESE) — waves and wind from different directions.
+
+5. **Heave is the best DOF for Hs** — RAO ≈ 1 at wave frequencies, well-conditioned
+   deconvolution. Direction sensitivity is weak (Hs ranges 1.36-1.75m across
+   all directions). Tp is robust (8.9s for all directions).
+
+6. **Pitch is poorly conditioned** — effective transfer function |RAO×k| ≈ 0.05
+   at the spectral peak (T≈9s). Dividing by this amplifies noise enormously.
+   Best pitch estimate: Hs=2.80m (overestimated by 65%).
+
+7. **VesselAmplitudeX/Y/Z and VesselPeriodX/Y/Z** signals exist at ~0.02 Hz —
+   onboard-computed motion statistics. Could be used for cross-validation.
+
+### Next Steps
+
+1. Time-varying analysis — run on sliding windows across the full 6 hours
+2. Improve direction estimation — combine with wind angle as prior
+3. Implement MeasuredWaveSpectrum (Option A) in BruCon
+4. Build hindcast validation pipeline (NORA3/NorKyst + DP logs)
+5. Stokes drift utility for WW3 2D spectra
