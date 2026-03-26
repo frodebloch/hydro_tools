@@ -398,7 +398,8 @@ def estimate_wave_from_pitch(f_hz, psd_pitch_deg2, rao: dict, heading_deg: float
 
 
 def estimate_wave_from_heave(f_hz, psd_heave_m2, rao: dict, heading_deg: float,
-                              wave_dir_deg: float, min_rao: float = 0.5):
+                              wave_dir_deg: float, min_rao: float = 0.5,
+                              quiet: bool = False):
     """Estimate wave spectrum from heave motion spectrum + RAO at known direction.
 
     Heave RAO is heave_amplitude / wave_amplitude (m/m, dimensionless).
@@ -419,7 +420,8 @@ def estimate_wave_from_heave(f_hz, psd_heave_m2, rao: dict, heading_deg: float,
         enc_angle -= 360
 
     if enc_angle < rao_angles[0] or enc_angle > rao_angles[-1]:
-        print(f"  WARNING: encounter angle {enc_angle:.0f} outside RAO range")
+        if not quiet:
+            print(f"  WARNING: encounter angle {enc_angle:.0f} outside RAO range")
         return None
 
     rao_heave_mag2 = np.zeros_like(f_hz)

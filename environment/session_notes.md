@@ -1297,8 +1297,83 @@ cross-spectrum methods.
 
 ### Next Steps
 
-1. Time-varying analysis — run on sliding windows across the full 6 hours
-2. Improve direction estimation — combine with wind angle as prior
-3. Implement MeasuredWaveSpectrum (Option A) in BruCon
-4. Build hindcast validation pipeline (NORA3/NorKyst + DP logs)
-5. Stokes drift utility for WW3 2D spectra
+1. Improve direction estimation — combine with wind angle as prior
+2. Implement MeasuredWaveSpectrum (Option A) in BruCon
+3. Stokes drift utility for WW3 2D spectra
+4. Test on more datasets with wider Hs range for better correlation statistics
+5. Investigate the systematic -10% Hs bias (RAO threshold? viscous effects?)
+
+---
+
+## Session 3: Hindcast Validation Pipeline
+
+### validate_hindcast.py — Sliding-Window Estimation vs NORA3
+
+Built `validate_hindcast.py` that:
+1. Parses vessel motion data and identifies stationary heading segments
+2. Runs heave-based wave estimation on sliding 30-min windows (10-min step)
+3. Fetches NORA3 wave hindcast at the nearest grid point via OPeNDAP
+4. Produces time series comparison and scatter plots with statistics
+
+### NORA3 Data Source Discovery
+
+The NORA3 subset product (`nora3_subset_wave/wave_tser/`) has a reduced grid
+(500×900) that doesn't extend to 9.7°W at 60°N. The nearest point was 1.43° away.
+
+The **Windsurfer MyWaveWam 3km** full-domain product provides much better coverage:
+- URL: `windsurfer/mywavewam3km_agg/wam3kmhindcastaggregated.ncml`
+- Grid: 1995×2379 points, covering 36-90°N (full North Atlantic + Arctic)
+- Time: 1959-2025, hourly, 587k timesteps
+- Nearest grid point to Geir: 0.015° (1.6 km) — essentially collocated
+- First OPeNDAP access may take 20+ min for server-side caching
+
+Added to `validate_hindcast.py` as the default source.
+
+### Validation Results — Geir, 2021-06-27
+
+**Setup:**
+- 6-hour record, 18 valid 30-min windows (15 rejected for heading instability during transit)
+- Two stable heading segments: 12:00-13:30 (hdg~232°) and 15:55-17:25 (hdg~220°)
+- NORA3 grid point 1.6 km from vessel
+
+**Matched comparison (18 windows):**
+
+| Statistic | Value |
+|-----------|-------|
+| Bias      | -0.16 m (vessel underestimates) |
+| RMSE      | 0.18 m |
+| SI        | 10.7% |
+| R         | 0.59 |
+| Hs ratio  | 90.6% (vessel/NORA3) |
+
+**Time series:**
+- Segment 1 (12:00-13:30): Vessel Hs ≈ 1.54-1.70 m, NORA3 ≈ 1.80-1.83 m
+- Segment 2 (15:55-17:25): Vessel Hs ≈ 1.33-1.61 m, NORA3 ≈ 1.65-1.68 m
+- Both track the decreasing trend over the day
+- Tp agreement: vessel 8.3-9.8 s vs NORA3 8.4-9.2 s
+
+**Interpretation:**
+- The -10% Hs bias is systematic, likely due to:
+  - Conservative min_rao=0.5 threshold clipping valid wave energy at off-axis encounters
+  - Possible viscous damping / appendage effects not captured in potential-flow RAOs
+  - NORA3 may slightly overestimate at this location (edge of good calibration area)
+- SI of 10.7% is good for a single-DOF (heave) estimator
+- R=0.59 is moderate but limited by the narrow Hs range (1.3-1.9m, swell-dominated)
+- Both vessel and NORA3 capture the same sea state evolution
+
+### Operational Findings
+
+1. **Heading stationarity is critical** — 15 of 33 windows rejected due to heading
+   std > 20° during the transit period. The `max_heading_std` filter effectively
+   identifies non-stationary segments.
+
+2. **30-min window with 512s Welch segments** gives ~3 segments for averaging,
+   which is marginal. Longer windows (60 min) would improve spectral stability
+   but reduce time resolution.
+
+3. **The 14:45 window** (heading=16°, vessel just turned north) shows Tp=7.3s vs
+   NORA3 9.2s — the spectral peak is contaminated by transient effects despite
+   passing the heading std filter.
+
+4. **NORA3 full-domain is essential** for validation at open-ocean locations west
+   of the continental shelf. The subset product has poor coverage there.
