@@ -166,6 +166,10 @@ class MuzzleDiagramEngine:
     power_limit_rpm: list = field(default_factory=list)
     power_limit_kw: list = field(default_factory=list)
 
+    # Suggested propeller curve (design loading line on muzzle diagram)
+    prop_curve_rpm: list = field(default_factory=list)
+    prop_curve_kw: list = field(default_factory=list)
+
     # SFOC grid
     sfoc_rpm: list = field(default_factory=list)
     sfoc_power_kw: list = field(default_factory=list)
@@ -174,6 +178,8 @@ class MuzzleDiagramEngine:
     def __post_init__(self):
         self._pl_rpm = np.array(self.power_limit_rpm, dtype=float)
         self._pl_kw = np.array(self.power_limit_kw, dtype=float)
+        self._pc_rpm = np.array(self.prop_curve_rpm, dtype=float) if self.prop_curve_rpm else np.array([])
+        self._pc_kw = np.array(self.prop_curve_kw, dtype=float) if self.prop_curve_kw else np.array([])
         self._sfoc_rpm = np.array(self.sfoc_rpm, dtype=float)
         self._sfoc_power = np.array(self.sfoc_power_kw, dtype=float)
         self._sfoc_grid = np.array(self.sfoc_table, dtype=float)
@@ -183,6 +189,20 @@ class MuzzleDiagramEngine:
         if rpm < self._pl_rpm[0] or rpm > self._pl_rpm[-1]:
             return 0.0
         return float(np.interp(rpm, self._pl_rpm, self._pl_kw))
+
+    def propeller_curve_power(self, rpm: float) -> float:
+        """Design propeller curve power [kW] at given engine RPM.
+
+        This is the suggested propeller loading curve from the muzzle diagram,
+        typically ~300 kW below the torque limit.  Factory combinators are
+        designed so the engine operates on this curve under design conditions.
+        Returns 0 if no propeller curve is defined.
+        """
+        if self._pc_rpm.size == 0:
+            return 0.0
+        if rpm < self._pc_rpm[0] or rpm > self._pc_rpm[-1]:
+            return 0.0
+        return float(np.interp(rpm, self._pc_rpm, self._pc_kw))
 
     def max_rpm(self) -> float:
         return self.max_engine_rpm
@@ -299,6 +319,13 @@ def make_man_l27_38() -> MuzzleDiagramEngine:
         [197, 193, 190, 188, 186, 185, 184, 184, 184, 185, 186, 187, 189, 190, 192],
     ]
 
+    # Suggested propeller curve — solid green line on muzzle diagram.
+    # Digitised from limits.csv (Engauge Digitizer output).
+    # Original x-axis is propeller RPM; converted to engine RPM (* 6.803).
+    # Sits ~250-330 kW below the power limit across the RPM range.
+    prop_curve_rpm = [476, 521, 575, 630, 655, 685, 719, 756, 783, 800]
+    prop_curve_kw = [367, 569, 826, 1151, 1328, 1570, 1873, 2223, 2502, 2668]
+
     return MuzzleDiagramEngine(
         name="MAN L27/38-800rpm 8cyl (per propeller)",
         max_power_kw=2920.0,
@@ -306,6 +333,8 @@ def make_man_l27_38() -> MuzzleDiagramEngine:
         min_engine_rpm=480.0,
         power_limit_rpm=power_limit_rpm,
         power_limit_kw=power_limit_kw,
+        prop_curve_rpm=prop_curve_rpm,
+        prop_curve_kw=prop_curve_kw,
         sfoc_rpm=sfoc_rpm,
         sfoc_power_kw=sfoc_power,
         sfoc_table=sfoc_table,
