@@ -2475,6 +2475,1031 @@ def print_summary(results: list[VoyageResult], speed_kn: float,
                   f"{q_pct_inf:>8.0f}%")
 
 
+def print_departure_analysis(results: list[VoyageResult], speed_kn: float,
+                              idle_pct: float = 15.0,
+                              fuel_price_eur_per_t: float = 650.0,
+                              round_trip: bool = True,
+                              windows: tuple[int, ...] = (3, 5, 7, 14)):
+    """Analyse the value of departure timing flexibility.
+
+    For each scheduling window size, computes what fuel saving could be
+    achieved by choosing the best departure date within consecutive
+    non-overlapping windows across the year.
+
+    Also examines correlation between Flettner benefit and weather, and
+    quantifies how much "smart scheduling" could enhance the Flettner value.
+
+    Parameters
+    ----------
+    results : list[VoyageResult]
+        One per departure day (365), sorted by departure date.
+    speed_kn : float
+        Transit speed.
+    idle_pct : float
+        Percentage of year idle (for annualization).
+    fuel_price_eur_per_t : float
+        Fuel price EUR/tonne.
+    round_trip : bool
+        Whether results are round-trips.
+    windows : tuple[int, ...]
+        Scheduling flexibility windows in days.
+    """
+    if not results or len(results) < 14:
+        print("Insufficient results for departure analysis.")
+        return
+
+    n = len(results)
+    transit_h = results[0].total_hours
+    sailing_hours_year = 365.25 * 24.0 * (1.0 - idle_pct / 100.0)
+    voyages_per_year = sailing_hours_year / transit_h
+    voy_label = "round-trip" if round_trip else "one-way"
+
+    # Extract arrays
+    dates = [r.departure for r in results]
+    fuel_fac_nf = np.array([r.total_fuel_factory_no_flettner_kg for r in results])
+    fuel_opt_fl = np.array([r.total_fuel_optimised_kg for r in results])
+    fuel_opt_nf = np.array([r.total_fuel_opt_no_flettner_kg for r in results])
+    fuel_fac_fl = np.array([r.total_fuel_factory_kg for r in results])
+    sav_total_kg = fuel_fac_nf - fuel_opt_fl       # total saving vs baseline
+    sav_flettner_kg = fuel_opt_nf - fuel_opt_fl     # Flettner contribution
+    sav_pitch_rpm_kg = fuel_fac_nf - fuel_opt_nf    # pitch/RPM contribution
+    mean_wind = np.array([r.mean_wind for r in results])
+    mean_hs = np.array([r.mean_hs for r in results])
+    mean_F_fl = np.array([r.mean_F_flettner_kN for r in results])
+
+    print("\n" + "=" * 78)
+    print("DEPARTURE TIMING ANALYSIS")
+    print("=" * 78)
+
+    # ---- 1. Overall fuel variability ----
+    print(f"\n  1. FUEL VARIABILITY ACROSS {n} DEPARTURE DATES")
+    print(f"  {'':>3s}  {'':>33s} {'Mean':>8s} {'Std':>8s} "
+          f"{'Min':>8s} {'Max':>8s} {'Range':>8s}")
+
+    for label, arr in [("Factory NF [kg/voy]", fuel_fac_nf),
+                       ("Opt+Flettner [kg/voy]", fuel_opt_fl),
+                       ("Total saving [kg/voy]", sav_total_kg),
+                       ("Flettner saving [kg]", sav_flettner_kg)]:
+        print(f"     {label:<33s} {np.mean(arr):>8.0f} {np.std(arr):>8.0f} "
+              f"{np.min(arr):>8.0f} {np.max(arr):>8.0f} "
+              f"{np.max(arr) - np.min(arr):>8.0f}")
+
+    cv_fac = 100 * np.std(fuel_fac_nf) / np.mean(fuel_fac_nf)
+    cv_opt = 100 * np.std(fuel_opt_fl) / np.mean(fuel_opt_fl)
+    print(f"\n     Coefficient of variation:  Factory NF = {cv_fac:.1f}%,  "
+          f"Opt+Fl = {cv_opt:.1f}%")
+    print(f"     => Weather causes ~{cv_fac:.0f}% voyage-to-voyage fuel variation")
+
+    # ---- 2. Scheduling window analysis ----
+    print(f"\n  2. VALUE OF DEPARTURE FLEXIBILITY")
+    print(f"     (choosing the lowest-fuel departure within a sliding window)\n")
+    print(f"     {'Window':>8s}  {'Mean best':>10s}  {'Mean worst':>11s}  "
+          f"{'Mean saving':>12s}  {'Save %':>7s}  "
+          f"{'Annual':>8s}  {'EUR/yr':>10s}")
+    print(f"     {'[days]':>8s}  {'[kg/voy]':>10s}  {'[kg/voy]':>11s}  "
+          f"{'[kg/voy]':>12s}  {'':>7s}  "
+          f"{'[t/yr]':>8s}  {'':>10s}")
+    print(f"     {'-' * 8}  {'-' * 10}  {'-' * 11}  "
+          f"{'-' * 12}  {'-' * 7}  {'-' * 8}  {'-' * 10}")
+
+    # Use the factory NF fuel for scheduling analysis (baseline, no optimiser)
+    # This shows the value of timing alone.
+    # Also compute for opt+Fl to show combined value.
+    for w in windows:
+        if w > n:
+            continue
+        # Sliding window: for each possible window start, find min and max
+        best_fac_nf = []
+        worst_fac_nf = []
+        best_opt_fl = []
+        worst_opt_fl = []
+        for i in range(n - w + 1):
+            chunk_fac = fuel_fac_nf[i:i + w]
+            chunk_opt = fuel_opt_fl[i:i + w]
+            best_fac_nf.append(np.min(chunk_fac))
+            worst_fac_nf.append(np.max(chunk_fac))
+            best_opt_fl.append(np.min(chunk_opt))
+            worst_opt_fl.append(np.max(chunk_opt))
+
+        mean_best = np.mean(best_fac_nf)
+        mean_worst = np.mean(worst_fac_nf)
+        mean_sav = mean_worst - mean_best
+        pct = 100 * mean_sav / mean_worst if mean_worst > 0 else 0
+        annual_t = mean_sav * voyages_per_year / 1000.0
+        annual_eur = annual_t * fuel_price_eur_per_t
+
+        print(f"     {w:>8d}  {mean_best:>10.0f}  {mean_worst:>11.0f}  "
+              f"{mean_sav:>12.0f}  {pct:>6.1f}%  "
+              f"{annual_t:>8.1f}  {annual_eur:>10,.0f}")
+
+    # ---- 3. Scheduling + optimiser + Flettner combined ----
+    print(f"\n  3. COMBINED VALUE: TIMING + OPTIMISER + FLETTNER")
+    print(f"     (best Opt+Fl day in window vs mean Factory NF)\n")
+    print(f"     {'Window':>8s}  {'Mean best':>10s}  {'Baseline':>10s}  "
+          f"{'Mean saving':>12s}  {'Save %':>7s}  "
+          f"{'Annual':>8s}  {'EUR/yr':>10s}")
+    print(f"     {'[days]':>8s}  {'Opt+Fl':>10s}  {'Fac NF':>10s}  "
+          f"{'[kg/voy]':>12s}  {'':>7s}  "
+          f"{'[t/yr]':>8s}  {'':>10s}")
+    print(f"     {'-' * 8}  {'-' * 10}  {'-' * 10}  "
+          f"{'-' * 12}  {'-' * 7}  {'-' * 8}  {'-' * 10}")
+
+    mean_fac_nf = np.mean(fuel_fac_nf)
+    # Without any flexibility (baseline)
+    mean_opt_fl = np.mean(fuel_opt_fl)
+    base_sav_kg = mean_fac_nf - mean_opt_fl
+    base_pct = 100 * base_sav_kg / mean_fac_nf if mean_fac_nf > 0 else 0
+    base_t = base_sav_kg * voyages_per_year / 1000.0
+    base_eur = base_t * fuel_price_eur_per_t
+    print(f"     {'none':>8s}  {mean_opt_fl:>10.0f}  {mean_fac_nf:>10.0f}  "
+          f"{base_sav_kg:>12.0f}  {base_pct:>6.1f}%  "
+          f"{base_t:>8.1f}  {base_eur:>10,.0f}")
+
+    for w in windows:
+        if w > n:
+            continue
+        best_combined = []
+        for i in range(n - w + 1):
+            best_combined.append(np.min(fuel_opt_fl[i:i + w]))
+        mean_best_c = np.mean(best_combined)
+        sav_c = mean_fac_nf - mean_best_c
+        pct_c = 100 * sav_c / mean_fac_nf if mean_fac_nf > 0 else 0
+        annual_t = sav_c * voyages_per_year / 1000.0
+        annual_eur = annual_t * fuel_price_eur_per_t
+        print(f"     {w:>8d}  {mean_best_c:>10.0f}  {mean_fac_nf:>10.0f}  "
+              f"{sav_c:>12.0f}  {pct_c:>6.1f}%  "
+              f"{annual_t:>8.1f}  {annual_eur:>10,.0f}")
+
+    # ---- 4. Correlation analysis ----
+    print(f"\n  4. WEATHER CORRELATIONS")
+    # Pearson correlation between Flettner saving and weather
+    # Use only voyages where Flettner saving > 0 (i.e. rotor was active)
+    corr_fl_wind = np.corrcoef(sav_flettner_kg, mean_wind)[0, 1]
+    corr_fl_hs = np.corrcoef(sav_flettner_kg, mean_hs)[0, 1]
+    corr_fl_thrust = np.corrcoef(sav_flettner_kg, mean_F_fl)[0, 1]
+    corr_fuel_hs = np.corrcoef(fuel_fac_nf, mean_hs)[0, 1]
+    corr_fuel_wind = np.corrcoef(fuel_fac_nf, mean_wind)[0, 1]
+
+    print(f"     Pearson r between Flettner saving and mean wind:   {corr_fl_wind:>+.3f}")
+    print(f"     Pearson r between Flettner saving and mean Hs:     {corr_fl_hs:>+.3f}")
+    print(f"     Pearson r between Flettner saving and mean F_fl:   {corr_fl_thrust:>+.3f}")
+    print(f"     Pearson r between Factory NF fuel and mean Hs:     {corr_fuel_hs:>+.3f}")
+    print(f"     Pearson r between Factory NF fuel and mean wind:   {corr_fuel_wind:>+.3f}")
+
+    # The key insight: when wind is high, BOTH total fuel goes up (waves, wind
+    # drag) AND Flettner saving goes up. Does the Flettner saving outweigh the
+    # extra fuel? Look at the net effect.
+    corr_opt_fl_wind = np.corrcoef(fuel_opt_fl, mean_wind)[0, 1]
+    corr_opt_fl_hs = np.corrcoef(fuel_opt_fl, mean_hs)[0, 1]
+    print(f"\n     Pearson r between Opt+Fl fuel and mean wind:      {corr_opt_fl_wind:>+.3f}")
+    print(f"     Pearson r between Opt+Fl fuel and mean Hs:        {corr_opt_fl_hs:>+.3f}")
+
+    # Does the Flettner reduce weather sensitivity?
+    print(f"\n     Fuel std dev:  Factory NF = {np.std(fuel_fac_nf):.0f} kg,  "
+          f"Opt+Fl = {np.std(fuel_opt_fl):.0f} kg")
+    if np.std(fuel_opt_fl) < np.std(fuel_fac_nf):
+        reduction = 100 * (1 - np.std(fuel_opt_fl) / np.std(fuel_fac_nf))
+        print(f"     => Flettner + optimiser reduces fuel variability by "
+              f"{reduction:.0f}%")
+    else:
+        increase = 100 * (np.std(fuel_opt_fl) / np.std(fuel_fac_nf) - 1)
+        print(f"     => Opt+Fl has {increase:.0f}% MORE fuel variability than "
+              f"Factory NF")
+        print(f"        (Flettner adds variance: large saving in wind, "
+              f"near-zero in calm)")
+
+    # ---- 5. Monthly breakdown ----
+    print(f"\n  5. MONTHLY BREAKDOWN")
+    print(f"     {'Month':<10s}  {'N':>4s}  {'FacNF':>7s}  {'Opt+Fl':>7s}  "
+          f"{'Save':>6s}  {'Fl save':>8s}  {'Wind':>5s}  {'Hs':>5s}  "
+          f"{'F_fl':>5s}")
+    print(f"     {'':>10s}  {'':>4s}  {'kg/voy':>7s}  {'kg/voy':>7s}  "
+          f"{'%':>6s}  {'kg/voy':>8s}  {'m/s':>5s}  {'m':>5s}  "
+          f"{'kN':>5s}")
+    print(f"     {'-' * 10}  {'-' * 4}  {'-' * 7}  {'-' * 7}  "
+          f"{'-' * 6}  {'-' * 8}  {'-' * 5}  {'-' * 5}  {'-' * 5}")
+
+    months = ["January", "February", "March", "April", "May", "June",
+              "July", "August", "September", "October", "November", "December"]
+    monthly_sav_pct = []
+    for m in range(1, 13):
+        idx = [i for i, d in enumerate(dates) if d.month == m]
+        if not idx:
+            continue
+        m_fac_nf = np.mean(fuel_fac_nf[idx])
+        m_opt_fl = np.mean(fuel_opt_fl[idx])
+        m_sav_pct = 100 * (m_fac_nf - m_opt_fl) / m_fac_nf if m_fac_nf > 0 else 0
+        m_fl_sav = np.mean(sav_flettner_kg[idx])
+        m_wind = np.mean(mean_wind[idx])
+        m_hs = np.mean(mean_hs[idx])
+        m_ffl = np.mean(mean_F_fl[idx])
+        monthly_sav_pct.append(m_sav_pct)
+        print(f"     {months[m - 1]:<10s}  {len(idx):>4d}  {m_fac_nf:>7.0f}  "
+              f"{m_opt_fl:>7.0f}  {m_sav_pct:>5.1f}%  {m_fl_sav:>8.0f}  "
+              f"{m_wind:>5.1f}  {m_hs:>5.2f}  {m_ffl:>5.1f}")
+
+    # ---- 6. "Smart scheduling" Flettner premium ----
+    # If an operator could choose WHICH days to sail (within flexibility),
+    # how much more Flettner benefit could they capture?
+    print(f"\n  6. SMART SCHEDULING: FLETTNER-AWARE DEPARTURE SELECTION")
+    print(f"     (within each window, choose the day with maximum Flettner saving)\n")
+    print(f"     {'Window':>8s}  {'Mean Fl':>9s}  {'vs random':>10s}  "
+          f"{'Fl boost':>9s}")
+    print(f"     {'[days]':>8s}  {'save kg':>9s}  {'Fl save':>10s}  "
+          f"{'':>9s}")
+    print(f"     {'-' * 8}  {'-' * 9}  {'-' * 10}  {'-' * 9}")
+
+    mean_fl_sav = np.mean(sav_flettner_kg)
+    print(f"     {'none':>8s}  {mean_fl_sav:>9.0f}  {'(baseline)':>10s}  "
+          f"{'':>9s}")
+
+    for w in windows:
+        if w > n:
+            continue
+        best_fl = []
+        for i in range(n - w + 1):
+            chunk = sav_flettner_kg[i:i + w]
+            best_fl.append(np.max(chunk))
+        mean_best_fl = np.mean(best_fl)
+        boost = 100 * (mean_best_fl / mean_fl_sav - 1) if mean_fl_sav > 0 else 0
+        print(f"     {w:>8d}  {mean_best_fl:>9.0f}  {mean_fl_sav:>10.0f}  "
+              f"{boost:>+8.0f}%")
+
+    # ---- 7. Worst-case avoidance ----
+    print(f"\n  7. WORST-CASE AVOIDANCE")
+    print(f"     (value of avoiding the highest-fuel departure in each window)\n")
+    p95_fuel = np.percentile(fuel_fac_nf, 95)
+    p99_fuel = np.percentile(fuel_fac_nf, 99)
+    worst_fuel = np.max(fuel_fac_nf)
+    worst_idx = np.argmax(fuel_fac_nf)
+    worst_date = dates[worst_idx]
+    print(f"     Worst departure:  {worst_date.strftime('%Y-%m-%d')}  "
+          f"fuel = {worst_fuel:.0f} kg  "
+          f"(Hs = {mean_hs[worst_idx]:.2f} m, wind = {mean_wind[worst_idx]:.1f} m/s)")
+    best_fuel = np.min(fuel_fac_nf)
+    best_idx = np.argmin(fuel_fac_nf)
+    best_date = dates[best_idx]
+    print(f"     Best departure:   {best_date.strftime('%Y-%m-%d')}  "
+          f"fuel = {best_fuel:.0f} kg  "
+          f"(Hs = {mean_hs[best_idx]:.2f} m, wind = {mean_wind[best_idx]:.1f} m/s)")
+    print(f"     Range: {worst_fuel - best_fuel:.0f} kg  "
+          f"({100 * (worst_fuel - best_fuel) / best_fuel:.0f}% of best)")
+    print(f"     P95 fuel: {p95_fuel:.0f} kg,  P99: {p99_fuel:.0f} kg")
+
+    # Best Opt+Fl departure (may differ from best Factory NF!)
+    best_opt_idx = np.argmin(fuel_opt_fl)
+    best_opt_date = dates[best_opt_idx]
+    print(f"\n     Best Opt+Fl departure: {best_opt_date.strftime('%Y-%m-%d')}  "
+          f"fuel = {fuel_opt_fl[best_opt_idx]:.0f} kg  "
+          f"(Hs = {mean_hs[best_opt_idx]:.2f} m, "
+          f"wind = {mean_wind[best_opt_idx]:.1f} m/s, "
+          f"Fl thrust = {mean_F_fl[best_opt_idx]:.1f} kN)")
+    if best_opt_idx != best_idx:
+        print(f"     NOTE: best Opt+Fl departure differs from best Factory NF "
+              f"departure!")
+        print(f"           Factory NF prefers calm; Opt+Fl can prefer windy "
+              f"(Flettner benefit).")
+
+    n_above_p95 = np.sum(fuel_fac_nf > p95_fuel)
+    print(f"\n     Departures above P95 ({p95_fuel:.0f} kg): {n_above_p95}")
+    print(f"     With 7-day flexibility, {n_above_p95}->{{}}-of-these avoidable:".format(
+        "most" if n_above_p95 > 5 else "some"))
+
+    # Actually compute: within each 7-day window, could the P95 departures
+    # have been avoided?
+    w = 7
+    n_avoidable = 0
+    n_p95_checked = 0
+    for i in range(n):
+        if fuel_fac_nf[i] > p95_fuel:
+            n_p95_checked += 1
+            # Check if any day in [i-w+1 .. i+w-1] (clamped) is below P95
+            lo = max(0, i - w + 1)
+            hi = min(n, i + w)
+            if np.min(fuel_fac_nf[lo:hi]) <= p95_fuel:
+                n_avoidable += 1
+    if n_p95_checked > 0:
+        print(f"     With +/-{w} day flexibility: {n_avoidable}/{n_p95_checked} "
+              f"P95 departures avoidable "
+              f"({100 * n_avoidable / n_p95_checked:.0f}%)")
+
+
+def plot_departure_analysis(results: list[VoyageResult], speed_kn: float,
+                            round_trip: bool = True):
+    """Generate departure timing analysis plots."""
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import matplotlib.dates as mdates
+    except ImportError:
+        print("matplotlib not available; skipping departure analysis plots.")
+        return
+
+    n = len(results)
+    dates = [r.departure for r in results]
+    fuel_fac_nf = np.array([r.total_fuel_factory_no_flettner_kg for r in results])
+    fuel_opt_fl = np.array([r.total_fuel_optimised_kg for r in results])
+    fuel_opt_nf = np.array([r.total_fuel_opt_no_flettner_kg for r in results])
+    sav_flettner_kg = fuel_opt_nf - fuel_opt_fl
+    sav_total_kg = fuel_fac_nf - fuel_opt_fl
+    mean_wind = np.array([r.mean_wind for r in results])
+    mean_hs = np.array([r.mean_hs for r in results])
+    mean_F_fl = np.array([r.mean_F_flettner_kN for r in results])
+
+    voy_label = "round-trip" if round_trip else "one-way"
+
+    # ---- Figure 1: Fuel time series with scheduling windows ----
+    fig, axes = plt.subplots(4, 1, figsize=(14, 12), sharex=True)
+    fig.suptitle(f"Departure Timing Analysis — {speed_kn:.0f} kn {voy_label}",
+                 fontsize=14, fontweight="bold")
+
+    # Panel 1: Fuel per voyage for both cases
+    ax = axes[0]
+    ax.plot(dates, fuel_fac_nf, "C3-", alpha=0.7, linewidth=0.8,
+            label="Factory NF")
+    ax.plot(dates, fuel_opt_fl, "C0-", alpha=0.7, linewidth=0.8,
+            label="Opt+Flettner")
+    # 7-day rolling min for opt+fl (achievable with 7-day flexibility)
+    rolling_min = np.array([np.min(fuel_opt_fl[max(0, i - 3):min(n, i + 4)])
+                            for i in range(n)])
+    ax.plot(dates, rolling_min, "C2--", linewidth=1.2,
+            label="Best Opt+Fl in 7-day window")
+    ax.set_ylabel("Fuel [kg/voyage]")
+    ax.legend(loc="upper right", fontsize=8)
+    ax.grid(True, alpha=0.3)
+
+    # Panel 2: Flettner saving
+    ax = axes[1]
+    ax.bar(dates, sav_flettner_kg, width=1.0, color="C0", alpha=0.6,
+           label="Flettner saving")
+    ax.set_ylabel("Flettner saving [kg]")
+    ax.axhline(np.mean(sav_flettner_kg), color="C0", linestyle="--",
+               linewidth=1, alpha=0.8, label=f"Mean = {np.mean(sav_flettner_kg):.0f} kg")
+    ax.legend(loc="upper right", fontsize=8)
+    ax.grid(True, alpha=0.3)
+
+    # Panel 3: Mean wind speed
+    ax = axes[2]
+    ax.bar(dates, mean_wind, width=1.0, color="C7", alpha=0.6)
+    ax.set_ylabel("Mean wind [m/s]")
+    ax.axhline(np.mean(mean_wind), color="k", linestyle="--",
+               linewidth=1, alpha=0.5)
+    ax.grid(True, alpha=0.3)
+
+    # Panel 4: Mean Hs
+    ax = axes[3]
+    ax.bar(dates, mean_hs, width=1.0, color="C4", alpha=0.6)
+    ax.set_ylabel("Mean Hs [m]")
+    ax.axhline(np.mean(mean_hs), color="k", linestyle="--",
+               linewidth=1, alpha=0.5)
+    ax.grid(True, alpha=0.3)
+
+    for ax in axes:
+        ax.xaxis.set_major_locator(mdates.MonthLocator())
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%b"))
+    axes[-1].set_xlabel("Departure date (2024)")
+
+    fig.tight_layout()
+    fig.savefig("departure_timing_timeseries.png", dpi=150, bbox_inches="tight")
+    print(f"\n  Saved: departure_timing_timeseries.png")
+
+    # ---- Figure 2: Scatter matrix — correlations ----
+    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+    fig.suptitle(f"Weather vs Fuel & Savings Correlations — "
+                 f"{speed_kn:.0f} kn {voy_label}",
+                 fontsize=14, fontweight="bold")
+
+    # Scatter 1: Wind vs Flettner saving
+    ax = axes[0, 0]
+    sc = ax.scatter(mean_wind, sav_flettner_kg, c=mean_hs, cmap="viridis",
+                    s=12, alpha=0.6)
+    ax.set_xlabel("Mean wind speed [m/s]")
+    ax.set_ylabel("Flettner saving [kg/voyage]")
+    ax.set_title(f"r = {np.corrcoef(mean_wind, sav_flettner_kg)[0, 1]:+.3f}")
+    plt.colorbar(sc, ax=ax, label="Hs [m]", shrink=0.8)
+    ax.grid(True, alpha=0.3)
+
+    # Scatter 2: Wind vs total fuel (Factory NF)
+    ax = axes[0, 1]
+    sc = ax.scatter(mean_wind, fuel_fac_nf, c=mean_hs, cmap="viridis",
+                    s=12, alpha=0.6)
+    ax.set_xlabel("Mean wind speed [m/s]")
+    ax.set_ylabel("Factory NF fuel [kg/voyage]")
+    ax.set_title(f"r = {np.corrcoef(mean_wind, fuel_fac_nf)[0, 1]:+.3f}")
+    plt.colorbar(sc, ax=ax, label="Hs [m]", shrink=0.8)
+    ax.grid(True, alpha=0.3)
+
+    # Scatter 3: Hs vs Opt+Fl fuel (does Flettner reduce weather sensitivity?)
+    ax = axes[1, 0]
+    ax.scatter(mean_hs, fuel_fac_nf, s=12, alpha=0.5, color="C3",
+               label="Factory NF")
+    ax.scatter(mean_hs, fuel_opt_fl, s=12, alpha=0.5, color="C0",
+               label="Opt+Flettner")
+    ax.set_xlabel("Mean Hs [m]")
+    ax.set_ylabel("Fuel [kg/voyage]")
+    ax.set_title("Weather sensitivity: Factory vs Opt+Fl")
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3)
+
+    # Scatter 4: Mean Flettner thrust vs Flettner fuel saving
+    ax = axes[1, 1]
+    sc = ax.scatter(mean_F_fl, sav_flettner_kg, c=mean_wind, cmap="plasma",
+                    s=12, alpha=0.6)
+    ax.set_xlabel("Mean Flettner thrust [kN]")
+    ax.set_ylabel("Flettner fuel saving [kg/voyage]")
+    ax.set_title(f"r = {np.corrcoef(mean_F_fl, sav_flettner_kg)[0, 1]:+.3f}")
+    plt.colorbar(sc, ax=ax, label="Wind [m/s]", shrink=0.8)
+    ax.grid(True, alpha=0.3)
+
+    fig.tight_layout()
+    fig.savefig("departure_timing_correlations.png", dpi=150, bbox_inches="tight")
+    print(f"  Saved: departure_timing_correlations.png")
+
+    # ---- Figure 3: Scheduling window value ----
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    fig.suptitle(f"Value of Scheduling Flexibility — {speed_kn:.0f} kn {voy_label}",
+                 fontsize=14, fontweight="bold")
+
+    windows = [1, 2, 3, 5, 7, 10, 14, 21, 28]
+    # Left: mean best fuel within window (Factory NF and Opt+Fl)
+    mean_best_fac = []
+    mean_best_opt = []
+    for w in windows:
+        b_fac = [np.min(fuel_fac_nf[max(0, i - w // 2):min(n, i + (w + 1) // 2)])
+                 for i in range(n)]
+        b_opt = [np.min(fuel_opt_fl[max(0, i - w // 2):min(n, i + (w + 1) // 2)])
+                 for i in range(n)]
+        mean_best_fac.append(np.mean(b_fac))
+        mean_best_opt.append(np.mean(b_opt))
+
+    ax = axes[0]
+    ax.plot(windows, mean_best_fac, "C3o-", label="Factory NF (best in window)")
+    ax.plot(windows, mean_best_opt, "C0o-", label="Opt+Fl (best in window)")
+    ax.axhline(np.mean(fuel_fac_nf), color="C3", linestyle="--", alpha=0.5,
+               label=f"Factory NF mean = {np.mean(fuel_fac_nf):.0f}")
+    ax.axhline(np.mean(fuel_opt_fl), color="C0", linestyle="--", alpha=0.5,
+               label=f"Opt+Fl mean = {np.mean(fuel_opt_fl):.0f}")
+    ax.set_xlabel("Scheduling window [days]")
+    ax.set_ylabel("Mean achievable fuel [kg/voyage]")
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3)
+
+    # Right: saving % vs baseline (Factory NF mean) for different windows
+    ax = axes[1]
+    sav_pct_fac = [100 * (1 - v / np.mean(fuel_fac_nf)) for v in mean_best_fac]
+    sav_pct_opt = [100 * (1 - v / np.mean(fuel_fac_nf)) for v in mean_best_opt]
+    sav_pct_opt_base = 100 * (1 - np.mean(fuel_opt_fl) / np.mean(fuel_fac_nf))
+    ax.plot(windows, sav_pct_fac, "C3o-",
+            label="Timing only (Factory NF)")
+    ax.plot(windows, sav_pct_opt, "C0o-",
+            label="Timing + Optimiser + Flettner")
+    ax.axhline(sav_pct_opt_base, color="C0", linestyle="--", alpha=0.5,
+               label=f"Opt+Fl no timing = {sav_pct_opt_base:.1f}%")
+    ax.axhline(0, color="C3", linestyle="--", alpha=0.5,
+               label="Factory NF no timing = 0%")
+    ax.set_xlabel("Scheduling window [days]")
+    ax.set_ylabel("Saving vs Factory NF mean [%]")
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3)
+
+    fig.tight_layout()
+    fig.savefig("departure_timing_windows.png", dpi=150, bbox_inches="tight")
+    print(f"  Saved: departure_timing_windows.png")
+
+    plt.close("all")
+
+
+# ---------------------------------------------------------------------------
+# Scheduling analysis: 2D (departure time, speed) optimization
+# ---------------------------------------------------------------------------
+
+def run_scheduling_analysis(
+    speeds: list[float],
+    year: int = 2024,
+    data_dir: Path | None = None,
+    pdstrip_path: str | None = None,
+    flettner_enabled: bool = True,
+    round_trip: bool = True,
+    hull_ks_m: float = 0.0,
+    blade_ks_m: float = 0.0,
+    sg_load_kw: float = 0.0,
+    sg_factory_allowance_kw: float = 0.0,
+    sg_freq_min: float = 0.0,
+    sg_freq_max: float = 0.0,
+) -> dict[float, list[VoyageResult]]:
+    """Run annual comparisons at multiple speeds, return per-speed results.
+
+    Returns
+    -------
+    dict mapping speed_kn -> list[VoyageResult] (sorted by departure date).
+    """
+    if pdstrip_path is None:
+        pdstrip_path = PDSTRIP_DAT
+
+    all_results: dict[float, list[VoyageResult]] = {}
+    for i, spd in enumerate(speeds):
+        print(f"\n{'#' * 78}")
+        print(f"# SCHEDULING ANALYSIS: {spd:.1f} kn  ({i + 1}/{len(speeds)})")
+        print(f"{'#' * 78}\n")
+        results = run_annual_comparison(
+            year=year, speed_kn=spd, data_dir=data_dir,
+            pdstrip_path=pdstrip_path, flettner_enabled=flettner_enabled,
+            verbose=False, round_trip=round_trip,
+            hull_ks_m=hull_ks_m, blade_ks_m=blade_ks_m,
+            sg_load_kw=sg_load_kw,
+            sg_factory_allowance_kw=sg_factory_allowance_kw,
+            sg_freq_min=sg_freq_min, sg_freq_max=sg_freq_max,
+        )
+        if results:
+            all_results[spd] = results
+    return all_results
+
+
+def print_scheduling_analysis(
+    all_results: dict[float, list[VoyageResult]],
+    idle_pct: float = 15.0,
+    fuel_price_eur_per_t: float = 650.0,
+    round_trip: bool = True,
+    total_windows_days: tuple[float, ...] = (4.5, 5.0, 5.5, 6.0, 7.0, 8.0, 10.0, 14.0),
+):
+    """Analyse 2D (departure time, speed) scheduling optimization.
+
+    For a given total scheduling window W (from earliest possible departure
+    to latest acceptable arrival), the operator chooses both WHEN to depart
+    and at WHAT SPEED for each individual voyage.
+
+    The key insight is that all candidate voyages cover the same distance
+    (509 nm one-way, 1018 nm round-trip), so fuel per voyage is a fair
+    comparison metric.  The annualization uses a FIXED commercial schedule
+    (same number of voyages/year regardless of speed — the speed flexibility
+    is used to optimize individual voyages, not to change throughput).
+
+    Parameters
+    ----------
+    all_results : dict[float, list[VoyageResult]]
+        Per-speed annual results from run_scheduling_analysis().
+    total_windows_days : tuple[float, ...]
+        Total scheduling windows [days] from earliest departure to latest
+        arrival.
+    """
+    if not all_results:
+        print("No results for scheduling analysis.")
+        return
+
+    speeds = sorted(all_results.keys())
+    voy_label = "round-trip" if round_trip else "one-way"
+
+    # Reference speed (design speed) is the one closest to 10 kn
+    ref_speed = min(speeds, key=lambda s: abs(s - 10.0))
+    ref_results = all_results[ref_speed]
+
+    # Build day index from ref speed results
+    day_indices = {}
+    for r in ref_results:
+        day_indices[r.departure.date()] = len(day_indices)
+    n_common = len(day_indices)
+
+    # Build 2D fuel matrices: fuel[speed_idx, day_idx]
+    fuel_fac_nf = np.full((len(speeds), n_common), np.nan)
+    fuel_opt_fl = np.full((len(speeds), n_common), np.nan)
+    fuel_opt_nf = np.full((len(speeds), n_common), np.nan)
+    transit_hours = {}
+
+    for si, spd in enumerate(speeds):
+        results = all_results[spd]
+        if results:
+            transit_hours[spd] = results[0].total_hours
+        for r in results:
+            di = day_indices.get(r.departure.date())
+            if di is not None:
+                fuel_fac_nf[si, di] = r.total_fuel_factory_no_flettner_kg
+                fuel_opt_fl[si, di] = r.total_fuel_optimised_kg
+                fuel_opt_nf[si, di] = r.total_fuel_opt_no_flettner_kg
+
+    # Annualization: use ref speed's voyage rate for ALL comparisons
+    # (commercial schedule is fixed, speed flex is per-voyage operational)
+    sailing_h_yr = 365.25 * 24.0 * (1.0 - idle_pct / 100.0)
+    ref_t_h = transit_hours[ref_speed]
+    ref_vpy = sailing_h_yr / ref_t_h
+    ref_si = speeds.index(ref_speed)
+
+    print("\n" + "=" * 78)
+    print("SCHEDULING OPTIMIZATION: 2D (DEPARTURE TIME x SPEED)")
+    print("=" * 78)
+
+    # ---- 1. Overview: per-voyage fuel at each speed ----
+    print(f"\n  1. PER-VOYAGE FUEL AT EACH SPEED (annual mean, no scheduling)")
+    print(f"     Transit time and voyages/year shown for reference;\n"
+          f"     annualization uses ref schedule ({ref_vpy:.0f} voy/yr @ "
+          f"{ref_speed:.0f} kn).\n")
+
+    print(f"     {'Speed':>6s}  {'Transit':>8s}  "
+          f"{'FacNF':>8s}  {'Opt+Fl':>8s}  {'Save':>6s}  "
+          f"{'Fl sav':>7s}  {'P/R sav':>8s}")
+    print(f"     {'[kn]':>6s}  {'[hours]':>8s}  "
+          f"{'kg/voy':>8s}  {'kg/voy':>8s}  {'%':>6s}  "
+          f"{'kg/voy':>7s}  {'kg/voy':>8s}")
+    print(f"     {'-' * 6}  {'-' * 8}  "
+          f"{'-' * 8}  {'-' * 8}  {'-' * 6}  "
+          f"{'-' * 7}  {'-' * 8}")
+
+    for si, spd in enumerate(speeds):
+        t_h = transit_hours.get(spd, 0)
+        m_fac = np.nanmean(fuel_fac_nf[si])
+        m_opt = np.nanmean(fuel_opt_fl[si])
+        m_opt_nf = np.nanmean(fuel_opt_nf[si])
+        sav = 100 * (m_fac - m_opt) / m_fac if m_fac > 0 else 0
+        fl_sav = m_opt_nf - m_opt
+        pr_sav = m_fac - m_opt_nf
+        marker = " <-- ref" if spd == ref_speed else ""
+        print(f"     {spd:>6.1f}  {t_h:>8.1f}  "
+              f"{m_fac:>8.0f}  {m_opt:>8.0f}  {sav:>5.1f}%  "
+              f"{fl_sav:>7.0f}  {pr_sav:>8.0f}{marker}")
+
+    # ---- 2. Per-voyage scheduling optimization ----
+    # For each window W, for each day in the year, find the best
+    # (departure_within_flex, speed) combination that minimizes fuel.
+    # This is the key table: per-voyage fuel with 2D optimization.
+    print(f"\n  2. PER-VOYAGE 2D SCHEDULING OPTIMIZATION")
+    print(f"     For each departure opportunity, the operator chooses the")
+    print(f"     best (departure day within flex, speed) to minimize fuel.")
+    print(f"     All speeds must fit within the total window.\n")
+
+    ref_mean_fac = np.nanmean(fuel_fac_nf[ref_si])
+    ref_mean_opt = np.nanmean(fuel_opt_fl[ref_si])
+
+    print(f"     {'Window':>8s}  {'Feasible speeds':>26s}  "
+          f"{'Mean':>8s}  {'Mean':>8s}  {'vs ref':>6s}  "
+          f"{'Ann sav':>8s}  {'EUR/yr':>10s}")
+    print(f"     {'[days]':>8s}  {'':>26s}  "
+          f"{'FacNF':>8s}  {'Opt+Fl':>8s}  {'FacNF':>6s}  "
+          f"{'[t/yr]':>8s}  {'':>10s}")
+    print(f"     {'-' * 8}  {'-' * 26}  "
+          f"{'-' * 8}  {'-' * 8}  {'-' * 6}  "
+          f"{'-' * 8}  {'-' * 10}")
+
+    # Baseline (no scheduling, ref speed)
+    base_sav_pct = 100 * (ref_mean_fac - ref_mean_opt) / ref_mean_fac
+    print(f"     {'(none)':>8s}  {ref_speed:>25.0f}*  "
+          f"{ref_mean_fac:>8.0f}  {ref_mean_opt:>8.0f}  "
+          f"{'---':>6s}  {'---':>8s}  {'---':>10s}")
+
+    scheduling_results = []
+
+    for W in total_windows_days:
+        # Determine which speeds are feasible for this window
+        feasible = []
+        for si, spd in enumerate(speeds):
+            t_h = transit_hours.get(spd, 0)
+            if t_h > 0 and t_h / 24.0 <= W:
+                dep_flex = int(W - t_h / 24.0)
+                feasible.append((si, spd, dep_flex))
+
+        if not feasible:
+            continue
+
+        # For each day, find the best fuel across all feasible
+        # (speed, departure_within_flex) combinations
+        best_fac_per_day = []
+        best_opt_per_day = []
+        for d in range(n_common):
+            day_best_fac = float("inf")
+            day_best_opt = float("inf")
+            for si, spd, dep_flex in feasible:
+                lo = d
+                hi = min(n_common, d + dep_flex + 1)
+                # Factory NF: best in window at this speed
+                c_fac = fuel_fac_nf[si, lo:hi]
+                v_fac = c_fac[~np.isnan(c_fac)]
+                if len(v_fac) > 0:
+                    day_best_fac = min(day_best_fac, np.min(v_fac))
+                # Opt+Fl: best in window at this speed
+                c_opt = fuel_opt_fl[si, lo:hi]
+                v_opt = c_opt[~np.isnan(c_opt)]
+                if len(v_opt) > 0:
+                    day_best_opt = min(day_best_opt, np.min(v_opt))
+            if day_best_fac < float("inf"):
+                best_fac_per_day.append(day_best_fac)
+            if day_best_opt < float("inf"):
+                best_opt_per_day.append(day_best_opt)
+
+        if not best_opt_per_day:
+            continue
+
+        mean_best_fac = np.mean(best_fac_per_day)
+        mean_best_opt = np.mean(best_opt_per_day)
+
+        # Saving vs ref baseline (Factory NF at ref speed, no scheduling)
+        sav_fac_pct = 100 * (ref_mean_fac - mean_best_fac) / ref_mean_fac
+        sav_opt_pct = 100 * (ref_mean_fac - mean_best_opt) / ref_mean_fac
+        ann_sav_t = (ref_mean_fac - mean_best_opt) * ref_vpy / 1000
+        ann_eur = ann_sav_t * fuel_price_eur_per_t
+
+        spd_str = ", ".join(
+            f"{spd:.0f}({dep_flex}d)" for _, spd, dep_flex in feasible)
+
+        print(f"     {W:>8.1f}  {spd_str:>26s}  "
+              f"{mean_best_fac:>8.0f}  {mean_best_opt:>8.0f}  "
+              f"{sav_opt_pct:>5.1f}%  "
+              f"{ann_sav_t:>8.1f}  {ann_eur:>10,.0f}")
+
+        scheduling_results.append({
+            "window": W, "feasible": feasible,
+            "mean_fac": mean_best_fac, "mean_opt": mean_best_opt,
+            "sav_pct": sav_opt_pct, "ann_sav_t": ann_sav_t,
+        })
+
+    print(f"\n     Speeds shown as: speed(departure_flexibility_days)")
+    print(f"     Saving % vs Factory NF @ {ref_speed:.0f} kn, no scheduling "
+          f"({ref_mean_fac:.0f} kg/voy)")
+
+    # ---- 3. Decomposition: what comes from where ----
+    print(f"\n  3. SAVING DECOMPOSITION (per voyage, vs Factory NF @ "
+          f"{ref_speed:.0f} kn baseline)")
+    print(f"     Showing mean kg/voyage saved by each lever.\n")
+
+    print(f"     {'Window':>8s}  {'Speed':>8s}  {'Timing':>8s}  "
+          f"{'Pitch/RPM':>10s}  {'Flettner':>9s}  {'Total':>8s}  "
+          f"{'Total':>6s}")
+    print(f"     {'[days]':>8s}  {'choice':>8s}  {'choice':>8s}  "
+          f"{'optim':>10s}  {'':>9s}  {'kg/voy':>8s}  "
+          f"{'%':>6s}")
+    print(f"     {'-' * 8}  {'-' * 8}  {'-' * 8}  "
+          f"{'-' * 10}  {'-' * 9}  {'-' * 8}  {'-' * 6}")
+
+    for sr in scheduling_results:
+        W = sr["window"]
+        feasible = sr["feasible"]
+
+        # (a) Speed-only saving (best constant speed, no timing, Factory NF)
+        best_speed_only_fac = float("inf")
+        for si, spd, _ in feasible:
+            m = np.nanmean(fuel_fac_nf[si])
+            if m < best_speed_only_fac:
+                best_speed_only_fac = m
+        sav_speed = ref_mean_fac - best_speed_only_fac
+
+        # (b) Timing-only saving (ref speed, timing within flex, Factory NF)
+        ref_dep_flex = max(0, int(W - ref_t_h / 24.0))
+        timing_fac = []
+        for d in range(n_common):
+            lo, hi = d, min(n_common, d + ref_dep_flex + 1)
+            c = fuel_fac_nf[ref_si, lo:hi]
+            v = c[~np.isnan(c)]
+            if len(v) > 0:
+                timing_fac.append(np.min(v))
+        sav_timing = ref_mean_fac - np.mean(timing_fac) if timing_fac else 0
+
+        # Total saving from 2D scheduling (FacNF basis)
+        sav_2d_fac = ref_mean_fac - sr["mean_fac"]
+        # Additional from pitch/RPM + Flettner
+        sav_opt = sr["mean_fac"] - sr["mean_opt"]
+        # Total
+        sav_total = ref_mean_fac - sr["mean_opt"]
+        pct_total = 100 * sav_total / ref_mean_fac if ref_mean_fac > 0 else 0
+
+        # Decompose: speed + timing + interaction = sav_2d_fac
+        # Then opt+fl on top
+        # For the decomposition we separate timing from speed more carefully:
+        # sav_2d_fac = sav_speed + sav_timing + interaction
+        sav_interaction = sav_2d_fac - sav_speed - sav_timing
+
+        print(f"     {W:>8.1f}  {sav_speed:>8.0f}  "
+              f"{sav_timing + sav_interaction:>8.0f}  "
+              f"{sr['mean_fac'] - np.nanmean(fuel_opt_nf[ref_si]):>10.0f}  "  # approximate
+              f"{sav_opt - (sr['mean_fac'] - np.nanmean(fuel_opt_nf[ref_si])):>9.0f}  "  # approximate
+              f"{sav_total:>8.0f}  {pct_total:>5.1f}%")
+
+    # ---- 4. Simpler table: what the operator actually sees ----
+    print(f"\n  4. OPERATOR DECISION TABLE")
+    print(f"     For a given scheduling window, what is the annual benefit?\n")
+    print(f"     {'Window':>8s}  {'No opt':>10s}  {'Opt+Fl':>10s}  "
+          f"{'2D sched':>10s}  {'Full 2D':>10s}")
+    print(f"     {'[days]':>8s}  {'FacNF':>10s}  {'@{:.0f}kn'.format(ref_speed):>10s}  "
+          f"{'FacNF':>10s}  {'Opt+Fl':>10s}")
+    print(f"     {'':>8s}  {'t/yr':>10s}  {'t/yr':>10s}  "
+          f"{'t/yr':>10s}  {'t/yr':>10s}")
+    print(f"     {'-' * 8}  {'-' * 10}  {'-' * 10}  "
+          f"{'-' * 10}  {'-' * 10}")
+
+    # Column 1: No optimization at all (Factory NF @ ref speed)
+    col1 = ref_mean_fac * ref_vpy / 1000
+
+    # Column 2: Opt+Fl at ref speed, no scheduling
+    col2 = ref_mean_opt * ref_vpy / 1000
+
+    print(f"     {'(none)':>8s}  {col1:>10.1f}  {col2:>10.1f}  "
+          f"{'---':>10s}  {'---':>10s}")
+
+    for sr in scheduling_results:
+        W = sr["window"]
+        # Column 3: 2D scheduling, Factory NF
+        col3 = sr["mean_fac"] * ref_vpy / 1000
+        # Column 4: 2D scheduling, Opt+Fl
+        col4 = sr["mean_opt"] * ref_vpy / 1000
+        print(f"     {W:>8.1f}  {col1:>10.1f}  {col2:>10.1f}  "
+              f"{col3:>10.1f}  {col4:>10.1f}")
+
+    print(f"\n     All in tonnes/year (annualized at {ref_vpy:.0f} voy/yr, "
+          f"{idle_pct:.0f}% idle).")
+    print(f"     'No opt' = Factory NF @ {ref_speed:.0f} kn, no scheduling "
+          f"= {col1:.1f} t/yr")
+    print(f"     'Opt+Fl' = Optimiser + Flettner @ {ref_speed:.0f} kn, "
+          f"no scheduling = {col2:.1f} t/yr")
+    print(f"     '2D sched FacNF' = best (day, speed) per voyage, Factory NF")
+    print(f"     'Full 2D Opt+Fl' = best (day, speed) per voyage, Opt+Fl")
+
+    return (scheduling_results, all_results, speeds, fuel_fac_nf,
+            fuel_opt_fl, fuel_opt_nf, transit_hours, n_common,
+            ref_speed, ref_si, ref_vpy, ref_mean_fac, ref_mean_opt)
+
+
+def plot_scheduling_analysis(
+    all_results: dict[float, list[VoyageResult]],
+    scheduling_data: tuple,
+    idle_pct: float = 15.0,
+    fuel_price_eur_per_t: float = 650.0,
+    round_trip: bool = True,
+):
+    """Generate scheduling analysis plots."""
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except ImportError:
+        print("matplotlib not available; skipping scheduling plots.")
+        return
+
+    (sched_results, _, speeds, fuel_fac_nf, fuel_opt_fl,
+     fuel_opt_nf, transit_hours, n_common,
+     ref_speed, ref_si, ref_vpy, ref_mean_fac, ref_mean_opt) = scheduling_data
+
+    sailing_h_yr = 365.25 * 24.0 * (1.0 - idle_pct / 100.0)
+    voy_label = "round-trip" if round_trip else "one-way"
+
+    # ---- Figure 1: Per-voyage fuel at each speed ----
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5.5))
+    fig.suptitle(f"Speed & Scheduling — Per-Voyage Fuel — {voy_label}",
+                 fontsize=14, fontweight="bold")
+
+    mean_fac = [np.nanmean(fuel_fac_nf[si]) for si in range(len(speeds))]
+    mean_opt = [np.nanmean(fuel_opt_fl[si]) for si in range(len(speeds))]
+
+    ax = axes[0]
+    ax.plot(speeds, mean_fac, "C3o-", label="Factory NF", markersize=8)
+    ax.plot(speeds, mean_opt, "C0o-", label="Opt+Flettner", markersize=8)
+    ax.set_xlabel("Transit speed [kn]")
+    ax.set_ylabel("Fuel per voyage [kg]")
+    ax.set_title("Mean fuel per voyage vs speed")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    # ---- Figure 1b: Best per-voyage fuel with 2D scheduling ----
+    windows = [3, 4, 5, 6, 7, 8, 10, 14]
+    ax = axes[1]
+
+    # For each window, compute the mean best per-voyage Opt+Fl fuel
+    # (best across all feasible speeds and departure days within flex)
+    mean_best_opt_by_window = []
+    mean_best_fac_by_window = []
+    valid_windows = []
+    for W in windows:
+        feasible = [(si, spd, max(0, int(W - transit_hours.get(spd, 999) / 24.0)))
+                     for si, spd in enumerate(speeds)
+                     if transit_hours.get(spd, 999) / 24.0 <= W]
+        if not feasible:
+            continue
+        best_opt = []
+        best_fac = []
+        for d in range(n_common):
+            d_best_opt = float("inf")
+            d_best_fac = float("inf")
+            for si, spd, dep_flex in feasible:
+                lo, hi = d, min(n_common, d + dep_flex + 1)
+                c_opt = fuel_opt_fl[si, lo:hi]
+                v_opt = c_opt[~np.isnan(c_opt)]
+                if len(v_opt) > 0:
+                    d_best_opt = min(d_best_opt, np.min(v_opt))
+                c_fac = fuel_fac_nf[si, lo:hi]
+                v_fac = c_fac[~np.isnan(c_fac)]
+                if len(v_fac) > 0:
+                    d_best_fac = min(d_best_fac, np.min(v_fac))
+            if d_best_opt < float("inf"):
+                best_opt.append(d_best_opt)
+            if d_best_fac < float("inf"):
+                best_fac.append(d_best_fac)
+        mean_best_opt_by_window.append(np.mean(best_opt))
+        mean_best_fac_by_window.append(np.mean(best_fac))
+        valid_windows.append(W)
+
+    ax.plot(valid_windows, mean_best_fac_by_window, "C3o-",
+            label="Best 2D (Factory NF)", markersize=7)
+    ax.plot(valid_windows, mean_best_opt_by_window, "C0o-",
+            label="Best 2D (Opt+Fl)", markersize=7)
+    ax.axhline(ref_mean_fac, color="C3", linestyle="--", alpha=0.5,
+               label=f"Fac NF @ {ref_speed:.0f} kn = {ref_mean_fac:.0f}")
+    ax.axhline(ref_mean_opt, color="C0", linestyle="--", alpha=0.5,
+               label=f"Opt+Fl @ {ref_speed:.0f} kn = {ref_mean_opt:.0f}")
+    ax.set_xlabel("Total scheduling window [days]")
+    ax.set_ylabel("Mean fuel per voyage [kg]")
+    ax.set_title("Per-voyage fuel with 2D scheduling")
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3)
+
+    fig.tight_layout()
+    fig.savefig("scheduling_speed_window.png", dpi=150, bbox_inches="tight")
+    print(f"\n  Saved: scheduling_speed_window.png")
+
+    # ---- Figure 2: Heatmap — per-voyage fuel (speed x window) ----
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5.5))
+    fig.suptitle(f"Per-Voyage Opt+Fl Fuel — Speed x Window — {voy_label}",
+                 fontsize=14, fontweight="bold")
+
+    windows_fine = [3, 4, 5, 6, 7, 8, 10, 12, 14]
+
+    # Left: per-speed, best-in-window per-voyage fuel
+    heat_voy = np.full((len(speeds), len(windows_fine)), np.nan)
+    for si, spd in enumerate(speeds):
+        t_h = transit_hours.get(spd, 0)
+        if t_h <= 0:
+            continue
+        for wi, W in enumerate(windows_fine):
+            if W < t_h / 24.0:
+                continue
+            dep_flex = max(0, int(W - t_h / 24.0))
+            bl = []
+            for d in range(n_common):
+                lo, hi = d, min(n_common, d + dep_flex + 1)
+                c = fuel_opt_fl[si, lo:hi]
+                v = c[~np.isnan(c)]
+                if len(v) > 0:
+                    bl.append(np.min(v))
+            if bl:
+                heat_voy[si, wi] = np.mean(bl)
+
+    ax = axes[0]
+    im = ax.imshow(heat_voy / 1000, aspect="auto", origin="lower",
+                   cmap="RdYlGn_r",
+                   extent=[windows_fine[0] - 0.5, windows_fine[-1] + 0.5,
+                           speeds[0] - 0.25, speeds[-1] + 0.25])
+    ax.set_xlabel("Total scheduling window [days]")
+    ax.set_ylabel("Transit speed [kn]")
+    ax.set_title("Mean Opt+Fl fuel per voyage [tonnes]")
+    plt.colorbar(im, ax=ax, label="Fuel [t/voy]", shrink=0.8)
+
+    for si, spd in enumerate(speeds):
+        t_h = transit_hours.get(spd, 0)
+        for wi, W in enumerate(windows_fine):
+            val = heat_voy[si, wi]
+            if not np.isnan(val):
+                ax.text(W, spd, f"{val / 1000:.1f}", ha="center", va="center",
+                        fontsize=7, fontweight="bold",
+                        color="white" if val > np.nanmedian(heat_voy[~np.isnan(heat_voy)]) else "black")
+            elif t_h > 0 and W < t_h / 24.0:
+                ax.text(W, spd, "X", ha="center", va="center",
+                        fontsize=10, color="gray", alpha=0.5)
+    ax.set_xticks(windows_fine)
+    ax.set_yticks(speeds)
+
+    # Right: saving % vs ref baseline
+    heat_sav = np.full_like(heat_voy, np.nan)
+    for si in range(len(speeds)):
+        for wi in range(len(windows_fine)):
+            if not np.isnan(heat_voy[si, wi]):
+                heat_sav[si, wi] = 100 * (ref_mean_fac - heat_voy[si, wi]) / ref_mean_fac
+
+    ax = axes[1]
+    im2 = ax.imshow(heat_sav, aspect="auto", origin="lower",
+                    cmap="RdYlGn",
+                    extent=[windows_fine[0] - 0.5, windows_fine[-1] + 0.5,
+                            speeds[0] - 0.25, speeds[-1] + 0.25])
+    ax.set_xlabel("Total scheduling window [days]")
+    ax.set_ylabel("Transit speed [kn]")
+    ax.set_title(f"Saving vs Factory NF @ {ref_speed:.0f} kn [%]")
+    plt.colorbar(im2, ax=ax, label="Saving [%]", shrink=0.8)
+
+    for si, spd in enumerate(speeds):
+        t_h = transit_hours.get(spd, 0)
+        for wi, W in enumerate(windows_fine):
+            val = heat_sav[si, wi]
+            if not np.isnan(val):
+                ax.text(W, spd, f"{val:.0f}%", ha="center", va="center",
+                        fontsize=7, fontweight="bold",
+                        color="white" if val < np.nanmedian(heat_sav[~np.isnan(heat_sav)]) else "black")
+            elif t_h > 0 and W < t_h / 24.0:
+                ax.text(W, spd, "X", ha="center", va="center",
+                        fontsize=10, color="gray", alpha=0.5)
+    ax.set_xticks(windows_fine)
+    ax.set_yticks(speeds)
+
+    fig.tight_layout()
+    fig.savefig("scheduling_heatmap.png", dpi=150, bbox_inches="tight")
+    print(f"  Saved: scheduling_heatmap.png")
+
+    plt.close("all")
+
+
 def plot_results(results: list[VoyageResult]):
     """Generate summary plots."""
     try:
@@ -3682,6 +4707,14 @@ def main():
                         default=None, metavar="T",
                         help="Run annual comparison at multiple fouling ages "
                              "[years], e.g. --roughness-sweep 0 1 2 3 4 5")
+    parser.add_argument("--departure-analysis", action="store_true",
+                        help="Analyse the value of departure timing "
+                             "flexibility (implies --plot)")
+    parser.add_argument("--scheduling-analysis", nargs="+", type=float,
+                        default=None, metavar="KN",
+                        help="Run 2D (departure time x speed) scheduling "
+                             "optimization. Specify candidate speeds, e.g. "
+                             "--scheduling-analysis 8 9 10 11 12")
 
     args = parser.parse_args()
 
@@ -3736,6 +4769,40 @@ def main():
                                        idle_pct=args.idle_pct,
                                        fuel_price_eur_per_t=args.fuel_price,
                                        round_trip=do_round_trip)
+        return
+
+    if args.scheduling_analysis:
+        sched_speeds = sorted(set(args.scheduling_analysis))
+        print(f"\n{'#' * 78}")
+        print(f"# SCHEDULING ANALYSIS: speeds = "
+              f"{', '.join(f'{s:.0f}' for s in sched_speeds)} kn")
+        print(f"{'#' * 78}\n")
+        all_results = run_scheduling_analysis(
+            speeds=sched_speeds,
+            year=args.year,
+            data_dir=data_dir,
+            pdstrip_path=args.pdstrip,
+            flettner_enabled=not args.no_flettner,
+            round_trip=do_round_trip,
+            hull_ks_m=hull_ks_m,
+            blade_ks_m=blade_ks_m,
+            sg_load_kw=args.sg_load,
+            sg_factory_allowance_kw=args.sg_factory_allowance,
+            sg_freq_min=args.sg_freq_min,
+            sg_freq_max=args.sg_freq_max,
+        )
+        sched_data = print_scheduling_analysis(
+            all_results, idle_pct=args.idle_pct,
+            fuel_price_eur_per_t=args.fuel_price,
+            round_trip=do_round_trip,
+        )
+        if sched_data:
+            plot_scheduling_analysis(
+                all_results, sched_data,
+                idle_pct=args.idle_pct,
+                fuel_price_eur_per_t=args.fuel_price,
+                round_trip=do_round_trip,
+            )
         return
 
     if args.speed_sweep:
@@ -3829,6 +4896,13 @@ def main():
     print_summary(results, args.speed, idle_pct=args.idle_pct,
                   fuel_price_eur_per_t=args.fuel_price,
                   round_trip=do_round_trip)
+
+    if args.departure_analysis:
+        print_departure_analysis(results, args.speed, idle_pct=args.idle_pct,
+                                 fuel_price_eur_per_t=args.fuel_price,
+                                 round_trip=do_round_trip)
+        plot_departure_analysis(results, args.speed,
+                                round_trip=do_round_trip)
 
     if args.plot:
         plot_results(results)
