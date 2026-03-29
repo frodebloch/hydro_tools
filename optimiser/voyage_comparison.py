@@ -73,6 +73,8 @@ KN_TO_MS = 0.5144           # knots to m/s
 G = 9.81                    # m/s^2
 RHO_WATER = 1025.0          # kg/m^3
 RHO_AIR = 1.225             # kg/m^3
+NU_AIR = 1.5e-5             # kinematic viscosity of air [m^2/s]
+GENSET_SFOC = 215.0         # auxiliary genset SFOC [g/kWh] for rotor motor power
 
 # Hull data from service prediction (vessel 206, with 15% sea margin)
 HULL_SPEEDS_KN = np.array([8.0, 8.5, 9.0, 9.5, 10.0, 10.5, 11.0, 11.5,
@@ -112,18 +114,18 @@ class FlettnerRotor:
     _CL_TABLE = np.array([0.0, 1.1, 3.0, 4.5, 6.1, 7.0, 7.2, 7.8, 8.4, 8.8, 9.0])
     _CD_TABLE = np.array([0.6, 0.8, 1.3, 2.0, 3.0, 4.2, 5.5, 6.8, 8.5, 10.0, 12.0])
 
-    _CF_ROTOR = 0.01        # skin friction coefficient
     _MOTOR_EFF = 0.85       # motor + drive efficiency
     _MIN_WIND = 0.5         # m/s, below this no force
 
     def __init__(self, height: float, diameter: float, max_rpm: float,
-                 endplate_ratio: float = 2.0):
+                 endplate_ratio: float = 2.0, roughness_factor: float = 3.0):
         self.height = height
         self.diameter = diameter
         self.radius = diameter / 2.0
         self.max_rpm = max_rpm
         self.ref_area = diameter * height
         self.endplate_ratio = endplate_ratio
+        self.roughness_factor = roughness_factor
         self._cl_interp = PchipInterpolator(self._SR_TABLE, self._CL_TABLE)
         self._cd_interp = PchipInterpolator(self._SR_TABLE, self._CD_TABLE)
 
@@ -207,8 +209,18 @@ class FlettnerRotor:
                               * sign_beta / 1000.0)
 
         # Rotor drive power estimate
+        # Theodorsen & Regier (1944) turbulent skin friction on a rotating
+        # cylinder: Cf = 0.035 / Re^0.2, where Re = V_tip * r / nu_air.
+        # The roughness_factor (default 3.0) accounts for endplates, surface
+        # roughness, bearing/seal losses, and Magnus-reaction torque that are
+        # not captured by the smooth-cylinder correlation.  k=3 gives ~35 kW
+        # at 10 m/s apparent wind and ~107 kW at 15 m/s for a 28×4 m rotor,
+        # consistent with published Norsepower operating data (~50-90 kW
+        # in typical North Sea conditions).
         if tip_speed > 0.0:
-            P_aero = (self._CF_ROTOR * 0.5 * RHO_AIR * tip_speed ** 3
+            Re = tip_speed * self.radius / NU_AIR
+            Cf = self.roughness_factor * 0.035 / Re ** 0.2
+            P_aero = (Cf * 0.5 * RHO_AIR * tip_speed ** 3
                       * math.pi * self.diameter * self.height)
             self.rotor_power_kW = P_aero / (1000.0 * self._MOTOR_EFF)
 
@@ -260,6 +272,255 @@ def _angle_diff(heading: float, direction: float) -> float:
     while d < -180:
         d += 360
     return d
+
+
+# ============================================================
+# Hull and propeller roughness models
+# ============================================================
+
+# Hull geometry for roughness penalty calculation
+HULL_S_WET = 3153.0         # wetted surface area with appendages [m^2]
+HULL_LWL = 96.0             # waterline length [m] (approx from Loa 100m)
+NU_WATER = 1.19e-6          # kinematic viscosity of seawater at 10°C [m^2/s]
+PROP_N_BLADES = 4           # number of propeller blades
+
+
+# --- Biofouling growth model (from rdt_analysis/fouling_analysis.py) -------
+# Three scenarios based on Schultz (2007), Townsin (2003), Uzun (2019).
+# Each gives ks [µm] vs time [years] as piecewise-linear interpolation.
+
+@dataclass
+class FoulingScenario:
+    """Piecewise-linear fouling roughness growth trajectory.
+
+    Defined by discrete (year, ks) data points from literature,
+    with linear interpolation between them.
+    """
+    name: str
+    years: list      # [year, ...] must start at 0
+    ks_values: list  # [ks in µm, ...]
+
+    def ks_um_at(self, t: float) -> float:
+        """Return ks [µm] at time t [years] by linear interpolation."""
+        return float(np.interp(t, self.years, self.ks_values))
+
+    def ks_m_at(self, t: float) -> float:
+        """Return ks [m] at time t [years]."""
+        return self.ks_um_at(t) * 1e-6
+
+
+# Hull fouling scenarios
+FOULING_LOW = FoulingScenario(
+    name="Low (Nordic, good AF)",
+    years=     [0,  1,   2,   3,   4,   5],
+    ks_values= [30, 50,  80,  150, 250, 500],   # µm
+)
+FOULING_CENTRAL = FoulingScenario(
+    name="Central (temperate, std SPC)",
+    years=     [0,  1,   2,   3,    4,    5],
+    ks_values= [50, 100, 300, 700,  1500, 3000],
+)
+FOULING_HIGH = FoulingScenario(
+    name="High (tropical, poor AF)",
+    years=     [0,   1,   2,    3,    4,    5],
+    ks_values= [100, 500, 2000, 5000, 8000, 10000],
+)
+
+# Propeller blade fouling scenario.
+# Blades are partially self-cleaning due to hydrodynamic shear at RPM,
+# so roughness grows much slower than the hull.  Typical values for a
+# coated CPP blade in temperate waters (Nordic/North Sea).
+BLADE_FOULING = FoulingScenario(
+    name="Blade (coated CPP, Nordic)",
+    years=     [0,  1,   2,   3,   4,    5],
+    ks_values= [10, 20,  40,  70,  100,  150],  # µm
+)
+
+
+def hull_roughness_delta_R_kN(
+    speed_kn: float,
+    ks_hull_m: float,
+    ks_clean_m: float = 30e-6,
+    S_wet: float = HULL_S_WET,
+    L_wl: float = HULL_LWL,
+    nu: float = NU_WATER,
+) -> float:
+    """Compute hull frictional resistance increase due to roughness [kN].
+
+    Uses the Townsin-Dey roughness penalty formula (Townsin 2003):
+
+        10³ × ΔCF = 44 × [(ks/L)^(1/3) − 10·Re_L^(-1/3)] + 0.125
+
+    i.e. ΔCF = {44 × [(ks/L)^(1/3) − 10·Re^(-1/3)] + 0.125} × 10⁻³
+
+    applied as the difference between the current roughness state and the
+    clean-hull baseline (ks_clean, default 30 µm for new AF coating).
+    The clean-hull resistance is already in our calm-water data, so we
+    only add the INCREMENT above the clean baseline.
+
+    Parameters
+    ----------
+    speed_kn : float
+        Vessel speed [knots].
+    ks_hull_m : float
+        Current hull equivalent sand-grain roughness [m].
+    ks_clean_m : float
+        Clean-hull roughness [m]. Default 30e-6 (new AF coating).
+    S_wet : float
+        Wetted surface area [m²].
+    L_wl : float
+        Waterline length [m].
+    nu : float
+        Kinematic viscosity [m²/s].
+
+    Returns
+    -------
+    delta_R_kN : float
+        Extra resistance due to roughness above clean baseline [kN].
+        Always >= 0.
+    """
+    if ks_hull_m <= ks_clean_m:
+        return 0.0
+
+    V = speed_kn * KN_TO_MS
+    Re_L = V * L_wl / nu
+
+    def _townsin_delta_cf(ks_m):
+        """Townsin-Dey ΔCF for a given ks."""
+        if ks_m <= 0 or Re_L < 1:
+            return 0.0
+        return max(0.0, (44.0 * ((ks_m / L_wl) ** (1.0 / 3.0)
+                                  - 10.0 * Re_L ** (-1.0 / 3.0))
+                         + 0.125) * 1e-3)
+
+    dcf_current = _townsin_delta_cf(ks_hull_m)
+    dcf_clean = _townsin_delta_cf(ks_clean_m)
+    delta_cf = max(0.0, dcf_current - dcf_clean)
+
+    # ΔR = ΔCF × 0.5 × ρ × V² × S_wet
+    delta_R_N = delta_cf * 0.5 * RHO_WATER * V ** 2 * S_wet
+    return delta_R_N / 1000.0
+
+
+def propeller_roughness_fuel_factor(
+    speed_kn: float,
+    shaft_rpm: float,
+    ks_blade_m: float,
+    ks_clean_m: float = 10e-6,
+    D: float = PROP_DIAMETER,
+    BAR: float = PROP_BAR,
+    n_blades: int = PROP_N_BLADES,
+    nu: float = NU_WATER,
+) -> float:
+    """Estimate propeller fuel rate multiplier due to blade surface roughness.
+
+    Uses a simplified strip-theory approach at the 0.75R reference station
+    (standard ITTC practice).  The extra blade drag is converted to a power
+    increase fraction, which is then applied as a fuel rate multiplier.
+
+    Method:
+        1. Compute resultant velocity W at 0.75R from RPM and advance speed
+        2. Compute chord at 0.75R from Wageningen B-series chord distribution
+        3. Compute ΔCF = CF_rough − CF_smooth using ITTC 1957 + Townsin
+        4. ΔCD = 2 × ΔCF (both blade surfaces)
+        5. Estimate ΔP/P from the drag-to-power ratio at 0.75R
+
+    Parameters
+    ----------
+    speed_kn : float
+        Vessel speed [knots].
+    shaft_rpm : float
+        Shaft (propeller) RPM.
+    ks_blade_m : float
+        Blade surface equivalent sand-grain roughness [m].
+    ks_clean_m : float
+        Clean blade roughness [m]. Default 10e-6 (polished).
+    D : float
+        Propeller diameter [m].
+    BAR : float
+        Blade area ratio.
+    n_blades : int
+        Number of blades.
+    nu : float
+        Kinematic viscosity [m²/s].
+
+    Returns
+    -------
+    fuel_factor : float
+        Multiplier on fuel rate (>= 1.0).  E.g. 1.03 = 3% increase.
+    """
+    if ks_blade_m <= ks_clean_m or shaft_rpm < 1.0:
+        return 1.0
+
+    R = D / 2.0
+    r_075 = 0.75 * R
+    omega = shaft_rpm * 2.0 * math.pi / 60.0
+
+    # Advance speed (use wake-corrected Va for consistency, but we
+    # approximate with vessel speed here — the wake correction is small
+    # and the same for smooth and rough)
+    Va = speed_kn * KN_TO_MS * (1.0 - 0.24)  # approximate w ≈ 0.24
+
+    # Resultant velocity at 0.75R
+    V_tan = omega * r_075
+    W = math.sqrt(Va ** 2 + V_tan ** 2)
+
+    # Chord at 0.75R — Wageningen C4 chord distribution:
+    # c/D = BAR × k_c(r/R) / n_blades, where k_c is the expanded chord factor.
+    # For Wageningen B/C series at r/R=0.75, k_c ≈ 1.54 (from tabulated data).
+    K_C_075 = 1.54
+    c_075 = D * BAR * K_C_075 / n_blades
+
+    # Chord Reynolds number
+    Re_c = W * c_075 / nu
+
+    # ITTC 1957 friction line for smooth blade:
+    CF_smooth = 0.075 / (math.log10(Re_c) - 2.0) ** 2
+
+    # Townsin roughness penalty at chord scale:
+    # 10³ × ΔCF = 44 × [(ks/c)^(1/3) - 10*Re_c^(-1/3)] + 0.125
+    def _townsin_cf(ks_m, Re):
+        if ks_m <= 0 or Re < 1:
+            return 0.0
+        L_c = c_075  # use chord as length scale
+        return max(0.0, (44.0 * ((ks_m / L_c) ** (1.0 / 3.0)
+                                  - 10.0 * Re ** (-1.0 / 3.0))
+                         + 0.125) * 1e-3)
+
+    dcf_rough = _townsin_cf(ks_blade_m, Re_c)
+    dcf_clean = _townsin_cf(ks_clean_m, Re_c)
+    delta_CF = max(0.0, dcf_rough - dcf_clean)
+
+    # ΔCD for both blade surfaces, with form factor for airfoil sections
+    FORM_FACTOR = 1.3  # typical for marine propeller sections
+    delta_CD = FORM_FACTOR * 2.0 * delta_CF
+
+    # Power increase fraction:
+    # At 0.75R the power-absorbing (tangential) fraction of drag is cos(φ)
+    # where φ = atan2(Va, V_tan) is the inflow angle.
+    # ΔP/P ≈ (ΔCD / CD_total) × (viscous drag fraction of total power)
+    #
+    # More directly: the smooth-blade CD ≈ 2 × CF_smooth × FORM_FACTOR
+    # The viscous drag fraction of propeller power is approximately
+    # CD / (CD + CL × tan(φ_i)) where φ_i is the induced inflow angle.
+    # For a lightly loaded prop this is roughly 10-20% of total power.
+    #
+    # Simplification: ΔP/P ≈ ΔCD / (2 × CF_smooth × FORM_FACTOR) × f_drag
+    # where f_drag ≈ 0.15 is the viscous drag power fraction.
+    #
+    # Actually the cleanest: ΔP/P = (n_blades × ΔD × V_tan × r_075 × ω) / P_total
+    # but we don't have P_total here.  Use the ratio approach:
+    CD_smooth = FORM_FACTOR * 2.0 * CF_smooth
+    if CD_smooth < 1e-10:
+        return 1.0
+
+    # The relative drag increase applies to the viscous drag component only.
+    # Viscous losses are typically 12-18% of delivered power for a CPP at
+    # moderate loading.  Use 15% as representative.
+    DRAG_POWER_FRACTION = 0.15
+    delta_P_frac = (delta_CD / CD_smooth) * DRAG_POWER_FRACTION
+
+    return 1.0 + max(0.0, delta_P_frac)
 
 
 # ============================================================
@@ -1181,6 +1442,8 @@ class HourlyResult:
     factory_no_flettner_fuel_rate: Optional[float] = None  # g/h (without Flettner)
     optimised_fuel_rate: Optional[float] = None  # g/h (with Flettner)
     optimised_no_flettner_fuel_rate: Optional[float] = None  # g/h (without Flettner)
+    rotor_power_kW: float = 0.0          # Flettner rotor electrical power [kW]
+    rotor_fuel_rate: float = 0.0         # rotor fuel cost [g/h] via genset SFOC
     factory_pitch: Optional[float] = None
     factory_rpm: Optional[float] = None
     optimised_pitch: Optional[float] = None
@@ -1329,6 +1592,12 @@ class VoyageResult:
     mean_R_aw_kN: float
     mean_R_wind_kN: float
     mean_F_flettner_kN: float
+    mean_rotor_power_kW: float = 0.0     # mean Flettner rotor electrical power
+    total_rotor_fuel_kg: float = 0.0     # total fuel for rotor drive (all hours)
+    hull_ks_um: float = 0.0              # hull roughness [µm]
+    blade_ks_um: float = 0.0             # blade roughness [µm]
+    R_roughness_kN: float = 0.0          # hull roughness resistance increment [kN]
+    blade_fuel_factor: float = 1.0       # propeller roughness fuel multiplier
     n_hours_both_feasible: int = 0
     n_hours_factory_infeasible: int = 0  # factory can't deliver, optimiser can
     n_hours_total: int = 0
@@ -1378,7 +1647,15 @@ def _combine_round_trip(outbound: VoyageResult, inbound: VoyageResult) -> Voyage
         mean_R_wind_kN=(outbound.mean_R_wind_kN * n_out
                         + inbound.mean_R_wind_kN * n_ret) / n_total,
         mean_F_flettner_kN=(outbound.mean_F_flettner_kN * n_out
-                            + inbound.mean_F_flettner_kN * n_ret) / n_total,
+                           + inbound.mean_F_flettner_kN * n_ret) / n_total,
+        mean_rotor_power_kW=(outbound.mean_rotor_power_kW * n_out
+                             + inbound.mean_rotor_power_kW * n_ret) / n_total,
+        total_rotor_fuel_kg=(outbound.total_rotor_fuel_kg
+                              + inbound.total_rotor_fuel_kg),
+        hull_ks_um=outbound.hull_ks_um,
+        blade_ks_um=outbound.blade_ks_um,
+        R_roughness_kN=outbound.R_roughness_kN,
+        blade_fuel_factor=outbound.blade_fuel_factor,
         n_hours_both_feasible=(outbound.n_hours_both_feasible
                                + inbound.n_hours_both_feasible),
         n_hours_factory_infeasible=(outbound.n_hours_factory_infeasible
@@ -1418,8 +1695,14 @@ class SpeedSweepResult:
     mean_R_aw_kN: float
     mean_R_wind_kN: float
     mean_F_flettner_kN: float
+    mean_rotor_power_kW: float
     # Feasibility
     pct_factory_infeasible: float
+    # Roughness
+    hull_ks_um: float = 0.0
+    blade_ks_um: float = 0.0
+    R_roughness_kN: float = 0.0
+    blade_fuel_factor: float = 1.0
 
 
 def evaluate_voyage(
@@ -1435,6 +1718,8 @@ def evaluate_voyage(
     verbose: bool = False,
     _opt_cache: dict | None = None,
     _factory_cache: dict | None = None,
+    hull_ks_m: float = 0.0,
+    blade_ks_m: float = 0.0,
 ) -> VoyageResult:
     """Evaluate a single voyage, comparing factory vs optimised fuel consumption.
 
@@ -1466,6 +1751,23 @@ def evaluate_voyage(
     Vs = speed_kn * KN_TO_MS
     Va = Vs * (1.0 - w)
 
+    # Hull roughness: extra resistance above clean baseline [kN]
+    # Constant for a given speed — computed once, not per-hour.
+    R_roughness_kN = 0.0
+    if hull_ks_m > 30e-6:
+        R_roughness_kN = hull_roughness_delta_R_kN(speed_kn, hull_ks_m)
+
+    # Propeller blade roughness: fuel rate multiplier (>= 1.0)
+    # Depends on RPM which varies per operating point, but the blade
+    # section Reynolds number at 0.75R is dominated by tangential velocity
+    # (ω·r >> Va), so the fuel factor is insensitive to exact RPM.
+    # Use nominal shaft RPM scaled from max (117.6 RPM at ~15 kn).
+    blade_fuel_factor = 1.0
+    if blade_ks_m > 10e-6:
+        nominal_shaft_rpm = 117.6 * (speed_kn / 15.0)
+        blade_fuel_factor = propeller_roughness_fuel_factor(
+            speed_kn, nominal_shaft_rpm, blade_ks_m)
+
     hourly_results = []
     total_factory_feasible = 0.0     # factory fuel (all-four-feasible hours) [kg]
     total_factory_nf_feasible = 0.0  # factory at no-Flettner thrust [kg]
@@ -1478,6 +1780,8 @@ def evaluate_voyage(
     sum_R_aw = 0.0
     sum_R_wind = 0.0
     sum_F_flettner = 0.0
+    sum_rotor_power = 0.0
+    sum_rotor_fuel = 0.0
 
     for i, rp in enumerate(route_points):
         dt = departure + timedelta(hours=rp.time_hours)
@@ -1500,6 +1804,9 @@ def evaluate_voyage(
             wind_dir_deg=wx["wind_dir"],
         )
         F_flettner_kN = max(0.0, flettner.surge_force_kN)
+        rotor_power_kW = flettner.rotor_power_kW if F_flettner_kN > 0 else 0.0
+        # Fuel cost of spinning the rotor [g/h] via auxiliary genset
+        rotor_fuel_gh = rotor_power_kW * GENSET_SFOC  # g/h
 
         # Wind resistance on hull (Blendermann model)
         R_wind_kN = wind_resistance_kN(
@@ -1510,16 +1817,16 @@ def evaluate_voyage(
         )
 
         # Net thrust demand on propeller
-        # T_total = T_calm + (R_aw + R_wind - F_flettner) / (1-t)
-        # The added resistance, wind resistance, and Flettner force act on the
-        # hull, so they modify the resistance which is then divided by (1-t)
-        # to get thrust.
-        T_required_kN = T_calm_kN + (R_aw_kN + R_wind_kN - F_flettner_kN) / (1.0 - t_ded)
+        # T_total = T_calm + (R_aw + R_wind + R_roughness - F_flettner) / (1-t)
+        # The added resistance, wind resistance, hull roughness, and Flettner
+        # force act on the hull, so they modify the resistance which is then
+        # divided by (1-t) to get thrust.
+        T_required_kN = T_calm_kN + (R_aw_kN + R_wind_kN + R_roughness_kN - F_flettner_kN) / (1.0 - t_ded)
         T_required_kN = max(0.0, T_required_kN)  # can't have negative thrust
         T_required_N = T_required_kN * 1000.0
 
         # Thrust demand without Flettner (for splitting savings)
-        T_no_flettner_kN = T_calm_kN + (R_aw_kN + R_wind_kN) / (1.0 - t_ded)
+        T_no_flettner_kN = T_calm_kN + (R_aw_kN + R_wind_kN + R_roughness_kN) / (1.0 - t_ded)
         T_no_flettner_kN = max(0.0, T_no_flettner_kN)
 
         # Evaluate factory combinator
@@ -1598,6 +1905,8 @@ def evaluate_voyage(
             factory_no_flettner_fuel_rate=fr_nf["fuel_rate"] if fr_nf else None,
             optimised_fuel_rate=o_fuel,
             optimised_no_flettner_fuel_rate=o_nf_fuel,
+            rotor_power_kW=rotor_power_kW,
+            rotor_fuel_rate=rotor_fuel_gh,
             factory_pitch=fr["pitch"] if fr else None,
             factory_rpm=fr["rpm"] if fr else None,
             optimised_pitch=o_pitch,
@@ -1612,10 +1921,11 @@ def evaluate_voyage(
         all_four = (fr is not None and fr_nf is not None
                     and o_fuel is not None and o_nf_fuel is not None)
         if all_four:
-            total_factory_feasible += fr["fuel_rate"] / 1000.0
-            total_factory_nf_feasible += fr_nf["fuel_rate"] / 1000.0
-            total_optimised_feasible += o_fuel / 1000.0
-            total_opt_noflettner_feasible += o_nf_fuel / 1000.0
+            rotor_fuel_kg = rotor_fuel_gh / 1000.0  # g/h -> kg for 1h
+            total_factory_feasible += fr["fuel_rate"] / 1000.0 * blade_fuel_factor + rotor_fuel_kg
+            total_factory_nf_feasible += fr_nf["fuel_rate"] / 1000.0 * blade_fuel_factor
+            total_optimised_feasible += o_fuel / 1000.0 * blade_fuel_factor + rotor_fuel_kg
+            total_opt_noflettner_feasible += o_nf_fuel / 1000.0 * blade_fuel_factor
             n_both_feasible += 1
         elif fr is None and o_fuel is not None:
             # Factory infeasible but optimiser can deliver
@@ -1626,6 +1936,8 @@ def evaluate_voyage(
         sum_R_aw += R_aw_kN
         sum_R_wind += R_wind_kN
         sum_F_flettner += F_flettner_kN
+        sum_rotor_power += rotor_power_kW
+        sum_rotor_fuel += rotor_fuel_gh / 1000.0  # g/h -> kg for 1h
 
     n_pts = len(route_points)
     # Overall saving: factory (with Flettner) vs optimiser (with Flettner)
@@ -1672,6 +1984,12 @@ def evaluate_voyage(
         mean_R_aw_kN=sum_R_aw / n_pts,
         mean_R_wind_kN=sum_R_wind / n_pts,
         mean_F_flettner_kN=sum_F_flettner / n_pts,
+        mean_rotor_power_kW=sum_rotor_power / n_pts,
+        total_rotor_fuel_kg=sum_rotor_fuel,
+        hull_ks_um=hull_ks_m * 1e6,
+        blade_ks_um=blade_ks_m * 1e6,
+        R_roughness_kN=R_roughness_kN,
+        blade_fuel_factor=blade_fuel_factor,
         n_hours_both_feasible=n_both_feasible,
         n_hours_factory_infeasible=n_factory_infeasible,
         n_hours_total=n_pts,
@@ -1696,7 +2014,7 @@ def _voyage_worker(args):
     """
     (departures, route, data_dir, drift_tf, flettner, factory,
      prop, engine, speed_kn, opt_cache, factory_cache,
-     return_route) = args
+     return_route, hull_ks_m, blade_ks_m) = args
     weather = WeatherAlongRoute(data_dir)
     results = []
     for departure in departures:
@@ -1714,6 +2032,8 @@ def _voyage_worker(args):
                 verbose=False,
                 _opt_cache=opt_cache,
                 _factory_cache=factory_cache,
+                hull_ks_m=hull_ks_m,
+                blade_ks_m=blade_ks_m,
             )
             if return_route is not None:
                 # Return leg departs when outbound arrives
@@ -1731,6 +2051,8 @@ def _voyage_worker(args):
                     verbose=False,
                     _opt_cache=opt_cache,
                     _factory_cache=factory_cache,
+                    hull_ks_m=hull_ks_m,
+                    blade_ks_m=blade_ks_m,
                 )
                 vr = _combine_round_trip(vr_out, vr_ret)
             else:
@@ -1755,6 +2077,8 @@ def run_annual_comparison(
     sg_freq_min: float = 0.0,
     sg_freq_max: float = 0.0,
     round_trip: bool = True,
+    hull_ks_m: float = 0.0,
+    blade_ks_m: float = 0.0,
 ) -> list[VoyageResult]:
     """Run the full annual comparison: one voyage per day.
 
@@ -1802,6 +2126,9 @@ def run_annual_comparison(
         if engine_rpm_min_sg is not None:
             print(f"  SG frequency band: {sg_freq_min:.0f}-{sg_freq_max:.0f} Hz "
                   f"-> engine RPM {engine_rpm_min_sg:.0f}-{engine_rpm_max_sg:.0f}")
+    if hull_ks_m > 0 or blade_ks_m > 0:
+        print(f"  Hull roughness: {hull_ks_m * 1e6:.0f} µm, "
+              f"blade roughness: {blade_ks_m * 1e6:.0f} µm")
     print("=" * 78)
 
     # --- Build models ---
@@ -1823,10 +2150,10 @@ def run_annual_comparison(
 
     print("\nSetting up Flettner rotor ...")
     flettner = FlettnerRotor(height=28.0, diameter=4.0, max_rpm=220.0,
-                             endplate_ratio=2.0)
+                             endplate_ratio=2.0, roughness_factor=3.0)
     if flettner_enabled:
         flettner.set_target_spin_ratio(3.0)
-        print(f"  Rotor: H=28m, D=4m, max 220 RPM, target SR=3")
+        print(f"  Rotor: H=28m, D=4m, max 220 RPM, target SR=3, k_rough=3.0")
     else:
         flettner.set_target_spin_ratio(0.0)  # effectively off
         print(f"  Flettner DISABLED (--no-flettner)")
@@ -1897,7 +2224,7 @@ def run_annual_comparison(
         batches.append((
             batch_deps, route, data_dir, drift_tf, flettner,
             factory, prop, engine, speed_kn, opt_cache, factory_cache,
-            return_route,
+            return_route, hull_ks_m, blade_ks_m,
         ))
 
     results = []
@@ -1986,6 +2313,8 @@ def print_summary(results: list[VoyageResult], speed_kn: float,
     mean_R_aw = np.array([r.mean_R_aw_kN for r in results])
     mean_R_wind = np.array([r.mean_R_wind_kN for r in results])
     mean_F_flett = np.array([r.mean_F_flettner_kN for r in results])
+    mean_rotor_pwr = np.array([r.mean_rotor_power_kW for r in results])
+    rotor_fuel = np.array([r.total_rotor_fuel_kg for r in results])
 
     print("\n" + "=" * 78)
     print("ANNUAL SUMMARY")
@@ -1996,6 +2325,14 @@ def print_summary(results: list[VoyageResult], speed_kn: float,
     print(f"  Transit time per voyage: {transit_h:.1f} h ({transit_h / 24:.1f} days)")
     print(f"  Idle / port time: {idle_pct:.0f}%")
     print(f"  Estimated {voy_label} voyages per year: {voyages_per_year:.0f}")
+
+    # Roughness state (from first result)
+    r0 = results[0]
+    if r0.hull_ks_um > 0 or r0.blade_ks_um > 0:
+        print(f"\n  Hull roughness: {r0.hull_ks_um:.0f} µm "
+              f"(ΔR = {r0.R_roughness_kN:.1f} kN at {speed_kn:.0f} kn)")
+        print(f"  Blade roughness: {r0.blade_ks_um:.0f} µm "
+              f"(fuel factor = {r0.blade_fuel_factor:.3f})")
 
     # Factory feasibility statistics
     total_hours_all = sum(r.n_hours_total for r in results)
@@ -2042,6 +2379,8 @@ def print_summary(results: list[VoyageResult], speed_kn: float,
     _row("Mean added resistance [kN]", mean_R_aw)
     _row("Mean wind resistance [kN]", mean_R_wind)
     _row("Mean Flettner thrust [kN]", mean_F_flett)
+    _row("Mean rotor power [kW]", mean_rotor_pwr)
+    _row("Rotor fuel [kg/voy]", rotor_fuel, ".0f")
 
     # Compute split percentages relative to factory-no-Flettner baseline
     pct_pitch_rpm = np.where(fuel_factory_nf > 0,
@@ -2845,6 +3184,11 @@ def _summarise_for_speed(
         mean_R_aw_kN=float(np.mean([r.mean_R_aw_kN for r in results])),
         mean_R_wind_kN=float(np.mean([r.mean_R_wind_kN for r in results])),
         mean_F_flettner_kN=float(np.mean([r.mean_F_flettner_kN for r in results])),
+        mean_rotor_power_kW=float(np.mean([r.mean_rotor_power_kW for r in results])),
+        hull_ks_um=results[0].hull_ks_um,
+        blade_ks_um=results[0].blade_ks_um,
+        R_roughness_kN=results[0].R_roughness_kN,
+        blade_fuel_factor=results[0].blade_fuel_factor,
         pct_factory_infeasible=100.0 * total_inf / total_hrs if total_hrs else 0.0,
     )
 
@@ -2862,6 +3206,8 @@ def run_speed_sweep(
     sg_freq_min: float = 0.0,
     sg_freq_max: float = 0.0,
     round_trip: bool = True,
+    hull_ks_m: float = 0.0,
+    blade_ks_m: float = 0.0,
 ) -> list[SpeedSweepResult]:
     """Run annual comparisons at multiple speeds and return summary per speed.
 
@@ -2899,6 +3245,8 @@ def run_speed_sweep(
             sg_freq_min=sg_freq_min,
             sg_freq_max=sg_freq_max,
             round_trip=round_trip,
+            hull_ks_m=hull_ks_m,
+            blade_ks_m=blade_ks_m,
         )
 
         if not results:
@@ -2930,6 +3278,9 @@ def print_speed_sweep_summary(sweep: list[SpeedSweepResult],
     print("SPEED SENSITIVITY SUMMARY")
     print("=" * 110)
     print(f"  Idle: {idle_pct:.0f}%    Route distance: same for all speeds")
+    if sweep[0].hull_ks_um > 0 or sweep[0].blade_ks_um > 0:
+        print(f"  Hull roughness: {sweep[0].hull_ks_um:.0f} µm, "
+              f"blade roughness: {sweep[0].blade_ks_um:.0f} µm")
 
     # --- Per-voyage table ---
     print(f"\n  PER-VOYAGE AVERAGES:")
@@ -2980,16 +3331,18 @@ def print_speed_sweep_summary(sweep: list[SpeedSweepResult],
     # --- Weather conditions ---
     print(f"\n  MEAN WEATHER CONDITIONS (voyage average across year):")
     hdr3 = (f"  {'Speed':>6s}  {'Hs [m]':>7s}  {'Wind [m/s]':>10s}  "
-            f"{'R_aw [kN]':>9s}  {'R_wind [kN]':>11s}  {'F_flett [kN]':>12s}")
+            f"{'R_aw [kN]':>9s}  {'R_wind [kN]':>11s}  {'F_flett [kN]':>12s}  "
+            f"{'P_rotor [kW]':>12s}")
     print(hdr3)
-    print(f"  {'-' * 6}  {'-' * 7}  {'-' * 10}  {'-' * 9}  {'-' * 11}  {'-' * 12}")
+    print(f"  {'-' * 6}  {'-' * 7}  {'-' * 10}  {'-' * 9}  {'-' * 11}  {'-' * 12}  {'-' * 12}")
     for s in sweep:
         print(f"  {s.speed_kn:5.1f}kn  "
               f"{s.mean_hs:>7.2f}  "
               f"{s.mean_wind:>10.1f}  "
               f"{s.mean_R_aw_kN:>9.1f}  "
               f"{s.mean_R_wind_kN:>11.1f}  "
-              f"{s.mean_F_flettner_kN:>12.1f}")
+              f"{s.mean_F_flettner_kN:>12.1f}  "
+              f"{s.mean_rotor_power_kW:>12.1f}")
 
     if fuel_price_eur_per_t > 0:
         fp = fuel_price_eur_per_t
@@ -3167,6 +3520,95 @@ def plot_speed_sweep(sweep: list[SpeedSweepResult]):
 
 
 # ============================================================
+# Roughness sweep summary
+# ============================================================
+
+def _print_roughness_sweep_summary(
+    sweep_data: list[tuple],
+    speed_kn: float,
+    idle_pct: float = 15.0,
+    fuel_price_eur_per_t: float = 650.0,
+    round_trip: bool = True,
+):
+    """Print a summary table comparing results across fouling ages.
+
+    Parameters
+    ----------
+    sweep_data : list of (age_years, hull_ks_m, blade_ks_m, results)
+    """
+    if not sweep_data:
+        print("No roughness sweep results to summarise.")
+        return
+
+    voy_label = "RT" if round_trip else "OW"
+    r0 = sweep_data[0][3][0]  # first age, first voyage
+    transit_h = r0.total_hours
+    sailing_hours_year = 365.25 * 24.0 * (1.0 - idle_pct / 100.0)
+    vpyr = sailing_hours_year / transit_h
+
+    print(f"\n{'=' * 100}")
+    print(f"ROUGHNESS SWEEP SUMMARY  ({speed_kn:.0f} kn, {voy_label}, "
+          f"{idle_pct:.0f}% idle -> {vpyr:.0f} voy/yr)")
+    print(f"{'=' * 100}")
+
+    fp = fuel_price_eur_per_t
+
+    print(f"\n  {'Age':>4s}  {'Hull ks':>8s}  {'Blade ks':>9s}  "
+          f"{'ΔR_hull':>8s}  {'BladeFac':>8s}  "
+          f"{'Fac_NF':>9s}  {'Opt+Fl':>9s}  {'Save':>6s}  "
+          f"{'P/R %':>6s}  {'Fl %':>6s}  "
+          f"{'€ saving':>10s}")
+    print(f"  {'[yr]':>4s}  {'[µm]':>8s}  {'[µm]':>9s}  "
+          f"{'[kN]':>8s}  {'[-]':>8s}  "
+          f"{'[t/yr]':>9s}  {'[t/yr]':>9s}  {'[%]':>6s}  "
+          f"{'':>6s}  {'':>6s}  "
+          f"{'[€/yr]':>10s}")
+    print(f"  {'-' * 4}  {'-' * 8}  {'-' * 9}  "
+          f"{'-' * 8}  {'-' * 8}  "
+          f"{'-' * 9}  {'-' * 9}  {'-' * 6}  "
+          f"{'-' * 6}  {'-' * 6}  "
+          f"{'-' * 10}")
+
+    for age, h_ks, b_ks, results in sweep_data:
+        fac_nf = np.mean([r.total_fuel_factory_no_flettner_kg for r in results])
+        opt_fl = np.mean([r.total_fuel_optimised_kg for r in results])
+        sav_pr = np.mean([r.saving_pitch_rpm_kg for r in results])
+        sav_fl = np.mean([r.saving_flettner_kg for r in results])
+        sav_tot = sav_pr + sav_fl
+
+        ann_fac_nf = fac_nf * vpyr / 1000.0
+        ann_opt_fl = opt_fl * vpyr / 1000.0
+        ann_sav_tot = sav_tot * vpyr / 1000.0
+
+        pct_tot = 100.0 * sav_tot / fac_nf if fac_nf > 0 else 0.0
+        pct_pr = 100.0 * sav_pr / fac_nf if fac_nf > 0 else 0.0
+        pct_fl = 100.0 * sav_fl / fac_nf if fac_nf > 0 else 0.0
+
+        r_rough = results[0].R_roughness_kN
+        b_fac = results[0].blade_fuel_factor
+        cost_sav = ann_sav_tot * fp
+
+        print(f"  {age:4.1f}  {h_ks * 1e6:8.0f}  {b_ks * 1e6:9.0f}  "
+              f"{r_rough:8.1f}  {b_fac:8.3f}  "
+              f"{ann_fac_nf:9.1f}  {ann_opt_fl:9.1f}  {pct_tot:6.1f}  "
+              f"{pct_pr:6.1f}  {pct_fl:6.1f}  "
+              f"{cost_sav:10,.0f}")
+
+    # Compare clean vs. dirtiest
+    if len(sweep_data) >= 2:
+        _, _, _, r_clean = sweep_data[0]
+        _, _, _, r_dirty = sweep_data[-1]
+        clean_fac_nf = np.mean([r.total_fuel_factory_no_flettner_kg for r in r_clean])
+        dirty_fac_nf = np.mean([r.total_fuel_factory_no_flettner_kg for r in r_dirty])
+        fuel_increase_pct = 100.0 * (dirty_fac_nf - clean_fac_nf) / clean_fac_nf if clean_fac_nf > 0 else 0.0
+        print(f"\n  Fuel increase from {sweep_data[0][0]:.0f} yr to "
+              f"{sweep_data[-1][0]:.0f} yr fouling: "
+              f"{fuel_increase_pct:+.1f}% (factory no-Flettner baseline)")
+
+    print()
+
+
+# ============================================================
 # CLI entry point
 # ============================================================
 
@@ -3223,15 +3665,77 @@ def main():
     parser.add_argument("--one-way", action="store_true",
                         help="Evaluate only the outbound leg (default is "
                              "round-trip to eliminate directional wind bias)")
+    parser.add_argument("--hull-roughness", type=float, default=0.0,
+                        metavar="KS_UM",
+                        help="Hull roughness ks [µm]. 0=clean (default). "
+                             "Typical: 30=new AF, 150=2yr Nordic, 500=5yr.")
+    parser.add_argument("--blade-roughness", type=float, default=0.0,
+                        metavar="KS_UM",
+                        help="Propeller blade roughness ks [µm]. 0=clean "
+                             "(default). Typical: 10=polished, 70=3yr Nordic.")
+    parser.add_argument("--fouling-years", type=float, default=None,
+                        metavar="T",
+                        help="Time since last cleaning [years]. Uses "
+                             "FOULING_LOW for hull and BLADE_FOULING for "
+                             "propeller. Overrides --hull/blade-roughness.")
+    parser.add_argument("--roughness-sweep", nargs="+", type=float,
+                        default=None, metavar="T",
+                        help="Run annual comparison at multiple fouling ages "
+                             "[years], e.g. --roughness-sweep 0 1 2 3 4 5")
 
     args = parser.parse_args()
 
     data_dir = Path(args.data_dir) if args.data_dir else NORA3_DATA_DIR
     do_round_trip = not args.one_way
 
+    # Resolve roughness parameters
+    hull_ks_m = args.hull_roughness * 1e-6  # µm -> m
+    blade_ks_m = args.blade_roughness * 1e-6
+    if args.fouling_years is not None:
+        hull_ks_m = FOULING_LOW.ks_m_at(args.fouling_years)
+        blade_ks_m = BLADE_FOULING.ks_m_at(args.fouling_years)
+
     if args.download:
         download_nora3_for_route(args.year, ROUTE_ROTTERDAM_GOTHENBURG,
                                  data_dir)
+        return
+
+    if args.roughness_sweep:
+        ages = sorted(set(args.roughness_sweep))
+        print(f"\n{'#' * 78}")
+        print(f"# ROUGHNESS SWEEP: fouling ages = "
+              f"{', '.join(f'{a:.1f}' for a in ages)} years")
+        print(f"{'#' * 78}\n")
+        sweep_summaries = []
+        for i, age in enumerate(ages):
+            h_ks = FOULING_LOW.ks_m_at(age)
+            b_ks = BLADE_FOULING.ks_m_at(age)
+            print(f"\n{'=' * 78}")
+            print(f"  Fouling age: {age:.1f} yr  "
+                  f"hull ks={h_ks * 1e6:.0f} µm, blade ks={b_ks * 1e6:.0f} µm"
+                  f"  ({i + 1}/{len(ages)})")
+            print(f"{'=' * 78}\n")
+            results = run_annual_comparison(
+                year=args.year,
+                speed_kn=args.speed,
+                data_dir=data_dir,
+                pdstrip_path=args.pdstrip,
+                flettner_enabled=not args.no_flettner,
+                verbose=not args.quiet,
+                sg_load_kw=args.sg_load,
+                sg_factory_allowance_kw=args.sg_factory_allowance,
+                sg_freq_min=args.sg_freq_min,
+                sg_freq_max=args.sg_freq_max,
+                round_trip=do_round_trip,
+                hull_ks_m=h_ks,
+                blade_ks_m=b_ks,
+            )
+            if results:
+                sweep_summaries.append((age, h_ks, b_ks, results))
+        _print_roughness_sweep_summary(sweep_summaries, args.speed,
+                                       idle_pct=args.idle_pct,
+                                       fuel_price_eur_per_t=args.fuel_price,
+                                       round_trip=do_round_trip)
         return
 
     if args.speed_sweep:
@@ -3252,6 +3756,8 @@ def main():
             sg_freq_min=args.sg_freq_min,
             sg_freq_max=args.sg_freq_max,
             round_trip=do_round_trip,
+            hull_ks_m=hull_ks_m,
+            blade_ks_m=blade_ks_m,
         )
         print_speed_sweep_summary(sweep, idle_pct=args.idle_pct,
                                   fuel_price_eur_per_t=args.fuel_price)
@@ -3271,6 +3777,8 @@ def main():
             flettner_enabled=not args.no_flettner,
             verbose=not args.quiet,
             round_trip=do_round_trip,
+            hull_ks_m=hull_ks_m,
+            blade_ks_m=blade_ks_m,
         )
         print_summary(results_std, args.speed, idle_pct=args.idle_pct,
                       fuel_price_eur_per_t=args.fuel_price,
@@ -3291,6 +3799,8 @@ def main():
             sg_freq_min=args.sg_freq_min,
             sg_freq_max=args.sg_freq_max,
             round_trip=do_round_trip,
+            hull_ks_m=hull_ks_m,
+            blade_ks_m=blade_ks_m,
         )
         print_summary(results_sg, args.speed, idle_pct=args.idle_pct,
                       fuel_price_eur_per_t=args.fuel_price,
@@ -3312,6 +3822,8 @@ def main():
         sg_freq_min=args.sg_freq_min,
         sg_freq_max=args.sg_freq_max,
         round_trip=do_round_trip,
+        hull_ks_m=hull_ks_m,
+        blade_ks_m=blade_ks_m,
     )
 
     print_summary(results, args.speed, idle_pct=args.idle_pct,
