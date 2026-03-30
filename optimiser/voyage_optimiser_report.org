@@ -1,0 +1,491 @@
+#+TITLE:
+#+OPTIONS: title:nil toc:nil num:t H:3 ^:{}
+#+LATEX_CLASS: article
+#+LATEX_CLASS_OPTIONS: [a4paper,11pt]
+#+LATEX_HEADER: % --- Document metadata (must precede bv.sty which uses them in \hypersetup) ---
+#+LATEX_HEADER: \newcommand{\bvReferenceNumber}{BV-OPT-001}
+#+LATEX_HEADER: \newcommand{\bvIssue}{A}
+#+LATEX_HEADER: \newcommand{\bvTitle}{Voyage Fuel Optimiser -- Software Architecture \& Validation}
+#+LATEX_HEADER: \newcommand{\bvDate}{\today}
+#+LATEX_HEADER: \newcommand{\bvType}{Technical Report}
+#+LATEX_HEADER: \newcommand{\bvAuthor}{Brunvoll AS}
+#+LATEX_HEADER: \newcommand{\bvCompany}{Brunvoll AS}
+#+LATEX_HEADER: \newcommand{\bvClassification}{INTERNAL}
+#+LATEX_HEADER: \usepackage{/home/blofro/src/rdt_analysis/bv}
+#+LATEX_HEADER: \usepackage{siunitx}
+#+LATEX_HEADER: \sisetup{per-mode=symbol, inter-unit-product=\ensuremath{\cdot}}
+#+LATEX_HEADER: \DeclareSIUnit{\knot}{kn}
+#+LATEX_HEADER: \usepackage{amsmath}
+#+LATEX_HEADER: \usepackage{subcaption}
+#+LATEX_HEADER: \usepackage{eurosym}
+#+LATEX_HEADER: \graphicspath{{images/}}
+
+#+BEGIN_EXPORT latex
+\bvMainTitlePage
+\tableofcontents
+\newpage
+#+END_EXPORT
+
+* Introduction
+
+This report documents the architecture and validation of the =voyage_comparison=
+propulsion optimiser tool.  The tool performs long-term hindcast-based voyage
+simulations comparing the factory combinator pitch/RPM schedule against a
+fuel-optimal operating point selection, with optional Flettner rotor
+wind-assist.
+
+The tool was originally implemented as a single 4\thinspace913-line Python
+script.  A modular refactoring was carried out to improve maintainability,
+testability, and extensibility.  This report describes the physical models, the
+software architecture after refactoring, and presents validation results from a
+full-year simulation on the Rotterdam--Gothenburg route.
+
+** Scope
+
+The tool addresses the following question: /for a given vessel on a fixed route,
+how much fuel can be saved by optimising the propeller pitch and RPM at each
+operating point, compared to the factory-default combinator schedule?/
+
+The analysis chain covers:
+- Calm-water hull resistance from service prediction data.
+- Wave added resistance via PdStrip drift transfer functions integrated over
+  JONSWAP spectra.
+- Blendermann (1994) wind resistance model.
+- Flettner rotor wind-assist thrust (Bordogna et al., 2019).
+- Hull and propeller roughness penalties (Townsin--Dey, 2003).
+- Factory combinator schedule replication.
+- Fuel-optimal pitch/RPM selection via propeller model optimisation.
+
+Hindcast weather is provided by NORA3 (Norwegian Reanalysis Archive, 3\thinspace km
+resolution) wave and wind fields.
+
+* Physical Models
+** Hull Resistance
+
+Calm-water thrust demand is interpolated from the vessel 206 service prediction
+at 16 speeds (\SIrange{8}{15.5}{\knot}).  The service prediction includes a
+@@latex:15\%@@ sea margin which is removed to obtain calm-water baseline values:
+
+\begin{equation}
+  T_\text{calm}(V_s) = \frac{T_\text{service}(V_s)}{1.15}
+\end{equation}
+
+Wake fraction $w(V_s)$ and thrust deduction $t(V_s)$ are also interpolated from
+service prediction tables.
+
+** Wave Added Resistance
+
+Wave added resistance is computed from PdStrip strip-theory transfer functions.
+The =DriftTransferFunction= class loads the =.dat= output from PdStrip and
+computes the mean surge drift force for a given sea state:
+
+\begin{equation}
+  R_\text{aw} = 2 \int_0^\infty S_\zeta(\omega;\, H_s, T_p)
+                  \cdot C_\text{drift}(\omega,\, \theta_\text{rel})
+                  \, d\omega
+\end{equation}
+
+where $S_\zeta$ is the JONSWAP wave spectrum and $C_\text{drift}$ is the
+frequency- and heading-dependent drift force transfer function per unit wave
+amplitude squared.
+
+** Wind Resistance
+
+Hull wind resistance follows Blendermann (1994), using tabulated surge force
+coefficients $C_X(\alpha)$ for a general cargo vessel:
+
+\begin{equation}
+  R_\text{wind} = -C_X(\alpha_\text{app}) \cdot \tfrac{1}{2}\,\rho_\text{air}\,
+                   V_\text{app}^2 \cdot A_F
+\end{equation}
+
+where $\alpha_\text{app}$ is the apparent wind angle from the bow, $V_\text{app}$
+the apparent wind speed, and $A_F = \SI{280}{\metre\squared}$ the frontal
+projected wind area.
+
+** Flettner Rotor
+
+The Flettner rotor model is ported from the BruCon C++ vessel simulator.  Lift
+and drag coefficients follow Bordogna et al. (2019) with aspect-ratio correction
+for a rotor of height \SI{28}{\metre} and diameter \SI{4}{\metre}:
+
+- Lift and drag are tabulated as functions of spin ratio $\text{SR} = \Omega R / V_\text{app}$.
+- The target spin ratio is $\text{SR} = 3$ (max \SI{220}{RPM}).
+- Rotor drive power follows the Theodorsen @@latex:\&@@ Regier (1944) model.
+- Rotor motor fuel is charged at the auxiliary genset SFOC (\SI{215}{\gram\per\kilo\watt\hour}).
+
+The net propulsive benefit is the surge component of the Magnus-effect force
+minus the fuel penalty for driving the rotor.
+
+** Hull and Propeller Roughness
+
+Hull roughness resistance follows Townsin @@latex:\&@@ Dey (2003):
+
+\begin{equation}
+  \Delta C_F = 0.044 \left[\left(\frac{k_s}{L}\right)^{1/3}
+               - 10\,\text{Re}^{-1/3}\right] + 0.000125
+\end{equation}
+
+Propeller blade roughness increases torque (and thus fuel) via the empirical
+model of Mosaad (1986).  Both roughness values can be specified directly in
+$\mu$m or via a =FoulingScenario= which models piecewise-linear roughness growth
+over time since last cleaning.
+
+** Factory Combinator
+
+The =FactoryCombinator= class replicates the BruCon vessel simulator's
+=MakeNormalCombinator()= algorithm.  For a given thrust demand, it returns the
+pitch and RPM dictated by the factory schedule---following the propeller curve up
+to a break point, then constant RPM with increasing pitch.
+
+** Propeller Model and Fuel Optimisation
+
+The fuel-optimal operating point is found by searching the full $(P/D,\, n)$
+space of the C-series propeller model.  For each thrust demand, the optimiser
+finds the pitch/RPM combination that minimises engine SFOC $\times$ brake power,
+subject to the MAN L27/38 power envelope.
+
+Results are pre-computed for a grid of 681 thrust values
+(\SIrange{10}{350}{\kilo\newton} in \SI{0.5}{\kilo\newton} steps) using parallel
+workers, then looked up during the voyage simulation for speed.
+
+* Software Architecture
+
+** Overview
+
+The original implementation was a single file (=voyage_comparison.py=,
+4\thinspace913 lines).  The refactoring decomposed it into four sub-packages
+with a thin CLI entry point:
+
+#+BEGIN_EXPORT latex
+\begin{verbatim}
+voyage_comparison.py       323 lines   CLI entry point (argparse)
+models/                  1,500 lines   Physical models & data
+simulation/              1,117 lines   Simulation engine & orchestration
+plotting/                1,218 lines   Matplotlib visualisations
+reporting/               1,023 lines   Text-based summary reports
+                         -----
+Total                    5,181 lines
+\end{verbatim}
+#+END_EXPORT
+
+** =models/= Package
+
+Contains all physical models, vessel data, and environmental data access.
+
+#+ATTR_LATEX: :booktabs t :align llp{8cm}
+| Module               | Lines | Description                                                                              |
+|----------------------+-------+------------------------------------------------------------------------------------------|
+| =constants.py=      |   129 | File paths, propeller/engine parameters, hull data arrays, Blendermann coefficient tables |
+| =roughness.py=      |   268 | =FoulingScenario= dataclass, Townsin--Dey hull roughness, blade roughness factor         |
+| =combinator.py=     |   256 | =FactoryCombinator= -- factory pitch/RPM schedule                                        |
+| =drift_force.py=    |   203 | =DriftTransferFunction= -- PdStrip wave added resistance                                 |
+| =flettner.py=       |   176 | =FlettnerRotor= -- Magnus-effect wind-assist model                                       |
+| =route.py=          |   168 | =Waypoint=, =Route= -- great-circle navigation                                          |
+| =weather.py=        |   150 | =WeatherAlongRoute= -- NORA3 NetCDF data loading                                        |
+| =wind_resistance.py= |   108 | Blendermann (1994) hull wind resistance                                                  |
+| =geometry.py=       |    17 | =angle_diff()= helper shared across models                                               |
+| =__init__.py=       |    35 | Re-exports for convenient importing                                                      |
+
+** =simulation/= Package
+
+Contains the core simulation loop, caching infrastructure, and top-level
+orchestration functions.
+
+#+ATTR_LATEX: :booktabs t :align llp{8cm}
+| Module            | Lines | Description                                                                              |
+|-------------------+-------+------------------------------------------------------------------------------------------|
+| =engine.py=       |   445 | =evaluate_voyage()= -- hourly stepping loop, round-trip combiner, parallel worker        |
+| =orchestrator.py= |   425 | =run_annual_comparison()=, =run_speed_sweep()=, =run_scheduling_analysis()=              |
+| =cache.py=        |   131 | Pre-computed thrust-to-fuel lookup tables (parallel build)                                |
+| =results.py=      |   108 | =HourlyResult=, =VoyageResult=, =SpeedSweepResult= dataclasses                          |
+| =__init__.py=     |    13 | Re-exports                                                                               |
+
+The core simulation loop in =evaluate_voyage()= proceeds as follows:
+
+1. Interpolate the route at 1-hour intervals (great-circle).
+2. Compute speed-dependent quantities once: wake fraction, thrust deduction,
+   calm-water thrust, hull roughness resistance, blade roughness factor.
+3. For each hourly position:
+   - Fetch NORA3 weather ($H_s$, $T_p$, wave/wind direction and speed).
+   - Compute wave added resistance via drift transfer function.
+   - Compute Flettner rotor thrust and power.
+   - Compute Blendermann wind resistance.
+   - Assemble total thrust demand: $T = T_\text{calm} + (R_\text{aw} + R_\text{wind} + R_\text{rough} - F_\text{Flettner}) / (1 - t)$.
+   - Evaluate factory combinator and optimiser fuel rates (from cache).
+   - Also evaluate no-Flettner variants for savings decomposition.
+4. Aggregate fuel totals, weather means, and compute savings split.
+
+Only hours where all four evaluations (factory $\pm$ Flettner, optimiser $\pm$
+Flettner) are feasible are counted, ensuring a consistent comparison basis.
+
+** =plotting/= Package
+
+#+ATTR_LATEX: :booktabs t :align llp{8cm}
+| Module            | Lines | Description                                        |
+|-------------------+-------+----------------------------------------------------|
+| =comparison.py=   |   481 | Annual comparison time-series and histogram plots  |
+| =departure.py=    |   192 | Departure timing flexibility analysis plots        |
+| =scheduling.py=   |   191 | 2D speed $\times$ departure window heatmaps        |
+| =map_plot.py=     |   189 | Route map with Natural Earth coastlines            |
+| =speed_sweep.py=  |   163 | Speed sensitivity sweep plots                      |
+| =__init__.py=     |     8 | Re-exports                                         |
+
+** =reporting/= Package
+
+#+ATTR_LATEX: :booktabs t :align llp{8cm}
+| Module            | Lines | Description                                                             |
+|-------------------+-------+-------------------------------------------------------------------------|
+| =summary.py=      |   519 | =print_summary()=, =print_departure_analysis()=                        |
+| =scheduling.py=   |   390 | =print_scheduling_analysis()=, =print_roughness_sweep_summary()=       |
+| =speed_sweep.py=  |   106 | =print_speed_sweep_summary()=                                          |
+| =__init__.py=     |    12 | Re-exports                                                             |
+
+** CLI Interface
+
+The entry point =voyage_comparison.py= exposes 29 command-line arguments via
+=argparse=.  Key modes of operation:
+
+#+ATTR_LATEX: :booktabs t :align lp{10cm}
+| Flag                              | Description                                 |
+|-----------------------------------+---------------------------------------------|
+| =--download=                      | Pre-download NORA3 data for the route       |
+| =--year YEAR=                     | Hindcast year (default: 2024)               |
+| =--speed SPEED=                   | Transit speed in knots (default: 10)        |
+| =--plot=                          | Generate summary plots                      |
+| =--no-flettner=                   | Disable Flettner rotor                      |
+| =--compare-sg=                    | Standard vs shaft generator comparison      |
+| =--speed-sweep KN ...=            | Speed sensitivity sweep                     |
+| =--roughness-sweep T ...=         | Fouling age sensitivity sweep               |
+| =--departure-analysis=            | Departure timing flexibility analysis       |
+| =--scheduling-analysis KN ...=    | 2D departure $\times$ speed optimisation    |
+| =--hull-roughness KS_UM=          | Hull roughness $k_s$ [$\mu$m]              |
+| =--fouling-years T=               | Time since cleaning [years]                 |
+
+* Validation Results
+
+A full-year simulation was run on the Rotterdam--Gothenburg route for 2024 as an
+end-to-end validation of the refactored codebase:
+
+#+BEGIN_EXPORT latex
+\begin{verbatim}
+python voyage_comparison.py --year 2024 --quiet
+\end{verbatim}
+#+END_EXPORT
+
+** Weather Data
+
+The simulation uses wave and wind data from NORA3, the third-generation
+Norwegian Reanalysis Archive produced by MET Norway.  A /hindcast/ is a
+numerical weather simulation run retrospectively: the atmospheric and wave
+models are forced with observed boundary conditions and assimilate available
+measurements, producing a physically consistent, gap-free reconstruction of
+historical weather on a regular grid.  Unlike point measurements from buoys or
+ships, a hindcast provides complete spatial and temporal coverage, making it
+suitable for route-based voyage simulation.
+
+NORA3 uses the WAM spectral wave model driven by the HARMONIE-AROME atmospheric
+model.  The wave data used here covers the North Sea and Skagerrak on a rotated-pole
+grid with approximately \SI{3}{\kilo\metre} spatial resolution
+($\Delta\text{lat} \approx \SI{0.02}{\degree}$,
+$\Delta\text{lon} \approx \SI{0.035}{\degree}$, corresponding to
+$\approx \SI{2.2}{\kilo\metre} \times \SI{2.2}{\kilo\metre}$ at the route
+latitude) and hourly temporal resolution.  The data spans 1993 to the present.
+
+The variables extracted for each route point are:
+- $H_s$ -- significant wave height [m]
+- $T_p$ -- peak wave period [s]
+- $\theta_q$ -- mean wave direction [deg, meteorological convention]
+- $U_{10}$ -- 10 m wind speed [m/s]
+- $\theta_w$ -- wind direction [deg, meteorological convention]
+
+Monthly files are pre-downloaded for a bounding box around the route
+(@@latex:$\pm$@@\thinspace0.5@@latex:$^\circ$@@ margin) and stored as NetCDF files.  During
+simulation, the weather at each hourly vessel position is obtained by
+nearest-neighbour lookup in both space and time.  Given the \SI{3}{\kilo\metre}
+grid spacing, the maximum spatial interpolation error is approximately
+\SI{1.5}{\kilo\metre} -- well within the spatial decorrelation scale of the wave
+field.  The hourly time step matches the simulation stepping interval exactly, so
+temporal interpolation is not required.
+
+** Simulation Setup
+
+#+ATTR_LATEX: :booktabs t :align lll
+| Parameter              | Value          | Unit                      |
+|------------------------+----------------+---------------------------|
+| Route                  | 509            | nm (one-way)              |
+| Transit speed          | 10             | kn                        |
+| Transit time (one-way) | 50.9           | hours                     |
+| Mode                   | Round-trip     |                           |
+| Flettner rotor         | Enabled        |                           |
+| Hull roughness         | Clean (no fouling) |                       |
+| Blade roughness        | Clean (no fouling) |                       |
+| Idle/port time         | 15             | @@latex:\%@@              |
+| Fuel price             | 650            | EUR/tonne                 |
+| Propeller              | $D = 4.66$     | m                        |
+| Engine                 | MAN L27/38     | 8-cyl, 800 RPM           |
+
+#+CAPTION: Rotterdam--Gothenburg route (509 nm one-way) with waypoints and leg bearings.  Coastline data from Natural Earth 10m.
+#+ATTR_LATEX: :width 0.85\textwidth :placement [H]
+[[file:voyage_comparison_route.png]]
+
+** Voyage Statistics
+
+362 round-trip voyages were successfully simulated (4 late-December departures
+failed due to missing January 2025 weather data).
+
+#+ATTR_LATEX: :booktabs t :align lrrrrrr
+| Metric                         |  Mean | Median |   P10 |   P90 |   Min |   Max |
+|--------------------------------+-------+--------+-------+-------+-------+-------|
+| Factory no-Fl [kg/voy]         | 14110 |  13981 | 12900 | 15806 | 10315 | 18946 |
+| Opt + Flettner [kg/voy]        | 12517 |  12557 | 10479 | 14385 |  7967 | 18014 |
+| Pitch/RPM saving [kg/voy]      |   415 |    431 |   335 |   473 |   183 |   497 |
+| Flettner saving [kg/voy]       |  1178 |   1084 |   309 |  2239 |    -3 |  3687 |
+| Pitch/RPM saving               | 3.0@@latex:\%@@ | 3.1@@latex:\%@@ | 2.2@@latex:\%@@ | 3.6@@latex:\%@@ | 1.3@@latex:\%@@ | 3.9@@latex:\%@@ |
+| Flettner saving                | 8.5@@latex:\%@@ | 7.6@@latex:\%@@ | 2.2@@latex:\%@@ | 16.2@@latex:\%@@ | 0.0@@latex:\%@@ | 27.4@@latex:\%@@ |
+| Mean $H_s$ [m]                 |   1.4 |    1.3 |   0.7 |   2.3 |   0.4 |   4.0 |
+| Mean wind speed [m/s]          |   7.8 |    7.6 |   5.3 |  10.6 |   3.5 |  14.5 |
+| Mean $R_\text{aw}$ [kN]        |   4.7 |    2.1 |   0.2 |  12.4 |  -0.9 |  45.2 |
+| Mean $R_\text{wind}$ [kN]      |   4.5 |    4.0 |  -0.6 |  10.5 |  -4.5 |  26.9 |
+| Mean Flettner thrust [kN]      |  14.3 |   11.5 |   3.2 |  30.5 |   0.1 |  55.7 |
+| Mean rotor power [kW]          |  17.4 |   13.9 |   4.0 |  37.6 |   0.2 |  68.0 |
+
+Fuel savings are decomposed additively against the factory-no-Flettner baseline:
+
+\begin{equation}
+  \underbrace{\text{Factory}_\text{NF} - \text{Opt}_\text{+Fl}}_{\text{combined saving}}
+  = \underbrace{\text{Factory}_\text{NF} - \text{Opt}_\text{NF}}_{\text{pitch/RPM}}
+  + \underbrace{\text{Opt}_\text{NF} - \text{Opt}_\text{+Fl}}_{\text{Flettner}}
+\end{equation}
+
+The pitch/RPM saving (3.0@@latex:\%@@) isolates the benefit of optimising the
+operating point at the same thrust demand.  The Flettner saving (8.5@@latex:\%@@)
+isolates the thrust reduction from the rotor.  Both percentages are relative to
+the factory-no-Flettner baseline.
+
+Figure [[fig:timeseries]] shows the daily evolution of fuel savings, significant
+wave height, and force components across the full year.
+
+#+NAME: fig:timeseries
+#+CAPTION: Annual time-series of per-voyage results.  Top: pitch/RPM and Flettner fuel savings (stacked).  Middle: significant wave height.  Bottom: added wave resistance, wind resistance, and Flettner thrust.
+#+ATTR_LATEX: :width \textwidth :placement [H]
+[[file:voyage_comparison_results.png]]
+
+** Factory Combinator Feasibility
+
+#+ATTR_LATEX: :booktabs t :align lr
+| Metric                                   |            Value |
+|------------------------------------------+------------------|
+| Total evaluation hours                   |   37\thinspace648 |
+| Both feasible                            | 97@@latex:\%@@   |
+| Factory infeasible hours                 |  1@@latex:\%@@   |
+| Voyages with $\geq 1$ infeasible hour    |  7@@latex:\%@@   |
+
+Factory infeasibility occurs when the engine exceeds its power envelope at the
+factory combinator's fixed RPM schedule.  The optimiser adapts pitch/RPM to
+remain feasible.
+
+Figure [[fig:scatter]] shows the correlation between per-voyage fuel saving and
+mean sea state, coloured by mean wind speed.  Higher seas drive larger absolute
+savings through the Flettner rotor.
+
+#+NAME: fig:scatter
+#+CAPTION: Per-voyage fuel saving vs mean significant wave height, coloured by mean wind speed.  The positive correlation reflects the Flettner rotor's increasing benefit in windier conditions.
+#+ATTR_LATEX: :width 0.85\textwidth :placement [H]
+[[file:voyage_comparison_scatter.png]]
+
+** Annualised Fuel Consumption
+
+Assuming 15@@latex:\%@@ idle time, the vessel completes approximately 73 round-trip
+voyages per year.
+
+#+ATTR_LATEX: :booktabs t :align lr
+| Configuration          | Fuel [tonnes/year] |
+|------------------------+--------------------|
+| Factory, no Flettner   |             1031.8 |
+| Factory + Flettner     |              945.1 |
+| Optimiser, no Flettner |             1001.4 |
+| Optimiser + Flettner   |              915.3 |
+
+#+ATTR_LATEX: :booktabs t :align lrr
+| Saving component | Tonnes/year | Percentage          |
+|------------------+-------------+---------------------|
+| Pitch/RPM        |        30.3 | 2.9@@latex:\%@@     |
+| Flettner         |        86.1 | 8.3@@latex:\%@@     |
+| Combined         |       116.4 | 11.3@@latex:\%@@    |
+
+Figure [[fig:histogram]] shows the distribution of per-voyage savings, decomposed
+into pitch/RPM optimisation and Flettner wind-assist components.
+
+#+NAME: fig:histogram
+#+CAPTION: Histograms of per-voyage fuel savings.  Left: total saving (factory vs optimiser+Flettner).  Centre: pitch/RPM component.  Right: Flettner component.  The Flettner saving has a wider spread reflecting its weather dependence.
+#+ATTR_LATEX: :width \textwidth :placement [H]
+[[file:voyage_comparison_histogram.png]]
+
+** Cost Estimates
+
+At MGO price of @@latex:\euro@@650/tonne (typical ECA zone):
+
+#+ATTR_LATEX: :booktabs t :align lr
+| Configuration          | Annual cost                             |
+|------------------------+-----------------------------------------|
+| Factory, no Flettner   | @@latex:\euro@@670\thinspace656         |
+| Factory + Flettner     | @@latex:\euro@@614\thinspace328         |
+| Optimiser, no Flettner | @@latex:\euro@@650\thinspace940         |
+| Optimiser + Flettner   | @@latex:\euro@@594\thinspace964         |
+| Annual saving          | @@latex:\euro@@75\thinspace692 (11.3@@latex:\%@@) |
+
+** Seasonal Breakdown
+
+#+ATTR_LATEX: :booktabs t :align lrrrrrrr
+| Season          | Voyages | Fac NF [kg]        | Opt+Fl [kg]        | Saving             | P/R                | Flettner           | Mean $H_s$ [m] |
+|-----------------+---------+--------------------+--------------------+--------------------+--------------------+--------------------+-----------------|
+| Q1 (Jan--Mar)   |      91 | 14\thinspace102    | 12\thinspace266    | 3.0@@latex:\%@@    | 2.8@@latex:\%@@    | 10.4@@latex:\%@@   |             1.8 |
+| Q2 (Apr--Jun)   |      91 | 14\thinspace222    | 12\thinspace876    | 3.3@@latex:\%@@    | 3.1@@latex:\%@@    | 6.5@@latex:\%@@    |             1.2 |
+| Q3 (Jul--Sep)   |      92 | 14\thinspace068    | 12\thinspace711    | 3.3@@latex:\%@@    | 3.1@@latex:\%@@    | 6.6@@latex:\%@@    |             1.1 |
+| Q4 (Oct--Dec)   |      88 | 14\thinspace046    | 12\thinspace204    | 3.0@@latex:\%@@    | 2.9@@latex:\%@@    | 10.5@@latex:\%@@   |             1.7 |
+
+The Flettner benefit is roughly doubled in the winter quarters (Q1, Q4) compared
+to summer, reflecting the stronger and more consistent North Sea wind regime.
+The pitch/RPM optimisation saving is relatively stable across seasons at
+2.8--3.1@@latex:\%@@, as it depends primarily on the thrust demand distribution rather than
+its magnitude.
+
+* Conclusions
+
+The refactored =voyage_comparison= tool has been validated by running a
+full-year (2024) hindcast simulation on the Rotterdam--Gothenburg route.  Key
+findings:
+
+1. *Pitch/RPM optimisation* saves approximately *2.9@@latex:\%@@ fuel* (30 tonnes/year,
+   @@latex:\euro@@20\thinspace000/year) compared to the factory combinator schedule.  This is
+   a conservative, weather-independent benefit available on every voyage.
+
+2. *Flettner rotor wind-assist* adds a further *8.3@@latex:\%@@ fuel saving*
+   (86 tonnes/year, @@latex:\euro@@56\thinspace000/year), with strong seasonal variation
+   (6--10@@latex:\%@@ by quarter).
+
+3. *Combined saving* of *11.3@@latex:\%@@* (116 tonnes/year, @@latex:\euro@@76\thinspace000/year) at
+   \SI{10}{\knot} transit speed.
+
+4. The factory combinator becomes *infeasible* (engine over-power) on 7@@latex:\%@@ of
+   voyages, while the optimiser adapts pitch/RPM to remain within the power
+   envelope.
+
+5. The *modular architecture* (4 packages, 24 modules, 5\thinspace181 lines)
+   provides clean separation of physical models, simulation logic, reporting, and
+   visualisation, enabling independent testing and extension of each component.
+
+* References
+
+- Blendermann, W. (1994). Parameter identification of wind loads on ships.
+  /J. Wind Eng. Ind. Aerodyn./, 51(3), 339--351.
+- Bordogna, G., Muggiasca, S., Giappino, S., Belloli, M., Keuning, J.A.,
+  Huijsmans, R.H.J. (2019). The effects of the aerodynamic interaction on the
+  performance of two Flettner rotors. /J. Wind Eng. Ind. Aerodyn./, 196, 104024.
+- Mosaad, M.A. (1986). Marine propeller roughness penalties. PhD Thesis,
+  University of Newcastle upon Tyne.
+- Theodorsen, T. @@latex:\&@@ Regier, A. (1944). Experiments on drag of revolving disks,
+  cylinders, and streamline rods at high speeds. /NACA Report 793/.
+- Townsin, R.L. @@latex:\&@@ Dey, S.K. (2003). The correlation of roughness drag with
+  surface characteristics. In /Biofouling/, Royal Institution of Naval Architects.
