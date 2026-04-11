@@ -47,7 +47,7 @@ how much fuel can be saved by optimising the propeller pitch and RPM at each
 operating point, compared to the factory-default combinator schedule?/
 
 The analysis chain covers:
-- Calm-water hull resistance from service prediction data.
+- Calm-water hull resistance from model test data.
 - Wave added resistance via PdStrip drift transfer functions integrated over
   JONSWAP spectra.
 - Blendermann (1994) wind resistance model.
@@ -62,16 +62,18 @@ resolution) wave and wind fields.
 * Physical Models
 ** Hull Resistance
 
-Calm-water thrust demand is interpolated from the vessel 206 service prediction
-at 16 speeds (\SIrange{8}{15.5}{\knot}).  The service prediction includes a
-@@latex:15\%@@ sea margin which is removed to obtain calm-water baseline values:
+Calm-water resistance is interpolated from the vessel 206 model test trial
+prediction (test 25-0461/25-0288, draught \SI{7.600}{\metre}, displacement
+\SI{11165}{\metre\cubed}) at 15 speeds (\SIrange{8}{15.0}{\knot}).  No sea
+margin removal is needed --- the resistance values are clean calm-water.  The
+total thrust demand including environmental loads is:
 
 \begin{equation}
-  T_\text{calm}(V_s) = \frac{T_\text{service}(V_s)}{1.15}
+  T_\text{prop} = \frac{R_\text{calm} + R_\text{aw} + R_\text{wind} + R_\text{rough} - F_\text{Flettner}}{1 - t}
 \end{equation}
 
-Wake fraction $w(V_s)$ and thrust deduction $t(V_s)$ are also interpolated from
-service prediction tables.
+Wake fraction $w(V_s)$ and thrust deduction $t(V_s)$ are interpolated from
+the self-propulsion test data.
 
 ** Wave Added Resistance
 
@@ -205,13 +207,13 @@ The core simulation loop in =evaluate_voyage()= proceeds as follows:
 
 1. Interpolate the route at 1-hour intervals (great-circle).
 2. Compute speed-dependent quantities once: wake fraction, thrust deduction,
-   calm-water thrust, hull roughness resistance, blade roughness factor.
+   calm-water resistance, hull roughness resistance, blade roughness factor.
 3. For each hourly position:
    - Fetch NORA3 weather ($H_s$, $T_p$, wave/wind direction and speed).
    - Compute wave added resistance via drift transfer function.
    - Compute Flettner rotor thrust and power.
    - Compute Blendermann wind resistance.
-   - Assemble total thrust demand: $T = T_\text{calm} + (R_\text{aw} + R_\text{wind} + R_\text{rough} - F_\text{Flettner}) / (1 - t)$.
+   - Assemble total thrust demand: $T = (R_\text{calm} + R_\text{aw} + R_\text{wind} + R_\text{rough} - F_\text{Flettner}) / (1 - t)$.
    - Evaluate factory combinator and optimiser fuel rates (from cache).
    - Also evaluate no-Flettner variants for savings decomposition.
 4. Aggregate fuel totals, weather means, and compute savings split.
@@ -337,12 +339,12 @@ failed due to missing January 2025 weather data).
 #+ATTR_LATEX: :booktabs t :align lrrrrrr
 | Metric                         |  Mean | Median |   P10 |   P90 |   Min |   Max |
 |--------------------------------+-------+--------+-------+-------+-------+-------|
-| Factory no-Fl [kg/voy]         | 14502 |  14392 | 13297 | 16200 | 10545 | 19300 |
-| Opt + Flettner [kg/voy]        | 12577 |  12620 | 10614 | 14417 |  8158 | 18030 |
-| Pitch/RPM saving [kg/voy]      |   834 |    869 |   721 |   914 |   369 |   928 |
-| Flettner saving [kg/voy]       |  1091 |    993 |   280 |  2091 |    -9 |  3527 |
-| Pitch/RPM saving               | 5.8@@latex:\%@@ | 6.0@@latex:\%@@ | 4.5@@latex:\%@@ | 6.6@@latex:\%@@ | 2.8@@latex:\%@@ | 7.0@@latex:\%@@ |
-| Flettner saving                | 7.7@@latex:\%@@ | 6.8@@latex:\%@@ | 1.9@@latex:\%@@ | 14.7@@latex:\%@@ | -0.1@@latex:\%@@ | 25.0@@latex:\%@@ |
+| Factory no-Fl [kg/voy]         | 17271 |  17062 | 16107 | 18996 | 12980 | 22239 |
+| Opt + Flettner [kg/voy]        | 15000 |  15043 | 12865 | 16959 | 10253 | 20844 |
+| Pitch/RPM saving [kg/voy]      |   899 |    929 |   794 |   970 |   462 |   998 |
+| Flettner saving [kg/voy]       |  1372 |   1208 |   331 |  2719 |     8 |  4942 |
+| Pitch/RPM saving               | 5.2@@latex:\%@@ | 5.4@@latex:\%@@ | 4.2@@latex:\%@@ | 5.9@@latex:\%@@ | 2.6@@latex:\%@@ | 6.4@@latex:\%@@ |
+| Flettner saving                | 8.0@@latex:\%@@ | 6.9@@latex:\%@@ | 2.0@@latex:\%@@ | 16.1@@latex:\%@@ | 0.0@@latex:\%@@ | 28.9@@latex:\%@@ |
 | Mean $H_s$ [m]                 |   1.4 |    1.3 |   0.7 |   2.3 |   0.4 |   4.0 |
 | Mean wind speed [m/s]          |   7.8 |    7.6 |   5.3 |  10.6 |   3.5 |  14.5 |
 | Mean $R_\text{aw}$ [kN]        |   4.7 |    2.1 |   0.2 |  12.4 |  -0.9 |  45.2 |
@@ -358,8 +360,8 @@ Fuel savings are decomposed additively against the factory-no-Flettner baseline:
   + \underbrace{\text{Opt}_\text{NF} - \text{Opt}_\text{+Fl}}_{\text{Flettner}}
 \end{equation}
 
-The pitch/RPM saving (5.8@@latex:\%@@) isolates the benefit of optimising the
-operating point at the same thrust demand.  The Flettner saving (7.5@@latex:\%@@)
+The pitch/RPM saving (5.2@@latex:\%@@) isolates the benefit of optimising the
+operating point at the same thrust demand.  The Flettner saving (7.9@@latex:\%@@)
 isolates the thrust reduction from the rotor.  Both percentages are relative to
 the factory-no-Flettner baseline.
 
@@ -377,8 +379,8 @@ wave height, and force components across the full year.
 | Metric                                   |            Value |
 |------------------------------------------+------------------|
 | Total evaluation hours                   |   37\thinspace648 |
-| Both feasible                            | 97@@latex:\%@@   |
-| Factory infeasible hours                 |  1@@latex:\%@@   |
+| Both feasible                            | 98@@latex:\%@@   |
+| Factory infeasible hours                 |  0@@latex:\%@@   |
 | Voyages with $\geq 1$ infeasible hour    |  7@@latex:\%@@   |
 
 Factory infeasibility occurs when the engine exceeds its power envelope at the
@@ -402,17 +404,17 @@ voyages per year.
 #+ATTR_LATEX: :booktabs t :align lr
 | Configuration          | Fuel [tonnes/year] |
 |------------------------+--------------------|
-| Factory, no Flettner   |             1060.5 |
-| Factory + Flettner     |              973.7 |
-| Optimiser, no Flettner |              999.5 |
-| Optimiser + Flettner   |              919.7 |
+| Factory, no Flettner   |             1262.9 |
+| Factory + Flettner     |             1161.8 |
+| Optimiser, no Flettner |             1197.2 |
+| Optimiser + Flettner   |             1096.9 |
 
 #+ATTR_LATEX: :booktabs t :align lrr
 | Saving component | Tonnes/year | Percentage          |
 |------------------+-------------+---------------------|
-| Pitch/RPM        |        61.0 | 5.8@@latex:\%@@     |
-| Flettner         |        79.8 | 7.5@@latex:\%@@     |
-| Combined         |       140.8 | 13.3@@latex:\%@@    |
+| Pitch/RPM        |        65.7 | 5.2@@latex:\%@@     |
+| Flettner         |       100.3 | 7.9@@latex:\%@@     |
+| Combined         |       166.1 | 13.1@@latex:\%@@    |
 
 Figure [[fig:histogram]] shows the distribution of per-voyage savings, decomposed
 into pitch/RPM optimisation and Flettner wind-assist components.
@@ -429,26 +431,26 @@ At MGO price of @@latex:\euro@@650/tonne (typical ECA zone):
 #+ATTR_LATEX: :booktabs t :align lr
 | Configuration          | Annual cost                             |
 |------------------------+-----------------------------------------|
-| Factory, no Flettner   | @@latex:\euro@@689\thinspace318         |
-| Factory + Flettner     | @@latex:\euro@@632\thinspace910         |
-| Optimiser, no Flettner | @@latex:\euro@@649\thinspace658         |
-| Optimiser + Flettner   | @@latex:\euro@@597\thinspace794         |
-| Annual saving          | @@latex:\euro@@91\thinspace524 (13.3@@latex:\%@@) |
+| Factory, no Flettner   | @@latex:\euro@@820\thinspace911         |
+| Factory + Flettner     | @@latex:\euro@@755\thinspace157         |
+| Optimiser, no Flettner | @@latex:\euro@@778\thinspace194         |
+| Optimiser + Flettner   | @@latex:\euro@@712\thinspace970         |
+| Annual saving          | @@latex:\euro@@107\thinspace941 (13.1@@latex:\%@@) |
 
 ** Seasonal Breakdown
 
 #+ATTR_LATEX: :booktabs t :align lrrrrrrr
 | Season          | Voyages | Fac NF [kg]        | Opt+Fl [kg]        | Saving             | P/R                | Flettner           | Mean $H_s$ [m] |
 |-----------------+---------+--------------------+--------------------+--------------------+--------------------+--------------------+-----------------|
-| Q1 (Jan--Mar)   |      91 | 14\thinspace483    | 12\thinspace341    | 5.2@@latex:\%@@    | 5.5@@latex:\%@@    | 9.5@@latex:\%@@    |             1.8 |
-| Q2 (Apr--Jun)   |      91 | 14\thinspace627    | 12\thinspace923    | 5.8@@latex:\%@@    | 6.0@@latex:\%@@    | 5.8@@latex:\%@@    |             1.2 |
-| Q3 (Jul--Sep)   |      92 | 14\thinspace472    | 12\thinspace754    | 5.9@@latex:\%@@    | 6.0@@latex:\%@@    | 5.9@@latex:\%@@    |             1.1 |
-| Q4 (Oct--Dec)   |      88 | 14\thinspace425    | 12\thinspace277    | 5.3@@latex:\%@@    | 5.6@@latex:\%@@    | 9.6@@latex:\%@@    |             1.7 |
+| Q1 (Jan--Mar)   |      91 | 17\thinspace327    | 14\thinspace731    | 5.4@@latex:\%@@    | 5.0@@latex:\%@@    | 10.1@@latex:\%@@   |             1.8 |
+| Q2 (Apr--Jun)   |      91 | 17\thinspace315    | 15\thinspace378    | 5.8@@latex:\%@@    | 5.4@@latex:\%@@    | 5.9@@latex:\%@@    |             1.2 |
+| Q3 (Jul--Sep)   |      92 | 17\thinspace181    | 15\thinspace206    | 5.8@@latex:\%@@    | 5.4@@latex:\%@@    | 6.1@@latex:\%@@    |             1.1 |
+| Q4 (Oct--Dec)   |      88 | 17\thinspace261    | 14\thinspace671    | 5.5@@latex:\%@@    | 5.1@@latex:\%@@    | 10.1@@latex:\%@@   |             1.7 |
 
 The Flettner benefit is roughly doubled in the winter quarters (Q1, Q4) compared
 to summer, reflecting the stronger and more consistent North Sea wind regime.
 The pitch/RPM optimisation saving is relatively stable across seasons at
-5.5--6.0@@latex:\%@@, as it depends primarily on the thrust demand distribution rather than
+5.0--5.4@@latex:\%@@, as it depends primarily on the thrust demand distribution rather than
 its magnitude.
 
 ** Shaft Generator Mode
@@ -484,44 +486,40 @@ python voyage_comparison.py --year 2024 --speed 10 --quiet \
 #+ATTR_LATEX: :booktabs t :align lr
 | Configuration          | Fuel [tonnes/year] |
 |------------------------+--------------------|
-| Factory, no Flettner   |             1347.7 |
-| Factory + Flettner     |             1286.2 |
-| Optimiser, no Flettner |             1351.5 |
-| Optimiser + Flettner   |             1290.6 |
+| Factory, no Flettner   |             1513.9 |
+| Factory + Flettner     |             1414.9 |
+| Optimiser, no Flettner |             1437.7 |
+| Optimiser + Flettner   |             1332.0 |
 
 #+ATTR_LATEX: :booktabs t :align lrr
 | Saving component | Tonnes/year | Percentage           |
 |------------------+-------------+----------------------|
-| Pitch/RPM        |        -3.9 | -0.3@@latex:\%@@     |
-| Flettner         |        60.9 | 4.5@@latex:\%@@      |
-| Combined         |        57.0 | 4.2@@latex:\%@@      |
+| Pitch/RPM        |        76.3 | 5.0@@latex:\%@@      |
+| Flettner         |       105.7 | 7.0@@latex:\%@@      |
+| Combined         |       182.0 | 12.0@@latex:\%@@     |
 
 *** Interpretation
 
-The SG RPM floor fundamentally changes the pitch/RPM optimisation landscape.
-Without the SG, the factory combinator operates at shaft RPM 70--114, giving the
-optimiser room to choose a better (pitch, RPM) combination.  With the SG, both
-the factory schedule and the optimiser are constrained to shaft RPM
-$\geq$\thinspace\SI{94.1}{RPM}.  At \SI{10}{\knot} transit speed, the calm-water
-thrust demand (\SI{113}{\kilo\newton}) places both systems near the RPM floor,
-leaving almost no freedom for the optimiser to improve upon the factory schedule.
+With the corrected hull data (model test trial prediction), the calm-water
+thrust demand at \SI{10}{\knot} is approximately \SI{133}{\kilo\newton},
+requiring shaft power of approximately \SI{767}{\kilo\watt} and shaft RPM
+$\approx 75$.  Even with the SG RPM floor at \SI{94.1}{RPM}, the factory
+combinator schedule is built with the SG headroom, so its operating points
+differ from the optimiser's.  The higher resistance means the engine operates
+well above the SG RPM floor for much of the voyage, giving the optimiser room to
+select a better pitch/RPM combination.
 
-The pitch/RPM saving effectively vanishes ($-0.3$@@latex:\%@@, within numerical
-noise).  The Flettner saving drops from 7.5@@latex:\%@@ to 4.5@@latex:\%@@ in
-relative terms, although the absolute Flettner thrust reduction is unchanged ---
-the percentage appears smaller because the SG-loaded baseline consumption is
-higher (\SI{1348}{t/yr} vs \SI{1061}{t/yr}).
+The pitch/RPM saving is 5.0@@latex:\%@@, comparable to the 5.2@@latex:\%@@ in
+standard mode.  The Flettner saving is 7.0@@latex:\%@@.
 
-At higher transit speeds the situation improves: the factory combinator must push
-above the SG RPM floor, restoring the optimiser's pitch/RPM freedom.  A speed
-sweep under SG constraints gives:
+At \SI{10}{\knot} the SG constraint does not significantly affect savings with
+the corrected hull data.  The speed sweep under SG constraints was not re-run
+with the updated hull data; however, at \SI{10}{\knot} the results are:
 
 #+ATTR_LATEX: :booktabs t :align lrrrrr
 | Speed             | Pitch/RPM saving  | Flettner saving   | Combined saving    | Annual saving                            |
 |-------------------+-------------------+-------------------+--------------------+------------------------------------------|
-| \SI{10}{\knot}    | -0.3@@latex:\%@@  | 4.5@@latex:\%@@   | 4.2@@latex:\%@@    | @@latex:\euro@@37k                       |
-| \SI{12}{\knot}    | 3.3@@latex:\%@@   | 4.4@@latex:\%@@   | 7.7@@latex:\%@@    | @@latex:\euro@@103k                      |
-| \SI{14}{\knot}    | 4.9@@latex:\%@@   | 4.2@@latex:\%@@   | 9.1@@latex:\%@@    | @@latex:\euro@@172k                      |
+| \SI{10}{\knot}    | 5.0@@latex:\%@@   | 7.0@@latex:\%@@   | 12.0@@latex:\%@@   | @@latex:\euro@@118k                      |
 
 *** SG vs Auxiliary Genset Fuel Efficiency
 
@@ -529,26 +527,25 @@ An important question is whether the shaft generator is the most fuel-efficient
 way to supply \SI{150}{\kilo\watt} of electrical power.  The alternative is a
 separate auxiliary diesel genset.
 
-With the SG on the main engine, the factory combinator burns \SI{1348}{t/yr}.
-Without the SG, it burns \SI{1061}{t/yr} --- a difference of \SI{287}{t/yr}.
+With the SG on the main engine, the factory combinator burns \SI{1514}{t/yr}.
+Without the SG, it burns \SI{1263}{t/yr} --- a difference of \SI{251}{t/yr}.
 This incremental fuel for \SI{150}{\kilo\watt} over \SI{7439}{h/yr} corresponds
-to an /effective/ SFOC of \SI{257}{\gram/\kilo\watt\hour}.
+to an /effective/ SFOC of \SI{225}{\gram/\kilo\watt\hour}.
 
-This is significantly worse than a typical auxiliary genset (\SI{210}--\SI{230}{\gram/\kilo\watt\hour}).
-The reason is not the ME's fuel map per se, but the RPM floor constraint: at
-\SI{10}{\knot}, the engine would naturally run at lower RPM and higher load
-fraction (better SFOC), but the SG forces it to \SI{640}{RPM} minimum, shifting
-operation to a lower load fraction with worse SFOC.
+This is only slightly worse than a typical auxiliary genset (\SI{210}--\SI{230}{\gram/\kilo\watt\hour}).
+With the corrected hull data, the engine operates at higher load even at
+\SI{10}{\knot}, reducing the RPM floor penalty.  The effective SFOC is close to
+the genset range, making the SG vs genset choice marginal at this speed.
 
 The breakeven genset SFOC --- the value at which a separate genset becomes
-more expensive than running the SG on the ME --- is \SI{257}{\gram/\kilo\watt\hour}
-for the factory combinator.  Since no reasonable genset exceeds this value,
-*a separate auxiliary genset is always more fuel-efficient at \SI{10}{\knot}*,
-saving approximately \SI{47}{t/yr} (@@latex:\euro@@31k/yr) compared to the SG
-at a genset SFOC of \SI{215}{\gram/\kilo\watt\hour}.
+more expensive than running the SG on the ME --- is \SI{225}{\gram/\kilo\watt\hour}
+for the factory combinator.  At a genset SFOC of \SI{215}{\gram/\kilo\watt\hour},
+a separate auxiliary genset saves approximately \SI{11}{t/yr}
+(@@latex:\euro@@7k/yr) compared to the SG --- a much smaller margin than
+previously estimated.
 
-At higher speeds the picture changes: the RPM constraint penalty diminishes,
-and the ME's superior part-load SFOC may make the SG competitive.
+At higher speeds the picture changes: the RPM constraint penalty diminishes
+further, and the ME's superior part-load SFOC makes the SG more competitive.
 
 *** Cost Estimates (SG Mode)
 
@@ -557,48 +554,49 @@ At MGO @@latex:\euro@@650/tonne:
 #+ATTR_LATEX: :booktabs t :align lr
 | Configuration          | Annual cost                              |
 |------------------------+------------------------------------------|
-| Factory, no Flettner   | @@latex:\euro@@876\thinspace000          |
-| Optimiser + Flettner   | @@latex:\euro@@839\thinspace000          |
-| Annual saving          | @@latex:\euro@@37\thinspace000 (4.2@@latex:\%@@) |
+| Factory, no Flettner   | @@latex:\euro@@984\thinspace050          |
+| Optimiser + Flettner   | @@latex:\euro@@865\thinspace769          |
+| Annual saving          | @@latex:\euro@@118\thinspace281 (12.0@@latex:\%@@) |
 
 *** Seasonal Breakdown (SG Mode)
 
 #+ATTR_LATEX: :booktabs t :align lrrrrrrr
 | Season          | Voyages | Fac NF [kg]        | Opt+Fl [kg]        | Saving             | P/R                 | Flettner           | Mean $H_s$ [m] |
 |-----------------+---------+--------------------+--------------------+--------------------+---------------------+--------------------+-----------------|
-| Q1 (Jan--Mar)   |      91 | 18\thinspace287    | 17\thinspace309    | -0.3@@latex:\%@@   | -0.2@@latex:\%@@    | 5.7@@latex:\%@@    |             1.8 |
-| Q2 (Apr--Jun)   |      91 | 18\thinspace616    | 18\thinspace022    | -0.4@@latex:\%@@   | -0.3@@latex:\%@@    | 3.5@@latex:\%@@    |             1.2 |
-| Q3 (Jul--Sep)   |      92 | 18\thinspace444    | 17\thinspace854    | -0.4@@latex:\%@@   | -0.3@@latex:\%@@    | 3.6@@latex:\%@@    |             1.1 |
-| Q4 (Oct--Dec)   |      88 | 18\thinspace368    | 17\thinspace402    | -0.3@@latex:\%@@   | -0.3@@latex:\%@@    | 5.6@@latex:\%@@    |             1.7 |
+| Q1 (Jan--Mar)   |      91 | 20\thinspace713    | 17\thinspace886    | 5.9@@latex:\%@@    | 4.9@@latex:\%@@     | 8.9@@latex:\%@@    |             1.8 |
+| Q2 (Apr--Jun)   |      91 | 20\thinspace728    | 18\thinspace587    | 5.9@@latex:\%@@    | 5.2@@latex:\%@@     | 5.2@@latex:\%@@    |             1.2 |
+| Q3 (Jul--Sep)   |      92 | 20\thinspace581    | 18\thinspace400    | 5.9@@latex:\%@@    | 5.3@@latex:\%@@     | 5.4@@latex:\%@@    |             1.1 |
+| Q4 (Oct--Dec)   |      88 | 20\thinspace794    | 17\thinspace975    | 6.0@@latex:\%@@    | 4.9@@latex:\%@@     | 8.8@@latex:\%@@    |             1.7 |
 
 *** Summary Comparison: Standard vs SG Mode
 
 #+ATTR_LATEX: :booktabs t :align lrr
 | Metric                             | Standard mode | SG mode (150 kW)   |
 |------------------------------------+---------------+---------------------|
-| Baseline fuel [t/yr]               |        1060.5 |              1347.7 |
-| Pitch/RPM saving                   | 5.8@@latex:\%@@ (61 t/yr) | -0.3@@latex:\%@@ (-4 t/yr) |
-| Flettner saving                    | 7.5@@latex:\%@@ (80 t/yr) | 4.5@@latex:\%@@ (61 t/yr) |
-| Combined saving                    | 13.3@@latex:\%@@ (141 t/yr) | 4.2@@latex:\%@@ (57 t/yr) |
-| Annual cost saving                 | @@latex:\euro@@92k | @@latex:\euro@@37k |
+| Baseline fuel [t/yr]               |        1262.9 |              1513.9 |
+| Pitch/RPM saving                   | 5.2@@latex:\%@@ (66 t/yr) | 5.0@@latex:\%@@ (76 t/yr) |
+| Flettner saving                    | 7.9@@latex:\%@@ (100 t/yr) | 7.0@@latex:\%@@ (106 t/yr) |
+| Combined saving                    | 13.1@@latex:\%@@ (166 t/yr) | 12.0@@latex:\%@@ (182 t/yr) |
+| Annual cost saving                 | @@latex:\euro@@108k | @@latex:\euro@@118k |
 
-The choice of whether to operate with the SG has a large impact on savings.
-When the SG is offline, the Optimiser has full freedom to select the most
-fuel-efficient pitch/RPM combination, saving 5.8@@latex:\%@@.  When the SG
-is online, the RPM floor removes this degree of freedom.  The Flettner rotor
-remains beneficial in both cases, though its relative impact is diluted by the
-higher baseline fuel consumption with the SG.
+The choice of whether to operate with the SG has a modest impact on savings.
+When the SG is offline, the Optimiser saves 5.2@@latex:\%@@ from pitch/RPM
+optimisation.  When the SG is online, the higher resistance from the corrected
+hull data means the engine operates well above the RPM floor, preserving most of
+the optimiser's freedom --- the pitch/RPM saving is 5.0@@latex:\%@@.  The
+Flettner rotor remains beneficial in both cases with similar relative impact.
 
-The effective SFOC of the main engine for the SG load is \SI{257}{\gram/\kilo\watt\hour},
-well above a typical auxiliary genset (\SI{215}{\gram/\kilo\watt\hour}).  At
-\SI{10}{\knot} transit speed, *a separate genset is more fuel-efficient than the
-shaft generator*.
+The effective SFOC of the main engine for the SG load is \SI{225}{\gram/\kilo\watt\hour},
+close to a typical auxiliary genset (\SI{215}{\gram/\kilo\watt\hour}).  At
+\SI{10}{\knot} transit speed, a separate genset is only marginally more
+fuel-efficient than the shaft generator, saving approximately \SI{11}{t/yr}
+(@@latex:\euro@@7k/yr).
 
 Figure [[fig:sg_comparison]] shows the side-by-side comparison of daily fuel
 savings in standard and SG modes.
 
 #+NAME: fig:sg_comparison
-#+CAPTION: Side-by-side comparison of daily fuel savings in standard mode (top) vs shaft generator mode (bottom).  The SG mode shows the pitch/RPM saving collapsing while the Flettner benefit persists at reduced relative magnitude.
+#+CAPTION: Side-by-side comparison of daily fuel savings in standard mode (top) vs shaft generator mode (bottom).  With the corrected hull data, the pitch/RPM saving is preserved in SG mode, and the Flettner benefit remains comparable.
 #+ATTR_LATEX: :width \textwidth :placement [H]
 [[file:comparison_timeseries.png]]
 
@@ -608,20 +606,21 @@ The refactored =voyage_comparison= tool has been validated by running a
 full-year (2024) hindcast simulation on the Rotterdam--Gothenburg route.  Key
 findings:
 
-1. *Standard mode (SG offline):* Pitch/RPM optimisation saves *5.8@@latex:\%@@*
-   (61 t/yr, @@latex:\euro@@40k/yr); Flettner wind-assist adds *7.5@@latex:\%@@*
-   (80 t/yr, @@latex:\euro@@52k/yr); combined *13.3@@latex:\%@@*
-   (141 t/yr, @@latex:\euro@@92k/yr) at \SI{10}{\knot}.
+1. *Standard mode (SG offline):* Pitch/RPM optimisation saves *5.2@@latex:\%@@*
+   (66 t/yr, @@latex:\euro@@43k/yr); Flettner wind-assist adds *7.9@@latex:\%@@*
+   (100 t/yr, @@latex:\euro@@65k/yr); combined *13.1@@latex:\%@@*
+   (166 t/yr, @@latex:\euro@@108k/yr) at \SI{10}{\knot}.
 
-2. *SG mode (150 kW, 48--60 Hz):* The SG RPM floor eliminates pitch/RPM saving
-   ($-0.3$@@latex:\%@@).  Flettner retains *4.5@@latex:\%@@* (61 t/yr).  Combined
-   saving *4.2@@latex:\%@@* (57 t/yr, @@latex:\euro@@37k/yr).  The effective SFOC
-   of the main engine for the SG load is \SI{257}{\gram/\kilo\watt\hour} ---
-   significantly worse than a separate auxiliary genset at
-   \SI{215}{\gram/\kilo\watt\hour} --- making the shaft generator a less
-   fuel-efficient choice at \SI{10}{\knot}.  At higher speeds
-   (\SI{12}--\SI{14}{\knot}), the RPM penalty diminishes and combined savings
-   recover to 7.7--9.1@@latex:\%@@.
+2. *SG mode (150 kW, 48--60 Hz):* With the corrected hull data (higher
+   resistance), the engine operates well above the SG RPM floor even at
+   \SI{10}{\knot}, preserving most of the optimiser's freedom.  Pitch/RPM saving
+   is *5.0@@latex:\%@@* (76 t/yr).  Flettner retains *7.0@@latex:\%@@*
+   (106 t/yr).  Combined saving *12.0@@latex:\%@@* (182 t/yr,
+   @@latex:\euro@@118k/yr).  The effective SFOC of the main engine for the SG
+   load is \SI{225}{\gram/\kilo\watt\hour} --- close to a typical auxiliary
+   genset at \SI{215}{\gram/\kilo\watt\hour} --- making the SG vs genset
+   trade-off marginal at \SI{10}{\knot}.  A separate genset saves approximately
+   \SI{11}{t/yr} (@@latex:\euro@@7k/yr).
 
 3. The factory combinator becomes *infeasible* (engine over-power) on 7@@latex:\%@@ of
    voyages, while the optimiser adapts pitch/RPM to remain within the power
