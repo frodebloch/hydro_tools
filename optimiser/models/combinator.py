@@ -8,8 +8,9 @@ from propeller_model import CSeriesPropeller
 
 from .constants import (
     GEAR_RATIO,
+    HULL_RESISTANCE_KN,
     HULL_SPEEDS_KN,
-    HULL_THRUST_CALM_KN,
+    HULL_T_DEDUCTION,
     HULL_WAKE,
     SHAFT_EFF,
 )
@@ -68,10 +69,12 @@ class FactoryCombinator:
         for i, speed_kn in enumerate(HULL_SPEEDS_KN):
             Va_ms = speed_kn * 0.5144 * (1.0 - float(np.interp(
                 speed_kn, HULL_SPEEDS_KN, HULL_WAKE)))
-            # Calm-water thrust + sea margin
-            T_calm_kN = float(np.interp(speed_kn, HULL_SPEEDS_KN,
-                                        HULL_THRUST_CALM_KN))
-            T_req_N = T_calm_kN * (1.0 + sea_margin) * 1000.0
+            # Calm-water resistance + sea margin -> propeller thrust
+            R_calm_kN = float(np.interp(speed_kn, HULL_SPEEDS_KN,
+                                        HULL_RESISTANCE_KN))
+            t_ded = float(np.interp(speed_kn, HULL_SPEEDS_KN,
+                                    HULL_T_DEDUCTION))
+            T_req_N = R_calm_kN * (1.0 + sea_margin) / (1.0 - t_ded) * 1000.0
 
             best_pitch = 0.0
             best_rpm = 0.0

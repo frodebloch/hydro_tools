@@ -52,9 +52,9 @@ from models.constants import (
     DATA_PATH_C455,
     DATA_PATH_C470,
     GEAR_RATIO,
+    HULL_RESISTANCE_KN,
     HULL_SPEEDS_KN,
     HULL_THRUST_CALM_KN,
-    HULL_THRUST_KN,
     HULL_WAKE,
     HULL_T_DEDUCTION,
     PROP_BAR,
@@ -109,9 +109,10 @@ def generate_optimal_schedule(
     results = []
     for speed_kn in speeds_kn:
         w = float(np.interp(speed_kn, HULL_SPEEDS_KN, HULL_WAKE))
-        T_calm_kN = float(np.interp(speed_kn, HULL_SPEEDS_KN, HULL_THRUST_CALM_KN))
+        t_ded = float(np.interp(speed_kn, HULL_SPEEDS_KN, HULL_T_DEDUCTION))
+        R_calm_kN = float(np.interp(speed_kn, HULL_SPEEDS_KN, HULL_RESISTANCE_KN))
         Va = speed_kn * 0.5144 * (1.0 - w)
-        T_req_N = T_calm_kN * (1.0 + sea_margin) * 1000.0
+        T_req_N = R_calm_kN * (1.0 + sea_margin) / (1.0 - t_ded) * 1000.0
 
         op = find_min_fuel_operating_point(
             prop, Va, T_req_N, engine,
@@ -398,10 +399,11 @@ def compute_iso_speed_lines(
 
     for speed_kn in speeds_kn:
         w = float(np.interp(speed_kn, HULL_SPEEDS_KN, HULL_WAKE))
-        T_calm_kN = float(np.interp(speed_kn, HULL_SPEEDS_KN,
-                                     HULL_THRUST_CALM_KN))
+        t_ded = float(np.interp(speed_kn, HULL_SPEEDS_KN, HULL_T_DEDUCTION))
+        R_calm_kN = float(np.interp(speed_kn, HULL_SPEEDS_KN,
+                                     HULL_RESISTANCE_KN))
         Va = speed_kn * 0.5144 * (1.0 - w)
-        T_req_N = T_calm_kN * (1.0 + sea_margin) * 1000.0
+        T_req_N = R_calm_kN * (1.0 + sea_margin) / (1.0 - t_ded) * 1000.0
 
         points = []
         for shaft_rpm in rpm_arr:
@@ -749,10 +751,11 @@ def main():
     factory_schedule = []
     for speed_kn in speeds:
         w = float(np.interp(speed_kn, HULL_SPEEDS_KN, HULL_WAKE))
-        T_calm_kN = float(np.interp(speed_kn, HULL_SPEEDS_KN,
-                                     HULL_THRUST_CALM_KN))
+        t_ded = float(np.interp(speed_kn, HULL_SPEEDS_KN, HULL_T_DEDUCTION))
+        R_calm_kN = float(np.interp(speed_kn, HULL_SPEEDS_KN,
+                                     HULL_RESISTANCE_KN))
         Va = speed_kn * 0.5144 * (1.0 - w)
-        T_req_N = T_calm_kN * (1.0 + sea_margin) * 1000.0
+        T_req_N = R_calm_kN * (1.0 + sea_margin) / (1.0 - t_ded) * 1000.0
 
         result = factory.evaluate(T_req_N, Va)
         if result is not None:

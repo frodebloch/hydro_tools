@@ -43,25 +43,39 @@ GENSET_SFOC = 215.0         # auxiliary genset SFOC [g/kWh] for rotor motor powe
 
 
 # ============================================================
-# Hull data from service prediction (vessel 206, with 15% sea margin)
+# Hull data from model test (vessel 206, test 25-0461/25-0288)
 # ============================================================
+# Source: Trial prediction and hull efficiency elements from model test
+# report dated 02.06.2025.  Draught 7.600 m, displacement 11165 m3.
+#
+# HULL_RESISTANCE_KN is the calm-water total resistance RT [kN] from the
+# trial prediction (clean smooth hull, deep calm water, no current).
+# HULL_WAKE and HULL_T_DEDUCTION are the wake fraction (WFT) and thrust
+# deduction factor (THDF) from the self-propulsion test.
+#
+# The equilibrium equation is:
+#   T_prop * (1 - t) = R_calm + R_aw + R_wind + R_roughness - F_flettner
+# so:
+#   T_prop = (R_calm + R_added) / (1 - t)
 
 HULL_SPEEDS_KN = np.array([8.0, 8.5, 9.0, 9.5, 10.0, 10.5, 11.0, 11.5,
-                           12.0, 12.5, 13.0, 13.5, 14.0, 14.5, 15.0, 15.5])
-HULL_WAKE = np.array([.239, .240, .242, .243, .243, .242, .242, .242,
-                      .242, .242, .242, .243, .242, .242, .240, .239])
-HULL_THRUST_KN = np.array([67.1, 89.8, 102.9, 116.5, 130.3, 144.2, 158.6,
-                           173.5, 188.8, 204.5, 220.6, 237.3, 254.7, 273.1,
-                           292.7, 315.2])
-# Thrust deduction factor (from service prediction)
-HULL_T_DEDUCTION = np.array([.190, .183, .177, .170, .165, .160, .155, .152,
-                             .148, .145, .143, .140, .138, .136, .134, .132])
+                           12.0, 12.5, 13.0, 13.5, 14.0, 14.5, 15.0])
 
-# Note: HULL_THRUST_KN already includes 15% sea margin from the service
-# prediction. For our comparison we use calm-water resistance (no sea margin)
-# as the baseline, then add wave and wind effects explicitly from hindcast.
-# Calm-water thrust = HULL_THRUST_KN / 1.15
-HULL_THRUST_CALM_KN = HULL_THRUST_KN / 1.15
+# Calm-water resistance [kN] from trial prediction (RT column)
+HULL_RESISTANCE_KN = np.array([70, 79, 89, 99, 110, 121, 133, 146,
+                               160, 175, 192, 208, 224, 243, 265])
+
+# Wake fraction from self-propulsion test (WFT column)
+HULL_WAKE = np.array([.223, .224, .226, .227, .227, .228, .229, .229,
+                      .229, .229, .229, .231, .233, .234, .234])
+
+# Thrust deduction factor from self-propulsion test (THDF column)
+HULL_T_DEDUCTION = np.array([.174, .173, .173, .172, .171, .170, .169, .169,
+                             .168, .171, .175, .171, .168, .168, .171])
+
+# Backward-compatible alias: calm-water propeller thrust [kN].
+# T_calm = R_calm / (1 - t)
+HULL_THRUST_CALM_KN = HULL_RESISTANCE_KN / (1.0 - HULL_T_DEDUCTION)
 
 
 # ============================================================

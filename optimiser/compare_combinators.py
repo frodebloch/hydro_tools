@@ -27,7 +27,8 @@ from models.constants import (
     DATA_PATH_C440, DATA_PATH_C455, DATA_PATH_C470,
     PROP_DIAMETER, PROP_BAR, PROP_DESIGN_PITCH,
     GEAR_RATIO, SHAFT_EFF, KN_TO_MS,
-    HULL_SPEEDS_KN, HULL_WAKE, HULL_THRUST_CALM_KN,
+    HULL_RESISTANCE_KN, HULL_SPEEDS_KN, HULL_T_DEDUCTION,
+    HULL_WAKE, HULL_THRUST_CALM_KN,
     RHO_WATER,
 )
 
@@ -540,8 +541,10 @@ def main():
 
     for speed_kn in [8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0]:
         w = float(np.interp(speed_kn, HULL_SPEEDS_KN, HULL_WAKE))
+        t_ded = float(np.interp(speed_kn, HULL_SPEEDS_KN, HULL_T_DEDUCTION))
         Va = speed_kn * KN_TO_MS * (1.0 - w)
-        T_calm_kN = float(np.interp(speed_kn, HULL_SPEEDS_KN, HULL_THRUST_CALM_KN))
+        R_calm_kN = float(np.interp(speed_kn, HULL_SPEEDS_KN, HULL_RESISTANCE_KN))
+        T_calm_kN = R_calm_kN / (1.0 - t_ded)
         T_N = T_calm_kN * 1000.0
 
         gen = generated.evaluate(T_N, Va)

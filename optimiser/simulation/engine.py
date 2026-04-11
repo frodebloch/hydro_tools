@@ -13,6 +13,7 @@ from models.constants import (
     GENSET_SFOC,
     GEAR_RATIO,
     HULL_SPEEDS_KN,
+    HULL_RESISTANCE_KN,
     HULL_T_DEDUCTION,
     HULL_THRUST_CALM_KN,
     HULL_WAKE,
@@ -127,11 +128,7 @@ def evaluate_voyage(
     # Interpolate hull data for this speed
     w = float(np.interp(speed_kn, HULL_SPEEDS_KN, HULL_WAKE))
     t_ded = float(np.interp(speed_kn, HULL_SPEEDS_KN, HULL_T_DEDUCTION))
-    R_calm_kN = float(np.interp(speed_kn, HULL_SPEEDS_KN, HULL_THRUST_CALM_KN))
-    # R_calm_kN is the calm-water thrust [kN] including thrust deduction
-    # i.e. T_calm = R_calm / (1 - t), but HULL_THRUST_CALM_KN is already T,
-    # so calm-water resistance R = T * (1 - t)
-    T_calm_kN = R_calm_kN  # This IS the calm-water thrust demand
+    R_calm_kN = float(np.interp(speed_kn, HULL_SPEEDS_KN, HULL_RESISTANCE_KN))
     Vs = speed_kn * KN_TO_MS
     Va = Vs * (1.0 - w)
 
@@ -201,16 +198,16 @@ def evaluate_voyage(
         )
 
         # Net thrust demand on propeller
-        # T_total = T_calm + (R_aw + R_wind + R_roughness - F_flettner) / (1-t)
-        # The added resistance, wind resistance, hull roughness, and Flettner
-        # force act on the hull, so they modify the resistance which is then
-        # divided by (1-t) to get thrust.
-        T_required_kN = T_calm_kN + (R_aw_kN + R_wind_kN + R_roughness_kN - F_flettner_kN) / (1.0 - t_ded)
+        # T * (1-t) = R_calm + R_aw + R_wind + R_roughness - F_flettner
+        # => T = (R_calm + R_aw + R_wind + R_roughness - F_flettner) / (1-t)
+        R_total_kN = R_calm_kN + R_aw_kN + R_wind_kN + R_roughness_kN - F_flettner_kN
+        T_required_kN = R_total_kN / (1.0 - t_ded)
         T_required_kN = max(0.0, T_required_kN)  # can't have negative thrust
         T_required_N = T_required_kN * 1000.0
 
         # Thrust demand without Flettner (for splitting savings)
-        T_no_flettner_kN = T_calm_kN + (R_aw_kN + R_wind_kN + R_roughness_kN) / (1.0 - t_ded)
+        R_total_nfl_kN = R_calm_kN + R_aw_kN + R_wind_kN + R_roughness_kN
+        T_no_flettner_kN = R_total_nfl_kN / (1.0 - t_ded)
         T_no_flettner_kN = max(0.0, T_no_flettner_kN)
 
         # Evaluate factory combinator
@@ -279,7 +276,7 @@ def evaluate_voyage(
             heading_deg=rp.heading_deg,
             hs=wx["hs"], tp=wx["tp"],
             wind_speed=wx["wind_speed"],
-            R_calm_kN=T_calm_kN * (1.0 - t_ded),
+            R_calm_kN=R_calm_kN,
             R_aw_kN=R_aw_kN,
             R_wind_kN=R_wind_kN,
             F_flettner_kN=F_flettner_kN,
