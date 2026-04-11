@@ -49,16 +49,16 @@ def plot_results(results: list[VoyageResult]):
     sav_total_pct = sav_pr_pct + sav_fl_pct
     ax = axes[0]
     ax.fill_between(dates, 0, sav_pr_pct, alpha=0.6, color="steelblue",
-                    label=f"Pitch/RPM ({np.mean(sav_pr_pct):.1f}% mean)")
+                    label=f"Propeller optimisation ({np.mean(sav_pr_pct):.1f}% mean)")
     ax.fill_between(dates, sav_pr_pct, sav_total_pct,
                     alpha=0.6, color="coral",
-                    label=f"Flettner ({np.mean(sav_fl_pct):.1f}% mean)")
+                    label=f"Wind-assist ({np.mean(sav_fl_pct):.1f}% mean)")
     ax.plot(dates, sav_total_pct, "k-", linewidth=0.5, alpha=0.6,
             label=f"Total ({np.mean(sav_total_pct):.1f}% mean)")
     ax.axhline(np.mean(sav_total_pct), color="k", linestyle="--",
                linewidth=0.8, alpha=0.5)
-    ax.set_ylabel("Fuel saving [% of factory NF]")
-    ax.set_title("Optimiser vs Factory Combinator: Daily Fuel Saving (Split)")
+    ax.set_ylabel("Fuel saving [% of standard baseline]")
+    ax.set_title("Optimiser vs Standard Control: Daily Fuel Saving")
     ax.legend(loc="upper left", fontsize=9)
     ax.grid(True, alpha=0.3)
 
@@ -71,10 +71,10 @@ def plot_results(results: list[VoyageResult]):
 
     # 3. Added resistance and Flettner thrust
     ax = axes[2]
-    ax.plot(dates, mean_R_aw, "r-", linewidth=0.7, alpha=0.8, label="Added resistance")
-    ax.plot(dates, mean_F_flett, "b-", linewidth=0.7, alpha=0.8, label="Flettner thrust")
+    ax.plot(dates, mean_R_aw, "r-", linewidth=0.7, alpha=0.8, label="Wave added resistance")
+    ax.plot(dates, mean_F_flett, "b-", linewidth=0.7, alpha=0.8, label="Rotor thrust")
     ax.set_ylabel("[kN]")
-    ax.set_title("Voyage-Mean Added Resistance and Flettner Thrust")
+    ax.set_title("Voyage-Mean Wave Resistance and Rotor Thrust")
     ax.legend()
     ax.grid(True, alpha=0.3)
 
@@ -92,8 +92,8 @@ def plot_results(results: list[VoyageResult]):
     sc = ax_sc.scatter(mean_hs, sav_total_pct, s=15, alpha=0.5,
                        c=mean_wind, cmap="viridis")
     ax_sc.set_xlabel("Mean Hs [m]")
-    ax_sc.set_ylabel("Fuel saving [% of factory NF]")
-    ax_sc.set_title("Fuel Saving vs Sea State (baseline = factory no-Flettner, colour = wind speed)")
+    ax_sc.set_ylabel("Fuel saving [% of standard baseline]")
+    ax_sc.set_title("Fuel Saving vs Sea State (baseline = standard control, colour = wind speed)")
     ax_sc.grid(True, alpha=0.3)
     plt.colorbar(sc, ax=ax_sc, label="Wind speed [m/s]")
     plt.tight_layout()
@@ -111,27 +111,27 @@ def plot_results(results: list[VoyageResult]):
                   label=f"Mean: {np.mean(savings_pct):.1f}%")
     ax_h1.set_xlabel("Fuel saving [%]")
     ax_h1.set_ylabel("Number of voyages")
-    ax_h1.set_title("Total (Factory+Fl vs Opt+Fl)")
+    ax_h1.set_title("Total Saving")
     ax_h1.legend(fontsize=9)
     ax_h1.grid(True, alpha=0.3)
 
-    # Pitch/RPM saving
+    # Propeller optimisation saving
     ax_h2.hist(sav_pr_pct, bins=30, edgecolor="black", alpha=0.7,
                color="steelblue")
     ax_h2.axvline(np.mean(sav_pr_pct), color="k", linestyle="--",
                   label=f"Mean: {np.mean(sav_pr_pct):.1f}%")
     ax_h2.set_xlabel("Fuel saving [%]")
-    ax_h2.set_title("Pitch/RPM (Fac_NF vs Opt_NF)")
+    ax_h2.set_title("Propeller Optimisation")
     ax_h2.legend(fontsize=9)
     ax_h2.grid(True, alpha=0.3)
 
-    # Flettner saving
+    # Wind-assist saving
     ax_h3.hist(sav_fl_pct, bins=30, edgecolor="black", alpha=0.7,
                color="coral")
     ax_h3.axvline(np.mean(sav_fl_pct), color="k", linestyle="--",
                   label=f"Mean: {np.mean(sav_fl_pct):.1f}%")
     ax_h3.set_xlabel("Fuel saving [%]")
-    ax_h3.set_title("Flettner (Opt_NF vs Opt_FL)")
+    ax_h3.set_title("Wind-Assist (Flettner Rotor)")
     ax_h3.legend(fontsize=9)
     ax_h3.grid(True, alpha=0.3)
 
@@ -205,15 +205,15 @@ def plot_comparison(results_std: list[VoyageResult],
     # Panel 1: Standard mode stacked area
     ax1.fill_between(std["dates"], 0, std["pct_pr"], alpha=0.55,
                      color=C_PR_STD,
-                     label=f"Pitch/RPM ({np.mean(std['pct_pr']):.1f}%)")
+                     label=f"Propeller optimisation ({np.mean(std['pct_pr']):.1f}%)")
     ax1.fill_between(std["dates"], std["pct_pr"],
                      std["pct_pr"] + std["pct_fl"],
                      alpha=0.55, color=C_FL_STD,
-                     label=f"Flettner ({np.mean(std['pct_fl']):.1f}%)")
+                     label=f"Wind-assist ({np.mean(std['pct_fl']):.1f}%)")
     ax1.axhline(np.mean(std["sav_pct"]), color="k", ls="--", lw=0.8,
                 alpha=0.5)
     ax1.set_ylabel("Fuel saving [%]")
-    ax1.set_title("Standard Mode — Daily Saving (Pitch/RPM + Flettner)")
+    ax1.set_title("Standard Mode — Daily Saving (Prop. optimisation + Wind-assist)")
     ax1.legend(loc="upper left", fontsize=9)
     ax1.grid(True, alpha=0.3)
     ax1.set_ylim(bottom=0)
@@ -221,15 +221,15 @@ def plot_comparison(results_std: list[VoyageResult],
     # Panel 2: SG mode stacked area
     ax2.fill_between(sg["dates"], 0, sg["pct_pr"], alpha=0.55,
                      color=C_PR_SG,
-                     label=f"Pitch/RPM ({np.mean(sg['pct_pr']):.1f}%)")
+                     label=f"Propeller optimisation ({np.mean(sg['pct_pr']):.1f}%)")
     ax2.fill_between(sg["dates"], sg["pct_pr"],
                      sg["pct_pr"] + sg["pct_fl"],
                      alpha=0.55, color=C_FL_SG,
-                     label=f"Flettner ({np.mean(sg['pct_fl']):.1f}%)")
+                     label=f"Wind-assist ({np.mean(sg['pct_fl']):.1f}%)")
     ax2.axhline(np.mean(sg["sav_pct"]), color="k", ls="--", lw=0.8,
                 alpha=0.5)
     ax2.set_ylabel("Fuel saving [%]")
-    ax2.set_title("Shaft Generator Mode — Daily Saving (Pitch/RPM + Flettner)")
+    ax2.set_title("Shaft Generator Mode — Daily Saving (Prop. optimisation + Wind-assist)")
     ax2.legend(loc="upper left", fontsize=9)
     ax2.grid(True, alpha=0.3)
     ax2.set_ylim(bottom=0)
@@ -266,7 +266,7 @@ def plot_comparison(results_std: list[VoyageResult],
     fig, (ax_fuel, ax_sav) = plt.subplots(1, 2, figsize=(14, 6))
 
     # Left: annual fuel consumption (4 bars x 2 modes)
-    labels = ["Fac NF", "Fac+Fl", "Opt NF", "Opt+Fl"]
+    labels = ["Std NR", "Std+R", "Opt NR", "Opt+R"]
     std_vals = np.array([np.mean(std["fuel_fac_nf"]),
                          np.mean(std["fuel_fac_fl"]),
                          np.mean(std["fuel_opt_nf"]),
@@ -296,7 +296,7 @@ def plot_comparison(results_std: list[VoyageResult],
     ax_fuel.legend()
     ax_fuel.grid(True, alpha=0.3, axis="y")
 
-    # Right: savings breakdown (stacked bars — P/R + Flettner)
+    # Right: savings breakdown (stacked bars — Prop. opt. + Wind-assist)
     std_pr = np.mean(std["sav_pr_kg"]) * voyages_yr / 1000.0
     std_fl = np.mean(std["sav_fl_kg"]) * voyages_yr / 1000.0
     sg_pr = np.mean(sg["sav_pr_kg"]) * voyages_yr / 1000.0
@@ -308,10 +308,10 @@ def plot_comparison(results_std: list[VoyageResult],
     x2 = np.arange(2)
     pr_vals = [std_pr, sg_pr]
     fl_vals = [std_fl, sg_fl]
-    bars_pr = ax_sav.bar(x2, pr_vals, 0.5, label="Pitch/RPM",
+    bars_pr = ax_sav.bar(x2, pr_vals, 0.5, label="Propeller optimisation",
                          color=[C_PR_STD, C_PR_SG], alpha=0.85)
     bars_fl = ax_sav.bar(x2, fl_vals, 0.5, bottom=pr_vals,
-                         label="Flettner",
+                         label="Wind-assist",
                          color=[C_FL_STD, C_FL_SG], alpha=0.85)
     # Annotate totals and percentages
     for i, (pr, fl, baseline) in enumerate(
@@ -321,17 +321,17 @@ def plot_comparison(results_std: list[VoyageResult],
         ax_sav.text(i, total + 2, f"{total:.0f} t ({pct:.1f}%)",
                     ha="center", va="bottom", fontsize=10, fontweight="bold")
         # Sub-labels
-        ax_sav.text(i, pr / 2, f"P/R\n{pr:.0f} t",
+        ax_sav.text(i, pr / 2, f"Opt\n{pr:.0f} t",
                     ha="center", va="center", fontsize=8, color="white",
                     fontweight="bold")
-        ax_sav.text(i, pr + fl / 2, f"Fl\n{fl:.0f} t",
+        ax_sav.text(i, pr + fl / 2, f"WA\n{fl:.0f} t",
                     ha="center", va="center", fontsize=8, color="white",
                     fontweight="bold")
 
     ax_sav.set_xticks(x2)
     ax_sav.set_xticklabels(["Standard", "SG mode"])
     ax_sav.set_ylabel("Fuel saving [tonnes/year]")
-    ax_sav.set_title("Annual Savings Breakdown\n(vs Factory no-Flettner baseline)")
+    ax_sav.set_title("Annual Savings Breakdown\n(vs standard control baseline)")
     ax_sav.grid(True, alpha=0.3, axis="y")
 
     plt.tight_layout()
@@ -368,8 +368,8 @@ def plot_comparison(results_std: list[VoyageResult],
             q_opt_kg.append(np.mean([r.total_fuel_optimised_kg for r in qr]))
 
         xq = np.arange(len(q_names))
-        ax.bar(xq, q_pr_pct, 0.6, label="Pitch/RPM", color=c_pr, alpha=0.85)
-        ax.bar(xq, q_fl_pct, 0.6, bottom=q_pr_pct, label="Flettner",
+        ax.bar(xq, q_pr_pct, 0.6, label="Propeller optimisation", color=c_pr, alpha=0.85)
+        ax.bar(xq, q_fl_pct, 0.6, bottom=q_pr_pct, label="Wind-assist",
                color=c_fl, alpha=0.85)
         for i in range(len(q_names)):
             total = q_pr_pct[i] + q_fl_pct[i]
@@ -436,7 +436,7 @@ def plot_comparison(results_std: list[VoyageResult],
     ax_h1.axvline(np.mean(sg["sav_pct"]), color=C_PR_SG, ls="--", lw=1.2)
     ax_h1.set_xlabel("Fuel saving [%]")
     ax_h1.set_ylabel("Number of voyages")
-    ax_h1.set_title("Total Saving (Fac+Fl vs Opt+Fl)")
+    ax_h1.set_title("Total Saving")
     ax_h1.legend(fontsize=9)
     ax_h1.grid(True, alpha=0.3)
 
@@ -450,8 +450,8 @@ def plot_comparison(results_std: list[VoyageResult],
                label=f"SG ({np.mean(sg['pct_pr']):.1f}%)")
     ax_h2.axvline(np.mean(std["pct_pr"]), color=C_PR_STD, ls="--", lw=1.2)
     ax_h2.axvline(np.mean(sg["pct_pr"]), color=C_PR_SG, ls="--", lw=1.2)
-    ax_h2.set_xlabel("Pitch/RPM saving [%]")
-    ax_h2.set_title("Pitch/RPM Saving (Fac_NF vs Opt_NF)")
+    ax_h2.set_xlabel("Propeller optimisation saving [%]")
+    ax_h2.set_title("Propeller Optimisation Saving")
     ax_h2.legend(fontsize=9)
     ax_h2.grid(True, alpha=0.3)
 
@@ -465,8 +465,8 @@ def plot_comparison(results_std: list[VoyageResult],
                label=f"SG ({np.mean(sg['pct_fl']):.1f}%)")
     ax_h3.axvline(np.mean(std["pct_fl"]), color=C_FL_STD, ls="--", lw=1.2)
     ax_h3.axvline(np.mean(sg["pct_fl"]), color=C_FL_SG, ls="--", lw=1.2)
-    ax_h3.set_xlabel("Flettner saving [%]")
-    ax_h3.set_title("Flettner Saving (Opt_NF vs Opt_FL)")
+    ax_h3.set_xlabel("Wind-assist saving [%]")
+    ax_h3.set_title("Wind-Assist Saving (Flettner Rotor)")
     ax_h3.legend(fontsize=9)
     ax_h3.grid(True, alpha=0.3)
 

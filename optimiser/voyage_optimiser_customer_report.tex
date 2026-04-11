@@ -1,0 +1,613 @@
+% Created 2026-04-11 Sat 00:44
+% Intended LaTeX compiler: pdflatex
+\documentclass[a4paper,11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{longtable}
+\usepackage{wrapfig}
+\usepackage{rotating}
+\usepackage[normalem]{ulem}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{capt-of}
+\usepackage{hyperref}
+\usepackage{longtable}
+\usepackage{tabularx}
+% --- Document metadata (must precede bv.sty which uses them in \hypersetup) ---
+\newcommand{\bvReferenceNumber}{XXXXXX}
+\newcommand{\bvIssue}{Pre}
+\newcommand{\bvTitle}{Propulsion Optimiser -- Fuel Saving Potential}
+\newcommand{\bvDate}{\today}
+\newcommand{\bvType}{Technical Report}
+\newcommand{\bvAuthor}{Frode Bloch}
+\newcommand{\bvCompany}{Brunvoll AS}
+\newcommand{\bvClassification}{CONFIDENTIAL}
+\usepackage{/home/blofro/src/rdt_analysis/bv}
+\usepackage{siunitx}
+\sisetup{per-mode=symbol, inter-unit-product=\ensuremath{\cdot}}
+\DeclareSIUnit{\knot}{kn}
+\usepackage{amsmath}
+\usepackage{subcaption}
+\usepackage{eurosym}
+\graphicspath{{images/}}
+\author{Frode Bloch}
+\date{\today}
+\title{}
+\hypersetup{
+ pdfauthor={Frode Bloch},
+ pdftitle={},
+ pdfkeywords={},
+ pdfsubject={},
+ pdfcreator={Emacs 29.3 (Org mode 9.6.15)}, 
+ pdflang={English}}
+\begin{document}
+
+\bvMainTitlePage
+\tableofcontents
+\newpage
+
+\section{Introduction}
+\label{sec:orgc533fd5}
+
+This report presents fuel saving results from Brunvoll's voyage fuel
+simulation tool, developed to quantify the potential of the \textbf{Propulsion
+Optimiser} -- our smart propeller control system.  The analysis also evaluates
+the combined benefit when the Propulsion Optimiser is paired with \textbf{Flettner
+rotor wind-assist}, as the two technologies are complementary: the Optimiser
+improves engine efficiency at every operating point, while the Flettner rotor
+reduces the thrust demand itself by harnessing wind energy.  Together, they
+address different parts of the propulsion energy chain and their savings add
+up.
+
+\begin{itemize}
+\item \textbf{The Propulsion Optimiser} (referred to as "Optimiser" in the rest of this
+report) -- finds the most fuel-efficient propeller pitch/RPM combination for
+any given condition, replacing the standard (factory-default) propeller
+control schedule.
+
+\item \textbf{Flettner rotor wind-assist} -- a spinning cylinder mounted on deck that
+generates forward thrust via the Magnus effect, reducing the load on the main
+engine.
+\end{itemize}
+
+To evaluate these technologies under realistic conditions, we simulate a full
+year (2024) of repeated voyages on a representative North Sea route
+(Rotterdam--Gothenburg, 509 nm), using actual historical weather data.  Each
+voyage experiences the real waves and winds that occurred on that date, giving
+a comprehensive picture of fuel savings across all seasons and weather
+conditions.
+
+\subsection{What We Compare}
+\label{sec:org222c343}
+
+The simulation runs every voyage under four configurations:
+
+\begin{center}
+\begin{tabular}{lp{8cm}}
+\toprule
+Configuration & Description\\[0pt]
+\midrule
+Standard control, no rotor & Factory-default propeller schedule, no wind-assist -- the baseline\\[0pt]
+Standard control + Flettner rotor & Factory schedule with wind-assist thrust from the rotor\\[0pt]
+Optimiser, no rotor & Fuel-optimised pitch/RPM selection, no wind-assist\\[0pt]
+Optimiser + Flettner rotor & Fuel-optimised pitch/RPM combined with wind-assist -- the full-benefit case\\[0pt]
+\bottomrule
+\end{tabular}
+\end{center}
+
+Fuel savings are always measured relative to the baseline (standard control, no
+rotor), and are decomposed into:
+\begin{itemize}
+\item \textbf{Propeller optimisation saving} -- the Optimiser's benefit from smarter pitch/RPM selection, independent of weather.
+\item \textbf{Wind-assist saving} -- the additional benefit from the Flettner rotor, which grows with wind speed.
+\end{itemize}
+
+\section{How the Simulation Works}
+\label{sec:org6c3c66f}
+\subsection{Hull Resistance and Propulsion}
+\label{sec:orga17223b}
+
+The simulation models the vessel's propulsion chain from hull resistance through
+to engine fuel consumption:
+
+\begin{itemize}
+\item \textbf{Calm-water resistance} is based on the vessel's service prediction data
+(model test results), covering speeds from 8 to 15.5 knots.
+\item \textbf{Wave added resistance} is computed using hydrodynamic transfer functions
+specific to the hull shape, integrated over the wave spectrum at each time
+step.  In simple terms: the tool calculates how much extra drag the waves
+create based on their height, period, and direction relative to the vessel.
+\item \textbf{Wind resistance on the hull} follows the established Blendermann (1994)
+method, accounting for wind speed and direction relative to the vessel.
+Headwinds add resistance; following winds reduce it.
+\item \textbf{Hull and propeller fouling} can be included as time-dependent roughness
+growth.  The baseline results shown here assume clean hull and propeller
+conditions.
+\end{itemize}
+
+\subsection{Flettner Rotor Wind-Assist}
+\label{sec:org433fd5e}
+
+The Flettner rotor is a spinning vertical cylinder (\SI{28}{\metre} tall,
+\SI{4}{\metre} diameter) that exploits the Magnus effect: when wind flows past
+the spinning rotor, it generates a sideways force -- much like a spinning ball
+curves in flight.  The forward-pointing component of this force acts as free
+thrust that supplements the propeller.
+
+The key equation governing the rotor's thrust is:
+
+\begin{equation}
+  F_\text{rotor} = C_L(\text{SR}) \cdot \tfrac{1}{2}\,\rho_\text{air}\, V_\text{app}^2 \cdot D \cdot H
+\end{equation}
+
+where \(C_L\) is the lift coefficient (dependent on the spin ratio SR -- how fast
+the rotor spins relative to the wind speed), \(V_\text{app}\) is the apparent wind
+speed, and \(D \times H\) is the rotor's projected area.  The rotor's own motor
+power consumption is subtracted to give the net fuel benefit.
+
+The rotor produces the most benefit in beam winds (wind from the side) and
+provides diminishing returns in headwinds or following winds.  Its effectiveness
+increases with wind speed.
+
+\subsection{Standard vs Optimiser Propeller Control}
+\label{sec:org4c5640a}
+
+A controllable-pitch propeller (CPP) has two adjustment parameters: blade pitch
+and shaft RPM.  The \textbf{standard control} uses a fixed schedule that links these
+two parameters together -- a single lever controls both, following a pre-set
+curve.
+
+The \textbf{Optimiser} breaks this rigid link.  For any given thrust requirement, it
+searches the full range of pitch and RPM combinations to find the one that
+minimises fuel consumption, while respecting the engine's operating limits.
+The saving comes from running the engine at a more efficient load point --
+typically lower RPM and higher pitch than the standard schedule would dictate.
+
+\subsection{Weather Data}
+\label{sec:orga1efdf6}
+
+The simulation uses wave and wind data from NORA3, the third-generation
+Norwegian Reanalysis Archive produced by MET Norway.  This is a high-quality
+historical weather reconstruction that provides complete, gap-free wave and wind
+fields across the North Sea at approximately \SI{3}{\kilo\metre} spatial
+resolution and hourly time steps.
+
+Unlike isolated buoy measurements, this dataset covers the entire route with
+consistent quality, ensuring that every simulated voyage encounters realistic
+weather conditions.  The archive spans from 1993 to the present, enabling
+multi-year studies if needed.
+
+\section{Simulation Setup}
+\label{sec:orgfede32d}
+
+The study simulates a full year of round-trip voyages on the route shown in
+Figure \ref{fig:org36806cc}.
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Parameter & Value & Unit\\[0pt]
+\midrule
+Route & 509 & nm (one-way)\\[0pt]
+Transit speed & 10 & kn\\[0pt]
+Transit time (one-way) & 50.9 & hours\\[0pt]
+Mode & Round-trip & \\[0pt]
+Flettner rotor & 28 m tall, 4 m dia & \\[0pt]
+Hull condition & Clean (no fouling) & \\[0pt]
+Port/idle time & 15 & \%\\[0pt]
+Fuel price (MGO) & 650 & EUR/tonne\\[0pt]
+Propeller diameter & 4.80 & m\\[0pt]
+Main engine & MAN L27/38 & 2920 kW\\[0pt]
+\bottomrule
+\end{tabular}
+\end{center}
+
+Each voyage departs daily, sails the outbound leg, and returns immediately
+-- experiencing different weather on each leg.  Round-trip simulation eliminates
+any directional wind bias (e.g.$\backslash$ prevailing westerlies favouring one direction).
+With 15\% assumed port/idle time, the vessel completes approximately
+73 round-trip voyages per year.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{voyage_comparison_route.png}
+\caption{\label{fig:org36806cc}Rotterdam--Gothenburg route (509 nm one-way) with waypoints.}
+\end{figure}
+
+\section{Results}
+\label{sec:org4050a23}
+
+362 round-trip voyages were successfully simulated across the full year 2024.
+
+\subsection{Per-Voyage Fuel Consumption}
+\label{sec:orga7fe2b1}
+
+\begin{center}
+\begin{tabular}{lrrrrrr}
+\toprule
+Metric & Mean & Median & P10 & P90 & Min & Max\\[0pt]
+\midrule
+Standard, no rotor [kg/voyage] & 14502 & 14392 & 13297 & 16200 & 10545 & 19300\\[0pt]
+Optimiser + rotor [kg/voyage] & 12577 & 12620 & 10614 & 14417 & 8158 & 18030\\[0pt]
+Propeller optimisation saving [kg] & 834 & 869 & 721 & 914 & 369 & 928\\[0pt]
+Wind-assist saving [kg] & 1091 & 993 & 280 & 2091 & -9 & 3527\\[0pt]
+Propeller optimisation saving & 5.8\% & 6.0\% & 4.5\% & 6.6\% & 2.8\% & 7.0\%\\[0pt]
+Wind-assist saving & 7.7\% & 6.8\% & 1.9\% & 14.7\% & -0.1\% & 25.0\%\\[0pt]
+\bottomrule
+\end{tabular}
+\end{center}
+
+Key observations:
+\begin{itemize}
+\item The \textbf{propeller optimisation} delivers a consistent 3--7\% saving on
+every voyage, regardless of weather.
+\item The \textbf{wind-assist saving} varies from near zero in calm conditions to over
+25\% on the windiest voyages, reflecting its weather dependence.
+\item On the single best voyage, the Flettner rotor alone saved 3.5 tonnes of fuel.
+\end{itemize}
+
+The savings are additive: the combined benefit equals the propeller optimisation
+saving plus the wind-assist saving.
+
+Figure \ref{fig:org39260a2} shows how the savings evolve over the year, alongside
+the sea conditions that drive them.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{voyage_comparison_results.png}
+\caption{\label{fig:org39260a2}Annual results per voyage.  Top: propeller optimisation and wind-assist fuel savings (stacked).  Middle: significant wave height.  Bottom: wave resistance, wind resistance, and Flettner rotor thrust.}
+\end{figure}
+
+\subsection{Weather Correlation}
+\label{sec:org4a424d2}
+
+Figure \ref{fig:org144c1ec} shows how the fuel saving on each voyage correlates with
+wave height and wind speed.  The trend is clear: windier conditions mean larger
+savings from the Flettner rotor.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{voyage_comparison_scatter.png}
+\caption{\label{fig:org144c1ec}Per-voyage fuel saving vs mean wave height, coloured by mean wind speed.  Windier conditions produce larger savings through the Flettner rotor.}
+\end{figure}
+
+\subsection{Annualised Fuel Consumption}
+\label{sec:orgf596abb}
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+Configuration & Fuel [tonnes/year]\\[0pt]
+\midrule
+Standard control, no rotor & 1060.5\\[0pt]
+Standard control + Flettner rotor & 973.7\\[0pt]
+Optimiser, no rotor & 999.5\\[0pt]
+Optimiser + Flettner rotor & 919.7\\[0pt]
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+Saving component & Tonnes/year & Percentage\\[0pt]
+\midrule
+Propeller optimisation & 61.0 & 5.8\%\\[0pt]
+Wind-assist (Flettner) & 79.8 & 7.5\%\\[0pt]
+\textbf{Combined} & \textbf{140.8} & \textbf{13.3\%}\\[0pt]
+\bottomrule
+\end{tabular}
+\end{center}
+
+Figure \ref{fig:orgbcdf177} shows the distribution of per-voyage savings.  The
+propeller optimisation is tightly clustered (consistent benefit), while the
+wind-assist saving shows a wider spread reflecting its dependence on weather.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{voyage_comparison_histogram.png}
+\caption{\label{fig:orgbcdf177}Distribution of per-voyage fuel savings.  Left: total saving.  Centre: propeller optimisation component.  Right: wind-assist component.}
+\end{figure}
+
+\subsection{Annual Cost Savings}
+\label{sec:org4170621}
+
+At a fuel price of \euro650/tonne (MGO, typical for ECA zones):
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+Configuration & Annual fuel cost\\[0pt]
+\midrule
+Standard control, no rotor & \euro689\thinspace318\\[0pt]
+Standard control + Flettner rotor & \euro632\thinspace910\\[0pt]
+Optimiser, no rotor & \euro649\thinspace658\\[0pt]
+Optimiser + Flettner rotor & \euro597\thinspace794\\[0pt]
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+Saving component & \euro/year & Percentage\\[0pt]
+\midrule
+Propeller optimisation & \euro39\thinspace660 & 5.8\%\\[0pt]
+Wind-assist (Flettner) & \euro51\thinspace864 & 7.5\%\\[0pt]
+\textbf{Combined} & \textbf{\euro91\thinspace524} & \textbf{13.3\%}\\[0pt]
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Seasonal Variation}
+\label{sec:orgd969222}
+
+\begin{center}
+\begin{tabular}{lrrrrr}
+\toprule
+Season & Voyages & Std [kg/voy] & Opt+Fl [kg/voy] & Prop. opt. & Wind-assist\\[0pt]
+\midrule
+Q1 (Jan--Mar) & 91 & 14\thinspace483 & 12\thinspace341 & 5.5\% & 9.5\%\\[0pt]
+Q2 (Apr--Jun) & 91 & 14\thinspace627 & 12\thinspace923 & 6.0\% & 5.8\%\\[0pt]
+Q3 (Jul--Sep) & 92 & 14\thinspace472 & 12\thinspace754 & 6.0\% & 5.9\%\\[0pt]
+Q4 (Oct--Dec) & 88 & 14\thinspace425 & 12\thinspace277 & 5.6\% & 9.6\%\\[0pt]
+\bottomrule
+\end{tabular}
+\end{center}
+
+The Flettner rotor benefit roughly doubles in winter (Q1, Q4) compared to
+summer, reflecting the stronger and more consistent North Sea winds.  The
+propeller optimisation saving remains stable at 5.5--6.0\% year-round,
+as it depends on engine efficiency rather than weather.
+
+\subsection{Standard Control Limitations}
+\label{sec:orga27645e}
+
+The standard propeller control schedule was not designed to handle all possible
+sea conditions.  In 7\% of simulated voyages, the standard schedule
+drives the engine beyond its power limits in at least one hour -- a situation
+where the operator would need to manually reduce speed.
+
+The Optimiser avoids this entirely by choosing pitch/RPM
+combinations that respect the engine's full operating envelope, maintaining the
+desired speed even in heavy weather.
+
+\section{Effect of Shaft Generator Operation}
+\label{sec:orgf4ed9df}
+\subsection{Why It Matters}
+\label{sec:org95afd4d}
+
+The results above assume the vessel operates without a shaft generator (SG).
+Many vessels use an SG to supply electrical power from the main engine, avoiding
+the need for a separate diesel generator during transit.  However, the SG
+introduces two constraints that affect propulsion efficiency:
+
+\begin{enumerate}
+\item \textbf{Additional engine load:} The SG extracts electrical power (assumed
+\SI{150}{\kilo\watt} average) from the main engine shaft, increasing fuel
+consumption.
+
+\item \textbf{Minimum RPM constraint:} The SG must maintain its output frequency within
+\SIrange{48}{60}{\hertz}, which sets a minimum engine RPM of approximately
+\SI{640}{RPM} (shaft RPM \(\geq\) \SI{94.1}{RPM}).  Neither the standard
+schedule nor the Optimiser can operate below this RPM while the SG is online.
+\end{enumerate}
+
+\subsection{Results with Shaft Generator Active}
+\label{sec:org2252740}
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+Configuration & Fuel [tonnes/year]\\[0pt]
+\midrule
+Standard control, no rotor & 1347.7\\[0pt]
+Standard control + Flettner rotor & 1286.2\\[0pt]
+Optimiser, no rotor & 1351.5\\[0pt]
+Optimiser + Flettner rotor & 1290.6\\[0pt]
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+Saving component & Tonnes/year & Percentage\\[0pt]
+\midrule
+Propeller optimisation & -3.9 & -0.3\%\\[0pt]
+Wind-assist (Flettner) & 60.9 & 4.5\%\\[0pt]
+\textbf{Combined} & \textbf{57.0} & \textbf{4.2\%}\\[0pt]
+\bottomrule
+\end{tabular}
+\end{center}
+
+At MGO \euro650/tonne, the annual saving with SG active is
+\euro37\thinspace000/year (4.2\%).
+
+\subsection{Why the Propeller Optimisation Saving Disappears}
+\label{sec:org890df42}
+
+At \SI{10}{\knot} transit speed, the calm-water thrust demand requires only
+modest engine power.  Without the SG, the Optimiser exploits this by running at
+low RPM and high pitch -- well below the standard schedule's RPM -- to reach
+the propeller's peak efficiency region.  This accounts for the 5.8\%
+saving.
+
+With the SG online, the RPM floor forces both the standard schedule and the
+Optimiser to operate at near-identical shaft RPM (\(\approx\) \SI{94}{RPM}).
+There is almost no room for the Optimiser to find a better operating point,
+and the pitch/RPM saving effectively vanishes.
+
+\subsection{Flettner Rotor Remains Effective}
+\label{sec:orgda76745}
+
+The Flettner rotor delivers the same absolute thrust reduction regardless of
+SG status -- wind physics are unchanged.  The relative saving appears smaller
+(4.5\% vs 7.5\%) only because the SG-loaded baseline
+consumption is higher (\SI{1348}{t/yr} vs \SI{1061}{t/yr}).
+
+\begin{center}
+\begin{tabular}{lrrrrr}
+\toprule
+Season & Voyages & Std [kg/voy] & Opt+Fl [kg/voy] & Prop. opt. & Wind-assist\\[0pt]
+\midrule
+Q1 (Jan--Mar) & 91 & 18\thinspace287 & 17\thinspace309 & -0.2\% & 5.7\%\\[0pt]
+Q2 (Apr--Jun) & 91 & 18\thinspace616 & 18\thinspace022 & -0.3\% & 3.5\%\\[0pt]
+Q3 (Jul--Sep) & 92 & 18\thinspace444 & 17\thinspace854 & -0.3\% & 3.6\%\\[0pt]
+Q4 (Oct--Dec) & 88 & 18\thinspace368 & 17\thinspace402 & -0.3\% & 5.6\%\\[0pt]
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Side-by-Side Summary}
+\label{sec:orgdd2011a}
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+Metric & SG offline & SG online (150 kW)\\[0pt]
+\midrule
+Baseline fuel [t/yr] & 1060.5 & 1347.7\\[0pt]
+Propeller optimisation saving & 5.8\% (61 t/yr) & -0.3\% (-4 t/yr)\\[0pt]
+Wind-assist saving & 7.5\% (80 t/yr) & 4.5\% (61 t/yr)\\[0pt]
+Combined saving & 13.3\% (141 t/yr) & 4.2\% (57 t/yr)\\[0pt]
+Annual cost saving & \euro92k & \euro37k\\[0pt]
+\bottomrule
+\end{tabular}
+\end{center}
+
+The SG operating mode has a substantial impact on the achievable savings.  When
+the SG is offline, the Optimiser delivers its full 5.8\% benefit.
+When the SG is online, the RPM constraint removes this degree of freedom, and
+only the Flettner rotor's 4.5\% wind-assist benefit remains.
+
+At higher transit speeds, the propeller optimisation saving recovers under SG
+constraints because the thrust demand pushes the engine above the SG RPM floor:
+
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+Transit speed & Propeller opt. & Wind-assist & Combined\\[0pt]
+\midrule
+\SI{10}{\knot} & -0.3\% & 4.5\% & 4.2\%\\[0pt]
+\SI{12}{\knot} & 3.3\% & 4.4\% & 7.7\%\\[0pt]
+\SI{14}{\knot} & 4.9\% & 4.2\% & 9.1\%\\[0pt]
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Shaft Generator vs Auxiliary Genset}
+\label{sec:orgaa1511c}
+
+An important question is whether the shaft generator is the most fuel-efficient
+way to supply \SI{150}{\kilo\watt} of electrical power at \SI{10}{\knot}.
+
+With the SG, the baseline fuel rises from \SI{1061}{t/yr} to \SI{1348}{t/yr} ---
+an increase of \SI{287}{t/yr} for \SI{150}{\kilo\watt} over \SI{7439}{h/yr}.
+This corresponds to an \emph{effective} specific fuel consumption of
+\SI{257}{\gram/\kilo\watt\hour}, well above the
+\SI{210}--\SI{230}{\gram/\kilo\watt\hour} of a typical auxiliary diesel genset.
+
+The reason is the SG RPM floor: at \SI{10}{\knot} the engine would naturally
+operate at lower RPM with better fuel efficiency, but the SG forces it to
+\SI{640}{RPM} minimum, shifting operation to a less efficient part of the
+fuel map.
+
+At a typical genset SFOC of \SI{215}{\gram/\kilo\watt\hour}, a separate auxiliary
+genset would save approximately \SI{47}{t/yr}
+(\euro31\thinspace000/year) in fuel compared to the shaft generator.
+This saving is in addition to the Optimiser and Flettner benefits.
+
+Figure \ref{fig:org5a17de0} illustrates this contrast across the full year.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{comparison_timeseries.png}
+\caption{\label{fig:org5a17de0}Daily fuel savings comparison: standard mode (top panel, SG offline) vs shaft generator mode (bottom panel, SG online at 150 kW).  The propeller optimisation saving (blue) collapses in SG mode, while the wind-assist saving (orange) persists.}
+\end{figure}
+
+\section{Conclusions}
+\label{sec:orge810955}
+
+The simulation of 362 round-trip voyages on the Rotterdam--Gothenburg route
+using actual 2024 weather data demonstrates fuel saving potential from two
+complementary technologies.  The achievable savings depend on whether the shaft
+generator is in use:
+
+\textbf{Without shaft generator (SG offline):}
+
+\begin{enumerate}
+\item \textbf{The Optimiser} saves \textbf{5.8\%} of fuel (61 tonnes/year,
+\euro40\thinspace000/year).  This is a consistent,
+weather-independent benefit delivered on every voyage by running the engine
+at a more efficient operating point.
+
+\item \textbf{Flettner rotor wind-assist} saves an additional \textbf{7.5\%}
+(80 tonnes/year, \euro52\thinspace000/year), varying with wind
+conditions -- roughly 6\% in summer and 10\% in winter.
+
+\item \textbf{Combined saving: 13.3\%} (141 tonnes/year,
+\euro92\thinspace000/year).
+\end{enumerate}
+
+\textbf{With shaft generator (SG online, 150 kW, 48--60 Hz):}
+
+\begin{enumerate}
+\setcounter{enumi}{3}
+\item The SG RPM floor removes the Optimiser's freedom to select lower RPM,
+reducing its pitch/RPM saving to effectively zero (\(-0.3\)\%).
+At higher transit speeds (\SI{12}--\SI{14}{\knot}), the saving recovers
+to 3.3--4.9\% as thrust demand pushes the engine above the SG
+RPM floor.
+
+\item The \textbf{Flettner rotor remains effective at 4.5\%} (61 tonnes/year).
+The lower percentage reflects the higher baseline consumption from the SG
+parasitic load, not a reduction in actual wind-assist performance.
+
+\item \textbf{Combined saving with SG: 4.2\%} (57 tonnes/year,
+\euro37\thinspace000/year).
+
+\item \textbf{Shaft generator vs auxiliary genset:} At \SI{10}{\knot}, the effective fuel
+cost of generating \SI{150}{\kilo\watt} via the shaft generator is
+\SI{257}{\gram/\kilo\watt\hour} --- significantly higher than a typical
+auxiliary genset at \SI{215}{\gram/\kilo\watt\hour}.  A separate genset would
+save approximately \euro31\thinspace000/year.
+\end{enumerate}
+
+\textbf{In both modes:}
+
+\begin{enumerate}
+\setcounter{enumi}{6}
+\item The Optimiser eliminates engine overload situations that occur with the
+standard schedule in heavy weather, improving operational reliability.
+\end{enumerate}
+
+These results assume clean hull and propeller surfaces.  Fouling (biological
+growth on the hull and propeller) increases resistance over time, which would
+increase the absolute fuel savings from both technologies while also increasing
+total consumption.  The simulation tool supports fouling scenarios and can
+provide estimates for any assumed maintenance interval.
+
+\section{Appendix: Methodology Notes}
+\label{sec:org878b22e}
+
+The physical models underlying the simulation are based on established
+naval architecture methods:
+
+\begin{itemize}
+\item \textbf{Hull resistance:} Interpolated from vessel-specific service prediction data
+(model tests).
+\item \textbf{Wave added resistance:} Strip-theory hydrodynamic transfer functions
+(PdStrip) integrated over JONSWAP wave spectra.
+\item \textbf{Wind resistance:} Blendermann (1994) method for general cargo vessels.
+\item \textbf{Flettner rotor:} Lift/drag coefficients from Bordogna et al. (2019) with
+aspect-ratio correction; rotor drive power from Theodorsen \& Regier (1944).
+\item \textbf{Fouling:} Hull roughness model of Townsin \& Dey (2003);
+propeller blade roughness from Mosaad (1986).
+\item \textbf{Weather data:} NORA3 hindcast archive (MET Norway), \SI{3}{\kilo\metre}
+resolution, hourly time steps.
+\item \textbf{Propulsion model:} C-series propeller model with full pitch/RPM optimisation
+against the MAN L27/38 engine envelope.
+\end{itemize}
+\end{document}

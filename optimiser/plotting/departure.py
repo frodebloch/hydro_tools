@@ -38,14 +38,14 @@ def plot_departure_analysis(results: list[VoyageResult], speed_kn: float,
     # Panel 1: Fuel per voyage for both cases
     ax = axes[0]
     ax.plot(dates, fuel_fac_nf, "C3-", alpha=0.7, linewidth=0.8,
-            label="Factory NF")
+            label="Standard control")
     ax.plot(dates, fuel_opt_fl, "C0-", alpha=0.7, linewidth=0.8,
-            label="Opt+Flettner")
+            label="Optimiser + rotor")
     # 7-day rolling min for opt+fl (achievable with 7-day flexibility)
     rolling_min = np.array([np.min(fuel_opt_fl[max(0, i - 3):min(n, i + 4)])
                             for i in range(n)])
     ax.plot(dates, rolling_min, "C2--", linewidth=1.2,
-            label="Best Opt+Fl in 7-day window")
+            label="Best Opt+rotor in 7-day window")
     ax.set_ylabel("Fuel [kg/voyage]")
     ax.legend(loc="upper right", fontsize=8)
     ax.grid(True, alpha=0.3)
@@ -53,8 +53,8 @@ def plot_departure_analysis(results: list[VoyageResult], speed_kn: float,
     # Panel 2: Flettner saving
     ax = axes[1]
     ax.bar(dates, sav_flettner_kg, width=1.0, color="C0", alpha=0.6,
-           label="Flettner saving")
-    ax.set_ylabel("Flettner saving [kg]")
+           label="Wind-assist saving")
+    ax.set_ylabel("Wind-assist saving [kg]")
     ax.axhline(np.mean(sav_flettner_kg), color="C0", linestyle="--",
                linewidth=1, alpha=0.8, label=f"Mean = {np.mean(sav_flettner_kg):.0f} kg")
     ax.legend(loc="upper right", fontsize=8)
@@ -96,7 +96,7 @@ def plot_departure_analysis(results: list[VoyageResult], speed_kn: float,
     sc = ax.scatter(mean_wind, sav_flettner_kg, c=mean_hs, cmap="viridis",
                     s=12, alpha=0.6)
     ax.set_xlabel("Mean wind speed [m/s]")
-    ax.set_ylabel("Flettner saving [kg/voyage]")
+    ax.set_ylabel("Wind-assist saving [kg/voyage]")
     ax.set_title(f"r = {np.corrcoef(mean_wind, sav_flettner_kg)[0, 1]:+.3f}")
     plt.colorbar(sc, ax=ax, label="Hs [m]", shrink=0.8)
     ax.grid(True, alpha=0.3)
@@ -106,7 +106,7 @@ def plot_departure_analysis(results: list[VoyageResult], speed_kn: float,
     sc = ax.scatter(mean_wind, fuel_fac_nf, c=mean_hs, cmap="viridis",
                     s=12, alpha=0.6)
     ax.set_xlabel("Mean wind speed [m/s]")
-    ax.set_ylabel("Factory NF fuel [kg/voyage]")
+    ax.set_ylabel("Standard control fuel [kg/voyage]")
     ax.set_title(f"r = {np.corrcoef(mean_wind, fuel_fac_nf)[0, 1]:+.3f}")
     plt.colorbar(sc, ax=ax, label="Hs [m]", shrink=0.8)
     ax.grid(True, alpha=0.3)
@@ -114,12 +114,12 @@ def plot_departure_analysis(results: list[VoyageResult], speed_kn: float,
     # Scatter 3: Hs vs Opt+Fl fuel (does Flettner reduce weather sensitivity?)
     ax = axes[1, 0]
     ax.scatter(mean_hs, fuel_fac_nf, s=12, alpha=0.5, color="C3",
-               label="Factory NF")
+               label="Standard control")
     ax.scatter(mean_hs, fuel_opt_fl, s=12, alpha=0.5, color="C0",
-               label="Opt+Flettner")
+               label="Optimiser + rotor")
     ax.set_xlabel("Mean Hs [m]")
     ax.set_ylabel("Fuel [kg/voyage]")
-    ax.set_title("Weather sensitivity: Factory vs Opt+Fl")
+    ax.set_title("Weather sensitivity: Standard vs Optimiser+rotor")
     ax.legend(fontsize=8)
     ax.grid(True, alpha=0.3)
 
@@ -127,8 +127,8 @@ def plot_departure_analysis(results: list[VoyageResult], speed_kn: float,
     ax = axes[1, 1]
     sc = ax.scatter(mean_F_fl, sav_flettner_kg, c=mean_wind, cmap="plasma",
                     s=12, alpha=0.6)
-    ax.set_xlabel("Mean Flettner thrust [kN]")
-    ax.set_ylabel("Flettner fuel saving [kg/voyage]")
+    ax.set_xlabel("Mean rotor thrust [kN]")
+    ax.set_ylabel("Wind-assist fuel saving [kg/voyage]")
     ax.set_title(f"r = {np.corrcoef(mean_F_fl, sav_flettner_kg)[0, 1]:+.3f}")
     plt.colorbar(sc, ax=ax, label="Wind [m/s]", shrink=0.8)
     ax.grid(True, alpha=0.3)
@@ -155,12 +155,12 @@ def plot_departure_analysis(results: list[VoyageResult], speed_kn: float,
         mean_best_opt.append(np.mean(b_opt))
 
     ax = axes[0]
-    ax.plot(windows, mean_best_fac, "C3o-", label="Factory NF (best in window)")
-    ax.plot(windows, mean_best_opt, "C0o-", label="Opt+Fl (best in window)")
+    ax.plot(windows, mean_best_fac, "C3o-", label="Standard control (best in window)")
+    ax.plot(windows, mean_best_opt, "C0o-", label="Optimiser+rotor (best in window)")
     ax.axhline(np.mean(fuel_fac_nf), color="C3", linestyle="--", alpha=0.5,
-               label=f"Factory NF mean = {np.mean(fuel_fac_nf):.0f}")
+               label=f"Standard mean = {np.mean(fuel_fac_nf):.0f}")
     ax.axhline(np.mean(fuel_opt_fl), color="C0", linestyle="--", alpha=0.5,
-               label=f"Opt+Fl mean = {np.mean(fuel_opt_fl):.0f}")
+               label=f"Opt+rotor mean = {np.mean(fuel_opt_fl):.0f}")
     ax.set_xlabel("Scheduling window [days]")
     ax.set_ylabel("Mean achievable fuel [kg/voyage]")
     ax.legend(fontsize=8)
@@ -172,15 +172,15 @@ def plot_departure_analysis(results: list[VoyageResult], speed_kn: float,
     sav_pct_opt = [100 * (1 - v / np.mean(fuel_fac_nf)) for v in mean_best_opt]
     sav_pct_opt_base = 100 * (1 - np.mean(fuel_opt_fl) / np.mean(fuel_fac_nf))
     ax.plot(windows, sav_pct_fac, "C3o-",
-            label="Timing only (Factory NF)")
+            label="Timing only (standard control)")
     ax.plot(windows, sav_pct_opt, "C0o-",
-            label="Timing + Optimiser + Flettner")
+            label="Timing + Optimiser + rotor")
     ax.axhline(sav_pct_opt_base, color="C0", linestyle="--", alpha=0.5,
-               label=f"Opt+Fl no timing = {sav_pct_opt_base:.1f}%")
+               label=f"Opt+rotor no timing = {sav_pct_opt_base:.1f}%")
     ax.axhline(0, color="C3", linestyle="--", alpha=0.5,
-               label="Factory NF no timing = 0%")
+               label="Standard no timing = 0%")
     ax.set_xlabel("Scheduling window [days]")
-    ax.set_ylabel("Saving vs Factory NF mean [%]")
+    ax.set_ylabel("Saving vs standard mean [%]")
     ax.legend(fontsize=8)
     ax.grid(True, alpha=0.3)
 

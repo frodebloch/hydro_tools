@@ -37,8 +37,8 @@ def plot_scheduling_analysis(
     mean_opt = [np.nanmean(fuel_opt_fl[si]) for si in range(len(speeds))]
 
     ax = axes[0]
-    ax.plot(speeds, mean_fac, "C3o-", label="Factory NF", markersize=8)
-    ax.plot(speeds, mean_opt, "C0o-", label="Opt+Flettner", markersize=8)
+    ax.plot(speeds, mean_fac, "C3o-", label="Standard control", markersize=8)
+    ax.plot(speeds, mean_opt, "C0o-", label="Optimiser + rotor", markersize=8)
     ax.set_xlabel("Transit speed [kn]")
     ax.set_ylabel("Fuel per voyage [kg]")
     ax.set_title("Mean fuel per voyage vs speed")
@@ -84,13 +84,13 @@ def plot_scheduling_analysis(
         valid_windows.append(W)
 
     ax.plot(valid_windows, mean_best_fac_by_window, "C3o-",
-            label="Best 2D (Factory NF)", markersize=7)
+            label="Best 2D (standard control)", markersize=7)
     ax.plot(valid_windows, mean_best_opt_by_window, "C0o-",
-            label="Best 2D (Opt+Fl)", markersize=7)
+            label="Best 2D (Opt+rotor)", markersize=7)
     ax.axhline(ref_mean_fac, color="C3", linestyle="--", alpha=0.5,
-               label=f"Fac NF @ {ref_speed:.0f} kn = {ref_mean_fac:.0f}")
+               label=f"Std @ {ref_speed:.0f} kn = {ref_mean_fac:.0f}")
     ax.axhline(ref_mean_opt, color="C0", linestyle="--", alpha=0.5,
-               label=f"Opt+Fl @ {ref_speed:.0f} kn = {ref_mean_opt:.0f}")
+               label=f"Opt+R @ {ref_speed:.0f} kn = {ref_mean_opt:.0f}")
     ax.set_xlabel("Total scheduling window [days]")
     ax.set_ylabel("Mean fuel per voyage [kg]")
     ax.set_title("Per-voyage fuel with 2D scheduling")
@@ -103,7 +103,7 @@ def plot_scheduling_analysis(
 
     # ---- Figure 2: Heatmap — per-voyage fuel (speed x window) ----
     fig, axes = plt.subplots(1, 2, figsize=(14, 5.5))
-    fig.suptitle(f"Per-Voyage Opt+Fl Fuel — Speed x Window — {voy_label}",
+    fig.suptitle(f"Per-Voyage Opt+Rotor Fuel — Speed x Window — {voy_label}",
                  fontsize=14, fontweight="bold")
 
     windows_fine = [3, 4, 5, 6, 7, 8, 10, 12, 14]
@@ -135,7 +135,7 @@ def plot_scheduling_analysis(
                            speeds[0] - 0.25, speeds[-1] + 0.25])
     ax.set_xlabel("Total scheduling window [days]")
     ax.set_ylabel("Transit speed [kn]")
-    ax.set_title("Mean Opt+Fl fuel per voyage [tonnes]")
+    ax.set_title("Mean Opt+Rotor fuel per voyage [tonnes]")
     plt.colorbar(im, ax=ax, label="Fuel [t/voy]", shrink=0.8)
 
     for si, spd in enumerate(speeds):
@@ -166,7 +166,7 @@ def plot_scheduling_analysis(
                             speeds[0] - 0.25, speeds[-1] + 0.25])
     ax.set_xlabel("Total scheduling window [days]")
     ax.set_ylabel("Transit speed [kn]")
-    ax.set_title(f"Saving vs Factory NF @ {ref_speed:.0f} kn [%]")
+    ax.set_title(f"Saving vs standard @ {ref_speed:.0f} kn [%]")
     plt.colorbar(im2, ax=ax, label="Saving [%]", shrink=0.8)
 
     for si, spd in enumerate(speeds):

@@ -40,13 +40,13 @@ def plot_speed_sweep(sweep: list[SpeedSweepResult]):
     ax = axes[0]
     ax.plot(speeds, [s.mean_fuel_factory_nf_kg for s in sweep],
             "s-", color="#c0392b", linewidth=2, markersize=8,
-            label="Factory (no Flettner)")
+            label="Standard control (no rotor)")
     ax.plot(speeds, [s.mean_fuel_opt_nf_kg for s in sweep],
             "^-", color="#e67e22", linewidth=2, markersize=8,
-            label="Optimiser (no Flettner)")
+            label="Optimiser (no rotor)")
     ax.plot(speeds, [s.mean_fuel_opt_fl_kg for s in sweep],
             "o-", color="#27ae60", linewidth=2, markersize=8,
-            label="Optimiser + Flettner")
+            label="Optimiser + rotor")
     ax.set_xlabel("Speed [kn]")
     ax.set_ylabel("Fuel per voyage [kg]")
     ax.set_title("Per-Voyage Fuel Consumption")
@@ -64,10 +64,10 @@ def plot_speed_sweep(sweep: list[SpeedSweepResult]):
     ax = axes[1]
     ax.plot(speeds, [s.ann_fuel_factory_nf_t for s in sweep],
             "s-", color="#c0392b", linewidth=2, markersize=8,
-            label="Factory (no Flettner)")
+            label="Standard control (no rotor)")
     ax.plot(speeds, [s.ann_fuel_opt_fl_t for s in sweep],
             "o-", color="#27ae60", linewidth=2, markersize=8,
-            label="Optimiser + Flettner")
+            label="Optimiser + rotor")
     # Shade the saving region
     ax.fill_between(speeds,
                      [s.ann_fuel_opt_fl_t for s in sweep],
@@ -93,16 +93,16 @@ def plot_speed_sweep(sweep: list[SpeedSweepResult]):
     pr_pcts = [s.pct_pitch_rpm for s in sweep]
     fl_pcts = [s.pct_flettner for s in sweep]
     bars1 = ax.bar(speeds, pr_pcts, width=bar_w,
-                    color="#3574a3", label="Pitch/RPM optimisation")
+                    color="#3574a3", label="Propeller optimisation")
     bars2 = ax.bar(speeds, fl_pcts, width=bar_w, bottom=pr_pcts,
-                    color="#e8774a", label="Flettner wind assist")
+                    color="#e8774a", label="Wind-assist (Flettner)")
     # Labels on bars
     for i, s in enumerate(sweep):
         total = s.pct_pitch_rpm + s.pct_flettner
         ax.text(s.speed_kn, total + 0.3, f"{total:.1f}%",
                 ha="center", fontsize=9, fontweight="bold")
     ax.set_xlabel("Speed [kn]")
-    ax.set_ylabel("Saving [% of factory baseline]")
+    ax.set_ylabel("Saving [% of standard baseline]")
     ax.set_title("Savings Breakdown by Speed")
     ax.legend(fontsize=9)
     ax.grid(True, alpha=0.3, axis="y")
@@ -122,9 +122,9 @@ def plot_speed_sweep(sweep: list[SpeedSweepResult]):
     pr_kg = [s.mean_saving_pitch_rpm_kg for s in sweep]
     fl_kg = [s.mean_saving_flettner_kg for s in sweep]
     ax.bar(speeds, pr_kg, width=bar_w,
-           color="#3574a3", label="Pitch/RPM")
+           color="#3574a3", label="Propeller optimisation")
     ax.bar(speeds, fl_kg, width=bar_w, bottom=pr_kg,
-           color="#e8774a", label="Flettner")
+           color="#e8774a", label="Wind-assist")
     for i, s in enumerate(sweep):
         total = s.mean_saving_total_kg
         ax.text(s.speed_kn, total + 5, f"{total:.0f} kg",
@@ -141,9 +141,9 @@ def plot_speed_sweep(sweep: list[SpeedSweepResult]):
     pr_t = [s.ann_saving_pitch_rpm_t for s in sweep]
     fl_t = [s.ann_saving_flettner_t for s in sweep]
     ax.bar(speeds, pr_t, width=bar_w,
-           color="#3574a3", label="Pitch/RPM")
+           color="#3574a3", label="Propeller optimisation")
     ax.bar(speeds, fl_t, width=bar_w, bottom=pr_t,
-           color="#e8774a", label="Flettner")
+           color="#e8774a", label="Wind-assist")
     for i, s in enumerate(sweep):
         total = s.ann_saving_total_t
         ax.text(s.speed_kn, total + 1, f"{total:.0f} t/yr",

@@ -376,8 +376,8 @@ def demo_muzzle_diagram():
     # ----------------------------------------------------------------
     # Set up propeller model
     # ----------------------------------------------------------------
-    D = 4.66  # Back-calculated from service prediction J values (pending confirmation)
-    BAR = 0.432  # Blade area ratio from the actual propeller
+    D = 4.80  # Confirmed propeller diameter [m]
+    BAR = 0.432
     data_40 = load_c_series_data(DATA_PATH_C440)
     data_55 = load_c_series_data(DATA_PATH_C455)
     data_70 = load_c_series_data(DATA_PATH_C470)
@@ -386,7 +386,7 @@ def demo_muzzle_diagram():
 
     print(f"\nPropeller:  D={prop.diameter}m, design P/D={prop.design_pitch}, BAR={BAR}")
     print(f"Note: design P/D=0.771 extrapolated below lowest tabulated value (0.8) via PCHIP.")
-    print(f"Note: D=4.66m back-calculated from service prediction J values (pending).")
+    print(f"Note: D=4.80m confirmed propeller diameter.")
     print(f"BAR interpolation: C4-40/C4-55/C4-70, BAR=0.432 interpolated between 0.40 and 0.55.")
 
     # ----------------------------------------------------------------
@@ -539,7 +539,7 @@ def demo_optimal_combinator():
     # ----------------------------------------------------------------
     # Set up propeller model
     # ----------------------------------------------------------------
-    D = 4.66
+    D = 4.80
     BAR = 0.432
     data_40 = load_c_series_data(DATA_PATH_C440)
     data_55 = load_c_series_data(DATA_PATH_C455)
@@ -715,7 +715,7 @@ def demo_single_speed_margin_sweep():
     # ----------------------------------------------------------------
     # Set up propeller model (same as demo_optimal_combinator)
     # ----------------------------------------------------------------
-    D = 4.66
+    D = 4.80
     BAR = 0.432
     data_40 = load_c_series_data(DATA_PATH_C440)
     data_55 = load_c_series_data(DATA_PATH_C455)

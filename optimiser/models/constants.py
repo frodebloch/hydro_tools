@@ -27,7 +27,7 @@ NORA3_DATA_DIR = Path(__file__).parent.parent / "data" / "nora3_route"
 # Vessel 206 propeller/engine parameters
 # ============================================================
 
-PROP_DIAMETER = 4.66        # m
+PROP_DIAMETER = 4.80        # m
 PROP_BAR = 0.432            # blade area ratio
 PROP_DESIGN_PITCH = 0.771   # P/D
 

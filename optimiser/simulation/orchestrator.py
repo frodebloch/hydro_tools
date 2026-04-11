@@ -158,6 +158,7 @@ def run_annual_comparison(
 
     factory = FactoryCombinator(engine, prop,
                                 sg_allowance_kw=sg_factory_allowance_kw,
+                                sg_load_kw=sg_load_kw,
                                 engine_rpm_min=engine_rpm_min_sg,
                                 engine_rpm_max=engine_rpm_max_sg)
     print(f"  Factory combinator: {len(factory._combo_lever)} schedule points")

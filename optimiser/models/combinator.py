@@ -33,12 +33,16 @@ class FactoryCombinator:
     def __init__(self, engine, prop: CSeriesPropeller,
                  sea_margin: float = 0.15,
                  sg_allowance_kw: float = 0.0,
+                 sg_load_kw: Optional[float] = None,
                  engine_rpm_min: Optional[float] = None,
                  engine_rpm_max: Optional[float] = None):
         self.engine = engine
         self.prop = prop
         self.gear_ratio = GEAR_RATIO
-        self.sg_allowance_kw = sg_allowance_kw
+        self.sg_allowance_kw = sg_allowance_kw   # headroom for schedule construction
+        # Actual SG load for fuel evaluation (defaults to allowance for
+        # backward compatibility, but typically smaller than the allowance)
+        self.sg_load_kw = sg_load_kw if sg_load_kw is not None else sg_allowance_kw
         # RPM limits (default to engine's own limits)
         self._eng_rpm_min = engine_rpm_min if engine_rpm_min is not None else engine.min_rpm()
         self._eng_rpm_max = engine_rpm_max if engine_rpm_max is not None else engine.max_rpm()
@@ -200,7 +204,7 @@ class FactoryCombinator:
         Q = self.prop.torque(pitch, n, Va)
         P_shaft = Q * 2.0 * math.pi * n
         P_shaft_kw = P_shaft / 1000.0
-        P_eng_kw = P_shaft_kw / SHAFT_EFF + self.sg_allowance_kw
+        P_eng_kw = P_shaft_kw / SHAFT_EFF + self.sg_load_kw
         eta0 = self.prop.eta0(pitch, n, Va)
 
         if (eng_rpm < self._eng_rpm_min

@@ -16,7 +16,7 @@ wind-assist model and **Blendermann wind resistance** on the hull.
 - **Route:** 7 legs, 509 nm, weighted mean heading ~63° (NE-bound outbound)
 - **Engine:** MAN L27/38, 800 RPM max, 480 RPM min, 2920 kW MCR
 - **Gear ratio:** 6.803 (800 RPM engine / 117.6 RPM shaft)
-- **Propeller:** D=4.66m, P/D_design=0.771, BAR=0.432 (C-series Fourier model)
+- **Propeller:** D=4.80m, P/D_design=0.771, BAR=0.432 (C-series Fourier model)
 - **Flettner:** H=28m, D=4m, max 220 RPM, target spin ratio 3.0
 - **Wind areas:** A_frontal=280 m², A_lateral=1100 m², Loa=100 m
 
@@ -122,13 +122,13 @@ dropped significantly as outbound/return average out the directional effect.
 
 | Metric | Value |
 |--------|-------|
-| Per-voyage factory NF | 14,110 kg |
-| Per-voyage opt+Fl | 12,176 kg |
-| Annual factory NF | 1,032 t/yr |
-| Annual opt+Fl | 890 t/yr |
-| **Pitch/RPM saving** | **2.9% (30 t/yr)** |
-| **Flettner saving** | **10.9% (111 t/yr)** |
-| **Total saving** | **13.9% (141 t/yr, €92k/yr)** |
+| Per-voyage factory NF | 14,502 kg |
+| Per-voyage opt+Fl | 12,577 kg |
+| Annual factory NF | 1,061 t/yr |
+| Annual opt+Fl | 920 t/yr |
+| **Pitch/RPM saving** | **5.8% (61 t/yr)** |
+| **Flettner saving** | **7.5% (80 t/yr)** |
+| **Total saving** | **13.3% (141 t/yr, €92k/yr)** |
 | Mean R_aw | 4.7 kN |
 | Mean R_wind | 4.5 kN |
 | Mean F_flettner | 14.3 kN |
