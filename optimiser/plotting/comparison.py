@@ -210,8 +210,8 @@ def plot_comparison(results_std: list[VoyageResult],
                      std["pct_pr"] + std["pct_fl"],
                      alpha=0.55, color=C_FL_STD,
                      label=f"Wind-assist ({np.mean(std['pct_fl']):.1f}%)")
-    ax1.axhline(np.mean(std["sav_pct"]), color="k", ls="--", lw=0.8,
-                alpha=0.5)
+    ax1.axhline(np.mean(std["pct_pr"] + std["pct_fl"]), color="k", ls="--",
+                lw=0.8, alpha=0.5)
     ax1.set_ylabel("Fuel saving [%]")
     ax1.set_title("Standard Mode — Daily Saving (Prop. optimisation + Wind-assist)")
     ax1.legend(loc="upper left", fontsize=9)
@@ -226,8 +226,8 @@ def plot_comparison(results_std: list[VoyageResult],
                      sg["pct_pr"] + sg["pct_fl"],
                      alpha=0.55, color=C_FL_SG,
                      label=f"Wind-assist ({np.mean(sg['pct_fl']):.1f}%)")
-    ax2.axhline(np.mean(sg["sav_pct"]), color="k", ls="--", lw=0.8,
-                alpha=0.5)
+    ax2.axhline(np.mean(sg["pct_pr"] + sg["pct_fl"]), color="k", ls="--",
+                lw=0.8, alpha=0.5)
     ax2.set_ylabel("Fuel saving [%]")
     ax2.set_title("Shaft Generator Mode — Daily Saving (Prop. optimisation + Wind-assist)")
     ax2.legend(loc="upper left", fontsize=9)

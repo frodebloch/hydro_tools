@@ -607,7 +607,7 @@ Figure [[fig:sg_comparison]] shows the side-by-side comparison of daily fuel
 savings in standard and SG modes.
 
 #+NAME: fig:sg_comparison
-#+CAPTION: Side-by-side comparison of daily fuel savings in standard mode (top) vs shaft generator mode (bottom).  With the corrected hull data, the pitch/RPM saving is preserved in SG mode, and the Flettner benefit remains comparable.
+#+CAPTION: Daily fuel savings: standard mode (top) vs shaft generator mode (middle), with weather conditions (bottom).  With the corrected hull data, the pitch/RPM saving is virtually identical in both modes, and the Flettner benefit likewise persists.  Dashed lines show annual means.
 #+ATTR_LATEX: :width \textwidth :placement [H]
 [[file:comparison_timeseries.png]]
 

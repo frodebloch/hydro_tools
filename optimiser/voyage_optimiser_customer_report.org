@@ -409,7 +409,7 @@ This saving is in addition to the Optimiser and Flettner benefits.
 Figure [[fig:sg_comparison]] illustrates this contrast across the full year.
 
 #+NAME: fig:sg_comparison
-#+CAPTION: Daily fuel savings comparison: standard mode (top panel, SG offline) vs shaft generator mode (bottom panel, SG online at 150 kW).  The propeller optimisation saving (blue) is largely preserved in SG mode, while the wind-assist saving (orange) persists.
+#+CAPTION: Daily fuel savings: standard mode (top) vs shaft generator mode (middle), with weather conditions (bottom).  The propeller optimisation saving (blue) is virtually identical in both modes; the wind-assist saving (orange) likewise persists.  Dashed lines show annual means.
 #+ATTR_LATEX: :width \textwidth :placement [H]
 [[file:comparison_timeseries.png]]
 
