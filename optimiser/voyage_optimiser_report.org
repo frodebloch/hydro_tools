@@ -532,10 +532,21 @@ Without the SG, it burns \SI{1263}{t/yr} --- a difference of \SI{251}{t/yr}.
 This incremental fuel for \SI{150}{\kilo\watt} over \SI{7439}{h/yr} corresponds
 to an /effective/ SFOC of \SI{225}{\gram/\kilo\watt\hour}.
 
-This is only slightly worse than a typical auxiliary genset (\SI{210}--\SI{230}{\gram/\kilo\watt\hour}).
-With the corrected hull data, the engine operates at higher load even at
-\SI{10}{\knot}, reducing the RPM floor penalty.  The effective SFOC is close to
-the genset range, making the SG vs genset choice marginal at this speed.
+This is only slightly worse than a typical auxiliary genset
+(\SI{210}--\SI{230}{\gram/\kilo\watt\hour}), but notably higher than the main
+engine's own sweet-spot SFOC of \SI{181}--\SI{185}{\gram/\kilo\watt\hour}.
+The gap is explained by the /opportunity cost/ of the SG RPM floor.  Without
+the SG the Optimiser selects ~\SI{75}{RPM} shaft (\SI{510}{RPM} engine) at
+\SI{10}{\knot}; with the SG engaged, the minimum-frequency requirement forces
+\(\geq\)\SI{640}{RPM} (\SI{94}{RPM} shaft), removing pitch/RPM freedom.  The
+\SI{225}{\gram/\kilo\watt\hour} effective rate therefore includes both the raw
+energy for \SI{150}{\kilo\watt} and the efficiency penalty from operating at a
+constrained RPM.
+
+With the corrected hull data the engine sits at a higher load fraction even at
+\SI{10}{\knot}, reducing the RPM floor penalty compared to earlier estimates
+(\SI{225} vs \SI{257}{\gram/\kilo\watt\hour}).  The SG vs genset choice is
+consequently marginal at this speed.
 
 The breakeven genset SFOC --- the value at which a separate genset becomes
 more expensive than running the SG on the ME --- is \SI{225}{\gram/\kilo\watt\hour}

@@ -384,14 +384,25 @@ This corresponds to an /effective/ specific fuel consumption of
 \SI{225}{\gram/\kilo\watt\hour}, only slightly above the
 \SI{210}--\SI{230}{\gram/\kilo\watt\hour} of a typical auxiliary diesel genset.
 
-The reason is the SG RPM floor: at \SI{10}{\knot} the engine would naturally
-operate at lower RPM with better fuel efficiency, but the SG forces it to
-\SI{640}{RPM} minimum, shifting operation to a less efficient part of the
-fuel map.  However, the corrected hull data places the engine at higher load
-fractions even with the SG RPM floor, reducing the efficiency penalty.
+At first glance \SI{225}{\gram/\kilo\watt\hour} may seem surprisingly high:
+the main engine's own SFOC in its sweet spot is only
+\SI{181}--\SI{185}{\gram/\kilo\watt\hour}.  The explanation is that the
+effective SFOC includes an /opportunity cost/.  Without the SG the Optimiser
+selects ~\SI{75}{RPM} shaft (\SI{510}{RPM} engine) at \SI{10}{\knot}, deep in
+the fuel map's efficient region.  With the SG engaged, the minimum-frequency
+requirement forces the engine to \(\geq\)\SI{640}{RPM} (\SI{94}{RPM} shaft),
+removing some of the Optimiser's pitch/RPM freedom.  The extra fuel therefore
+has two components: (i) the raw energy for \SI{150}{\kilo\watt}, and (ii) the
+efficiency loss from operating at a constrained, less optimal RPM.  Together
+they yield the \SI{225}{\gram/\kilo\watt\hour} effective rate.
 
-At a typical genset SFOC of \SI{215}{\gram/\kilo\watt\hour}, a separate auxiliary
-genset would save approximately \SI{11}{t/yr}
+With the corrected hull data the engine sits at a higher load fraction even at
+\SI{10}{\knot}, so the RPM floor penalty is smaller than previously estimated
+--- hence \SI{225}{\gram/\kilo\watt\hour} rather than the earlier
+\SI{257}{\gram/\kilo\watt\hour}.
+
+At a typical genset SFOC of \SI{215}{\gram/\kilo\watt\hour}, a separate
+auxiliary genset would save approximately \SI{11}{t/yr}
 (@@latex:\euro@@7\thinspace000/year) in fuel compared to the shaft generator.
 This saving is in addition to the Optimiser and Flettner benefits.
 
