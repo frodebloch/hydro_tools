@@ -12,7 +12,7 @@ from models.constants import GEAR_RATIO, SHAFT_EFF
 
 def _opt_cache_worker(args):
     """Worker function for parallel optimiser cache build."""
-    T_kN_batch, prop, Va, engine, aux_kw, rpm_min, rpm_max = args
+    T_kN_batch, prop, Va, engine, aux_kw, rpm_min, rpm_max, eta_R = args
     results = {}
     for T_kN in T_kN_batch:
         T_N = T_kN * 1000.0
@@ -24,6 +24,7 @@ def _opt_cache_worker(args):
             pitch_step=0.01,
             engine_rpm_min=rpm_min,
             engine_rpm_max=rpm_max,
+            eta_R=eta_R,
         )
         if op.found and op.fuel_rate is not None:
             results[T_kN] = {
@@ -45,6 +46,7 @@ def build_optimiser_cache(
     auxiliary_power_kw: float = 0.0,
     engine_rpm_min: Optional[float] = None,
     engine_rpm_max: Optional[float] = None,
+    eta_R: float = 1.0,
 ) -> dict:
     """Pre-compute optimiser results for a range of thrust demands.
 
@@ -81,6 +83,7 @@ def build_optimiser_cache(
                 pitch_step=0.01,
                 engine_rpm_min=engine_rpm_min,
                 engine_rpm_max=engine_rpm_max,
+                eta_R=eta_R,
             )
             if op.found and op.fuel_rate is not None:
                 cache[T_kN] = {
@@ -97,7 +100,8 @@ def build_optimiser_cache(
     for i in range(0, len(T_values), batch_size):
         batch = T_values[i:i + batch_size].tolist()
         batches.append((batch, prop, Va, engine,
-                        auxiliary_power_kw, engine_rpm_min, engine_rpm_max))
+                        auxiliary_power_kw, engine_rpm_min, engine_rpm_max,
+                        eta_R))
 
     cache = {}
     with ProcessPoolExecutor(max_workers=n_workers) as pool:

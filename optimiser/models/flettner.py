@@ -138,6 +138,38 @@ class FlettnerRotor:
                       * math.pi * self.diameter * self.height)
             self.rotor_power_kW = P_aero / (1000.0 * self._MOTOR_EFF)
 
+    def stopped_surge_force_kN(self, apparent_wind_speed: float,
+                               apparent_wind_angle_deg: float) -> float:
+        """Surge force [kN] of the rotor when stopped (SR=0, CL=0, CD=0.6).
+
+        Returns a negative value for headwinds (drag opposing motion),
+        positive for following winds.  Zero power consumption.
+        """
+        if apparent_wind_speed < self._MIN_WIND:
+            return 0.0
+        cd0 = float(self._cd_interp(0.0))   # CD at SR=0
+        q_A = 0.5 * RHO_AIR * apparent_wind_speed ** 2 * self.ref_area
+        F_drag_N = cd0 * q_A
+        beta_rad = math.radians(apparent_wind_angle_deg)
+        # Drag opposes apparent wind direction: surge component = -F_drag * cos(beta)
+        return -F_drag_N * math.cos(beta_rad) / 1000.0
+
+    def stopped_surge_from_true_wind(self, Vs: float, heading_deg: float,
+                                     wind_speed: float,
+                                     wind_dir_deg: float) -> float:
+        """Stopped-rotor surge force [kN] from true wind + vessel speed."""
+        if wind_speed < self._MIN_WIND:
+            return 0.0
+        rel_angle_deg = angle_diff(heading_deg, wind_dir_deg)
+        rel_angle_rad = math.radians(rel_angle_deg)
+        wind_surge = wind_speed * math.cos(rel_angle_rad)
+        wind_sway = wind_speed * math.sin(rel_angle_rad)
+        app_surge = Vs + wind_surge
+        app_sway = wind_sway
+        app_speed = math.sqrt(app_surge ** 2 + app_sway ** 2)
+        app_angle_deg = math.degrees(math.atan2(app_sway, app_surge))
+        return self.stopped_surge_force_kN(app_speed, app_angle_deg)
+
     def compute_from_true_wind(self, Vs: float, heading_deg: float,
                                wind_speed: float, wind_dir_deg: float):
         """Compute rotor forces from true wind + vessel speed.

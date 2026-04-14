@@ -12,6 +12,7 @@ from optimiser import find_min_fuel_operating_point
 from models.constants import (
     GENSET_SFOC,
     GEAR_RATIO,
+    HULL_ETA_R,
     HULL_SPEEDS_KN,
     HULL_RESISTANCE_KN,
     HULL_T_DEDUCTION,
@@ -129,6 +130,7 @@ def evaluate_voyage(
     w = float(np.interp(speed_kn, HULL_SPEEDS_KN, HULL_WAKE))
     t_ded = float(np.interp(speed_kn, HULL_SPEEDS_KN, HULL_T_DEDUCTION))
     R_calm_kN = float(np.interp(speed_kn, HULL_SPEEDS_KN, HULL_RESISTANCE_KN))
+    eta_R = float(np.interp(speed_kn, HULL_SPEEDS_KN, HULL_ETA_R))
     Vs = speed_kn * KN_TO_MS
     Va = Vs * (1.0 - w)
 
@@ -177,15 +179,31 @@ def evaluate_voyage(
             heading_deg=rp.heading_deg,
         )
 
-        # Flettner thrust
+        # Flettner thrust (spinning rotor)
         flettner.compute_from_true_wind(
             Vs=Vs,
             heading_deg=rp.heading_deg,
             wind_speed=wx["wind_speed"],
             wind_dir_deg=wx["wind_dir"],
         )
-        F_flettner_kN = max(0.0, flettner.surge_force_kN)
-        rotor_power_kW = flettner.rotor_power_kW if F_flettner_kN > 0 else 0.0
+        F_spinning_kN = flettner.surge_force_kN  # can be negative (net drag)
+
+        # Stopped-rotor drag (rotor present but not spinning, SR=0, CD≈0.6)
+        F_stopped_kN = flettner.stopped_surge_from_true_wind(
+            Vs=Vs,
+            heading_deg=rp.heading_deg,
+            wind_speed=wx["wind_speed"],
+            wind_dir_deg=wx["wind_dir"],
+        )
+
+        # Only spin the rotor if it improves surge (i.e. reduces thrust demand)
+        # compared to leaving it stopped.
+        if F_spinning_kN > F_stopped_kN:
+            F_flettner_kN = F_spinning_kN
+            rotor_power_kW = flettner.rotor_power_kW
+        else:
+            F_flettner_kN = F_stopped_kN
+            rotor_power_kW = 0.0
         # Fuel cost of spinning the rotor [g/h] via auxiliary genset
         rotor_fuel_gh = rotor_power_kW * GENSET_SFOC  # g/h
 
@@ -205,8 +223,9 @@ def evaluate_voyage(
         T_required_kN = max(0.0, T_required_kN)  # can't have negative thrust
         T_required_N = T_required_kN * 1000.0
 
-        # Thrust demand without Flettner (for splitting savings)
-        R_total_nfl_kN = R_calm_kN + R_aw_kN + R_wind_kN + R_roughness_kN
+        # Thrust demand without spinning Flettner (rotor stopped, for splitting savings)
+        # The rotor is physically present, so its stopped-cylinder drag applies.
+        R_total_nfl_kN = R_calm_kN + R_aw_kN + R_wind_kN + R_roughness_kN - F_stopped_kN
         T_no_flettner_kN = R_total_nfl_kN / (1.0 - t_ded)
         T_no_flettner_kN = max(0.0, T_no_flettner_kN)
 
@@ -236,6 +255,7 @@ def evaluate_voyage(
                     gear_ratio=GEAR_RATIO,
                     shaft_efficiency=SHAFT_EFF,
                     pitch_step=0.02,
+                    eta_R=eta_R,
                 )
                 if op.found and op.fuel_rate is not None:
                     o_fuel = op.fuel_rate
@@ -257,6 +277,7 @@ def evaluate_voyage(
                     gear_ratio=GEAR_RATIO,
                     shaft_efficiency=SHAFT_EFF,
                     pitch_step=0.02,
+                    eta_R=eta_R,
                 )
                 if op_nf.found and op_nf.fuel_rate is not None:
                     o_nf_fuel = op_nf.fuel_rate

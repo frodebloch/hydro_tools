@@ -160,7 +160,7 @@ Figure [[fig:route]].
 
 Each voyage departs daily, sails the outbound leg, and returns immediately
 -- experiencing different weather on each leg.  Round-trip simulation eliminates
-any directional wind bias (e.g.\ prevailing westerlies favouring one direction).
+any directional wind bias (e.g. prevailing westerlies favouring one direction).
 With 15@@latex:\%@@ assumed port/idle time, the vessel completes approximately
 73 round-trip voyages per year.
 
@@ -178,12 +178,12 @@ With 15@@latex:\%@@ assumed port/idle time, the vessel completes approximately
 #+ATTR_LATEX: :booktabs t :align lrrrrrr
 | Metric                               |  Mean | Median |   P10 |   P90 |   Min |   Max |
 |--------------------------------------+-------+--------+-------+-------+-------+-------|
-| Standard, no rotor [kg/voyage]       | 17271 |  17062 | 16107 | 18996 | 12980 | 22239 |
-| Optimiser + rotor [kg/voyage]        | 15000 |  15043 | 12865 | 16959 | 10253 | 20844 |
-| Propeller optimisation saving [kg]   |   899 |    929 |   794 |   970 |   462 |   998 |
-| Wind-assist saving [kg]              |  1372 |   1208 |   331 |  2719 |     8 |  4942 |
-| Propeller optimisation saving        | 5.2@@latex:\%@@ | 5.4@@latex:\%@@ | 4.2@@latex:\%@@ | 5.9@@latex:\%@@ | 2.6@@latex:\%@@ | 6.4@@latex:\%@@ |
-| Wind-assist saving                   | 8.0@@latex:\%@@ | 6.9@@latex:\%@@ | 2.0@@latex:\%@@ | 16.1@@latex:\%@@ | 0.0@@latex:\%@@ | 28.9@@latex:\%@@ |
+| Standard, no rotor [kg/voyage]       | 17378 |  17241 | 15910 | 19444 | 10816 | 23079 |
+| Optimiser + rotor [kg/voyage]        | 15120 |  15147 | 12949 | 17443 |  8107 | 21971 |
+| Propeller optimisation saving [kg]   |   851 |    883 |   729 |   936 |   409 |   981 |
+| Wind-assist saving [kg]              |  1407 |   1245 |   360 |  2660 |     3 |  4847 |
+| Propeller optimisation saving        | 4.9@@latex:\%@@ | 5.1@@latex:\%@@ | 3.9@@latex:\%@@ | 5.7@@latex:\%@@ | 2.6@@latex:\%@@ | 6.4@@latex:\%@@ |
+| Wind-assist saving                   | 8.3@@latex:\%@@ | 7.1@@latex:\%@@ | 2.0@@latex:\%@@ | 16.6@@latex:\%@@ | 0.0@@latex:\%@@ | 28.6@@latex:\%@@ |
 
 Key observations:
 - The *propeller optimisation* delivers a consistent 3--6@@latex:\%@@ saving on
@@ -219,17 +219,17 @@ savings from the Flettner rotor.
 #+ATTR_LATEX: :booktabs t :align lr
 | Configuration                     | Fuel [tonnes/year] |
 |-----------------------------------+--------------------|
-| Standard control, no rotor        |             1262.9 |
-| Standard control + Flettner rotor |             1161.8 |
-| Optimiser, no rotor               |             1197.2 |
-| Optimiser + Flettner rotor        |              1096.9 |
+| Standard control, no rotor        |             1270.8 |
+| Standard control + Flettner rotor |             1167.4 |
+| Optimiser, no rotor               |             1208.5 |
+| Optimiser + Flettner rotor        |             1105.6 |
 
 #+ATTR_LATEX: :booktabs t :align lrr
 | Saving component          | Tonnes/year | Percentage          |
 |---------------------------+-------------+---------------------|
-| Propeller optimisation    |        65.7 | 5.2@@latex:\%@@     |
-| Wind-assist (Flettner)    |       100.3 | 7.9@@latex:\%@@     |
-| *Combined*                |   *166.1*   | *13.1@@latex:\%@@*  |
+| Propeller optimisation    |        62.3 | 4.9@@latex:\%@@     |
+| Wind-assist (Flettner)    |       102.9 | 8.1@@latex:\%@@     |
+| *Combined*                |   *165.2*   | *13.0@@latex:\%@@*  |
 
 Figure [[fig:histogram]] shows the distribution of per-voyage savings.  The
 propeller optimisation is tightly clustered (consistent benefit), while the
@@ -247,31 +247,31 @@ At a fuel price of @@latex:\euro@@650/tonne (MGO, typical for ECA zones):
 #+ATTR_LATEX: :booktabs t :align lr
 | Configuration                     | Annual fuel cost                        |
 |-----------------------------------+-----------------------------------------|
-| Standard control, no rotor        | @@latex:\euro@@820\thinspace911         |
-| Standard control + Flettner rotor | @@latex:\euro@@755\thinspace157         |
-| Optimiser, no rotor               | @@latex:\euro@@778\thinspace194         |
-| Optimiser + Flettner rotor        | @@latex:\euro@@712\thinspace970         |
+| Standard control, no rotor        | @@latex:\euro@@826\thinspace036         |
+| Standard control + Flettner rotor | @@latex:\euro@@758\thinspace839         |
+| Optimiser, no rotor               | @@latex:\euro@@785\thinspace543         |
+| Optimiser + Flettner rotor        | @@latex:\euro@@718\thinspace687         |
 
 #+ATTR_LATEX: :booktabs t :align lrr
 | Saving component          | @@latex:\euro@@/year             | Percentage          |
 |---------------------------+---------------------------------+---------------------|
-| Propeller optimisation    | @@latex:\euro@@42\thinspace717  | 5.2@@latex:\%@@     |
-| Wind-assist (Flettner)    | @@latex:\euro@@65\thinspace224  | 7.9@@latex:\%@@     |
-| *Combined*                | *@@latex:\euro@@107\thinspace941* | *13.1@@latex:\%@@*  |
+| Propeller optimisation    | @@latex:\euro@@40\thinspace494  | 4.9@@latex:\%@@     |
+| Wind-assist (Flettner)    | @@latex:\euro@@66\thinspace855  | 8.1@@latex:\%@@     |
+| *Combined*                | *@@latex:\euro@@107\thinspace349* | *13.0@@latex:\%@@*  |
 
 ** Seasonal Variation
 
 #+ATTR_LATEX: :booktabs t :align lrrrrr
 | Season        | Voyages | Std [kg/voy] | Opt+Fl [kg/voy] | Prop. opt.          | Wind-assist        |
 |---------------+---------+--------------+-----------------+---------------------+--------------------|
-| Q1 (Jan--Mar) |      91 | 17\thinspace327 | 14\thinspace731 | 5.0@@latex:\%@@  | 10.1@@latex:\%@@   |
-| Q2 (Apr--Jun) |      91 | 17\thinspace315 | 15\thinspace378 | 5.4@@latex:\%@@  | 5.9@@latex:\%@@    |
-| Q3 (Jul--Sep) |      92 | 17\thinspace181 | 15\thinspace206 | 5.4@@latex:\%@@  | 6.1@@latex:\%@@    |
-| Q4 (Oct--Dec) |      88 | 17\thinspace261 | 14\thinspace671 | 5.1@@latex:\%@@  | 10.1@@latex:\%@@   |
+| Q1 (Jan--Mar) |      91 | 17\thinspace420 | 14\thinspace835 | 4.7@@latex:\%@@  | 10.4@@latex:\%@@   |
+| Q2 (Apr--Jun) |      91 | 17\thinspace519 | 15\thinspace607 | 5.1@@latex:\%@@  | 6.0@@latex:\%@@    |
+| Q3 (Jul--Sep) |      92 | 17\thinspace348 | 15\thinspace377 | 5.1@@latex:\%@@  | 6.3@@latex:\%@@    |
+| Q4 (Oct--Dec) |      88 | 17\thinspace220 | 14\thinspace642 | 4.9@@latex:\%@@  | 10.4@@latex:\%@@   |
 
 The Flettner rotor benefit roughly doubles in winter (Q1, Q4) compared to
 summer, reflecting the stronger and more consistent North Sea winds.  The
-propeller optimisation saving remains stable at 5.0--5.4@@latex:\%@@ year-round,
+propeller optimisation saving remains stable at 4.7--5.1@@latex:\%@@ year-round,
 as it depends on engine efficiency rather than weather.
 
 ** Standard Control Limitations
@@ -307,62 +307,67 @@ introduces two constraints that affect propulsion efficiency:
 #+ATTR_LATEX: :booktabs t :align lr
 | Configuration                     | Fuel [tonnes/year] |
 |-----------------------------------+--------------------|
-| Standard control, no rotor        |             1513.9 |
-| Standard control + Flettner rotor |             1414.9 |
-| Optimiser, no rotor               |             1437.7 |
-| Optimiser + Flettner rotor        |             1332.0 |
+| Standard control, no rotor        |             1535.7 |
+| Standard control + Flettner rotor |             1452.3 |
+| Optimiser, no rotor               |             1535.4 |
+| Optimiser + Flettner rotor        |             1453.3 |
 
 #+ATTR_LATEX: :booktabs t :align lrr
 | Saving component          | Tonnes/year | Percentage           |
 |---------------------------+-------------+----------------------|
-| Propeller optimisation    |        76.3 | 5.0@@latex:\%@@      |
-| Wind-assist (Flettner)    |       105.7 | 7.0@@latex:\%@@      |
-| *Combined*                |   *182.0*   | *12.0@@latex:\%@@*   |
+| Propeller optimisation    |         0.3 | 0.0@@latex:\%@@      |
+| Wind-assist (Flettner)    |        82.1 | 5.3@@latex:\%@@      |
+| *Combined*                |    *82.4*   | *5.4@@latex:\%@@*    |
 
 At MGO @@latex:\euro@@650/tonne, the annual saving with SG active is
-@@latex:\euro@@118\thinspace000/year (12.0@@latex:\%@@).
+@@latex:\euro@@54\thinspace000/year (5.4@@latex:\%@@).
 
 ** Effect on Propeller Optimisation
 
 At \SI{10}{\knot} transit speed, the calm-water thrust demand is approximately
 \SI{133}{\kilo\newton}, requiring shaft power of approximately \SI{767}{\kilo\watt}.
-With the SG RPM floor at \SI{94.1}{RPM} (shaft), the factory combinator schedule
-is constructed with additional SG headroom (\SI{200}{\kilo\watt}), which shifts
-its operating points.  The Optimiser retains freedom to find more efficient
-pitch/RPM combinations, delivering a 5.0@@latex:\%@@ pitch/RPM saving ---
-comparable to the 5.2@@latex:\%@@ achieved without the SG.  The SG parasitic
-load increases total fuel consumption by approximately 20@@latex:\%@@, but the
-relative savings are preserved.
+With the SG RPM floor at \SI{94.1}{RPM} (shaft), both the standard schedule and
+the Optimiser are pinned at essentially the same operating point: the RPM floor
+removes the Optimiser's primary strategy of running at lower RPM and higher
+pitch.  As a result, the *propeller optimisation saving drops to
+0.0@@latex:\%@@* with the SG active --- all of the combined saving comes from
+the Flettner rotor.
+
+At higher transit speeds, where the thrust demand pushes the engine above the
+SG RPM floor, the Optimiser would regain its pitch/RPM freedom and deliver
+meaningful savings.
 
 ** Flettner Rotor Remains Effective
 
 The Flettner rotor delivers the same absolute thrust reduction regardless of
 SG status -- wind physics are unchanged.  The relative saving appears smaller
-(7.0@@latex:\%@@ vs 7.9@@latex:\%@@) only because the SG-loaded baseline
-consumption is higher (\SI{1514}{t/yr} vs \SI{1263}{t/yr}).
+(5.3@@latex:\%@@ vs 8.1@@latex:\%@@) because the SG-loaded baseline
+consumption is higher (\SI{1536}{t/yr} vs \SI{1271}{t/yr}).
 
 #+ATTR_LATEX: :booktabs t :align lrrrrr
 | Season        | Voyages | Std [kg/voy] | Opt+Fl [kg/voy] | Prop. opt.          | Wind-assist        |
 |---------------+---------+--------------+-----------------+---------------------+--------------------|
-| Q1 (Jan--Mar) |      91 | 20\thinspace713 | 17\thinspace886 | 4.9@@latex:\%@@  | 8.9@@latex:\%@@    |
-| Q2 (Apr--Jun) |      91 | 20\thinspace728 | 18\thinspace587 | 5.2@@latex:\%@@  | 5.2@@latex:\%@@    |
-| Q3 (Jul--Sep) |      92 | 20\thinspace581 | 18\thinspace400 | 5.3@@latex:\%@@  | 5.4@@latex:\%@@    |
-| Q4 (Oct--Dec) |      88 | 20\thinspace794 | 17\thinspace975 | 4.9@@latex:\%@@  | 8.8@@latex:\%@@    |
+| Q1 (Jan--Mar) |      91 | 20\thinspace991 | 19\thinspace554 | 0.1@@latex:\%@@  | 6.9@@latex:\%@@    |
+| Q2 (Apr--Jun) |      91 | 21\thinspace148 | 20\thinspace330 | -0.0@@latex:\%@@ | 3.9@@latex:\%@@    |
+| Q3 (Jul--Sep) |      92 | 20\thinspace990 | 20\thinspace135 | -0.1@@latex:\%@@ | 4.1@@latex:\%@@    |
+| Q4 (Oct--Dec) |      88 | 20\thinspace870 | 19\thinspace460 | 0.0@@latex:\%@@  | 6.8@@latex:\%@@    |
 
 ** Side-by-Side Summary
 
 #+ATTR_LATEX: :booktabs t :align lrr
 | Metric                                 | SG offline          | SG online (150 kW)  |
 |----------------------------------------+---------------------+---------------------|
-| Baseline fuel [t/yr]                   |              1262.9 |              1513.9 |
-| Propeller optimisation saving          | 5.2@@latex:\%@@ (66 t/yr) | 5.0@@latex:\%@@ (76 t/yr) |
-| Wind-assist saving                     | 7.9@@latex:\%@@ (100 t/yr) | 7.0@@latex:\%@@ (106 t/yr) |
-| Combined saving                        | 13.1@@latex:\%@@ (166 t/yr) | 12.0@@latex:\%@@ (182 t/yr) |
-| Annual cost saving                     | @@latex:\euro@@108k  | @@latex:\euro@@118k  |
+| Baseline fuel [t/yr]                   |              1270.8 |              1535.7 |
+| Propeller optimisation saving          | 4.9@@latex:\%@@ (62 t/yr) | 0.0@@latex:\%@@ (0.3 t/yr) |
+| Wind-assist saving                     | 8.1@@latex:\%@@ (103 t/yr) | 5.3@@latex:\%@@ (82 t/yr) |
+| Combined saving                        | 13.0@@latex:\%@@ (165 t/yr) | 5.4@@latex:\%@@ (82 t/yr) |
+| Annual cost saving                     | @@latex:\euro@@107k  | @@latex:\euro@@54k   |
 
 The SG operating mode increases total fuel consumption by approximately
-20@@latex:\%@@ due to the parasitic load, but the relative savings from both
-the Optimiser and Flettner rotor are largely preserved.
+21@@latex:\%@@ due to the parasitic load.  Critically, the SG RPM floor
+constraint eliminates the Optimiser's pitch/RPM saving at \SI{10}{\knot}, as
+both the standard schedule and the Optimiser are pinned at the same operating
+point.  The Flettner rotor benefit is preserved in absolute terms.
 
 At higher transit speeds, the propeller optimisation saving is expected to show
 similar or improved performance under SG constraints, as the thrust demand
@@ -371,45 +376,41 @@ pushes the engine further above the SG RPM floor:
 #+ATTR_LATEX: :booktabs t :align lrrr
 | Transit speed      | Propeller opt.    | Wind-assist       | Combined           |
 |--------------------+-------------------+-------------------+--------------------|
-| \SI{10}{\knot}     | 5.0@@latex:\%@@   | 7.0@@latex:\%@@   | 12.0@@latex:\%@@   |
+| \SI{10}{\knot}     | 0.0@@latex:\%@@   | 5.3@@latex:\%@@   | 5.4@@latex:\%@@    |
 
 ** Shaft Generator vs Auxiliary Genset
 
 An important question is whether the shaft generator is the most fuel-efficient
 way to supply \SI{150}{\kilo\watt} of electrical power at \SI{10}{\knot}.
 
-With the SG, the baseline fuel rises from \SI{1263}{t/yr} to \SI{1514}{t/yr} ---
-an increase of \SI{251}{t/yr} for \SI{150}{\kilo\watt} over \SI{7439}{h/yr}.
+With the SG, the baseline fuel rises from \SI{1271}{t/yr} to \SI{1536}{t/yr} ---
+an increase of \SI{265}{t/yr} for \SI{150}{\kilo\watt} over \SI{7439}{h/yr}.
 This corresponds to an /effective/ specific fuel consumption of
-\SI{225}{\gram/\kilo\watt\hour}, only slightly above the
+\SI{237}{\gram/\kilo\watt\hour}, notably above the
 \SI{210}--\SI{230}{\gram/\kilo\watt\hour} of a typical auxiliary diesel genset.
 
-At first glance \SI{225}{\gram/\kilo\watt\hour} may seem surprisingly high:
+At first glance \SI{237}{\gram/\kilo\watt\hour} may seem surprisingly high:
 the main engine's own SFOC in its sweet spot is only
 \SI{181}--\SI{185}{\gram/\kilo\watt\hour}.  The explanation is that the
 effective SFOC includes an /opportunity cost/.  Without the SG the Optimiser
 selects ~\SI{75}{RPM} shaft (\SI{510}{RPM} engine) at \SI{10}{\knot}, deep in
 the fuel map's efficient region.  With the SG engaged, the minimum-frequency
 requirement forces the engine to \(\geq\)\SI{640}{RPM} (\SI{94}{RPM} shaft),
-removing some of the Optimiser's pitch/RPM freedom.  The extra fuel therefore
-has two components: (i) the raw energy for \SI{150}{\kilo\watt}, and (ii) the
-efficiency loss from operating at a constrained, less optimal RPM.  Together
-they yield the \SI{225}{\gram/\kilo\watt\hour} effective rate.
-
-With the corrected hull data the engine sits at a higher load fraction even at
-\SI{10}{\knot}, so the RPM floor penalty is smaller than previously estimated
---- hence \SI{225}{\gram/\kilo\watt\hour} rather than the earlier
-\SI{257}{\gram/\kilo\watt\hour}.
+completely eliminating the Optimiser's pitch/RPM freedom.  The extra fuel
+therefore has two components: (i) the raw energy for \SI{150}{\kilo\watt}, and
+(ii) the efficiency loss from operating at a constrained, less optimal RPM ---
+plus the total loss of the Optimiser's 4.9@@latex:\%@@ pitch/RPM saving.
+Together they yield the \SI{237}{\gram/\kilo\watt\hour} effective rate.
 
 At a typical genset SFOC of \SI{215}{\gram/\kilo\watt\hour}, a separate
-auxiliary genset would save approximately \SI{11}{t/yr}
-(@@latex:\euro@@7\thinspace000/year) in fuel compared to the shaft generator.
+auxiliary genset would save approximately \SI{25}{t/yr}
+(@@latex:\euro@@16\thinspace000/year) in fuel compared to the shaft generator.
 This saving is in addition to the Optimiser and Flettner benefits.
 
 Figure [[fig:sg_comparison]] illustrates this contrast across the full year.
 
 #+NAME: fig:sg_comparison
-#+CAPTION: Daily fuel savings: standard mode (top) vs shaft generator mode (middle), with weather conditions (bottom).  The propeller optimisation saving (blue) is virtually identical in both modes; the wind-assist saving (orange) likewise persists.  Dashed lines show annual means.
+#+CAPTION: Daily fuel savings: standard mode (top) vs shaft generator mode (middle), with weather conditions (bottom).  In standard mode, the propeller optimisation saving (blue) is consistent; in SG mode, the RPM floor constraint eliminates it.  The wind-assist saving (orange) persists in both modes.  Dashed lines show annual means.
 #+ATTR_LATEX: :width \textwidth :placement [H]
 [[file:comparison_timeseries.png]]
 
@@ -422,35 +423,37 @@ generator is in use:
 
 *Without shaft generator (SG offline):*
 
-1. *The Optimiser* saves *5.2@@latex:\%@@* of fuel (66 tonnes/year,
-   @@latex:\euro@@43\thinspace000/year).  This is a consistent,
+1. *The Optimiser* saves *4.9@@latex:\%@@* of fuel (62 tonnes/year,
+   @@latex:\euro@@40\thinspace000/year).  This is a consistent,
    weather-independent benefit delivered on every voyage by running the engine
    at a more efficient operating point.
 
-2. *Flettner rotor wind-assist* saves an additional *7.9@@latex:\%@@*
-   (100 tonnes/year, @@latex:\euro@@65\thinspace000/year), varying with wind
+2. *Flettner rotor wind-assist* saves an additional *8.1@@latex:\%@@*
+   (103 tonnes/year, @@latex:\euro@@67\thinspace000/year), varying with wind
    conditions -- roughly 6@@latex:\%@@ in summer and 10@@latex:\%@@ in winter.
 
-3. *Combined saving: 13.1@@latex:\%@@* (166 tonnes/year,
-   @@latex:\euro@@108\thinspace000/year).
+3. *Combined saving: 13.0@@latex:\%@@* (165 tonnes/year,
+   @@latex:\euro@@107\thinspace000/year).
 
 *With shaft generator (SG online, 150 kW, 48--60 Hz):*
 
-4. [@4] The SG increases baseline fuel by approximately 20@@latex:\%@@ due to the
-   parasitic load, but the Optimiser retains a 5.0@@latex:\%@@ pitch/RPM saving.
+4. [@4] The SG increases baseline fuel by approximately 21@@latex:\%@@ due to the
+   parasitic load.  At \SI{10}{\knot}, the SG RPM floor constraint pins both
+   the standard schedule and the Optimiser at the same operating point,
+   *eliminating the pitch/RPM saving entirely* (0.0@@latex:\%@@).
 
-5. The *Flettner rotor remains effective at 7.0@@latex:\%@@* (106 tonnes/year).
+5. The *Flettner rotor remains effective at 5.3@@latex:\%@@* (82 tonnes/year).
    The lower percentage reflects the higher baseline consumption from the SG
    parasitic load, not a reduction in actual wind-assist performance.
 
-6. *Combined saving with SG: 12.0@@latex:\%@@* (182 tonnes/year,
-   @@latex:\euro@@118\thinspace000/year).
+6. *Combined saving with SG: 5.4@@latex:\%@@* (82 tonnes/year,
+   @@latex:\euro@@54\thinspace000/year).
 
 7. *Shaft generator vs auxiliary genset:* At \SI{10}{\knot}, the effective fuel
    cost of generating \SI{150}{\kilo\watt} via the shaft generator is
-   \SI{225}{\gram/\kilo\watt\hour} --- only slightly above a typical
+   \SI{237}{\gram/\kilo\watt\hour} --- notably above a typical
    auxiliary genset at \SI{215}{\gram/\kilo\watt\hour}.  A separate genset would
-   save approximately @@latex:\euro@@7\thinspace000/year.
+   save approximately @@latex:\euro@@16\thinspace000/year.
 
 *In both modes:*
 

@@ -1,4 +1,4 @@
-% Created 2026-04-10 Fri 22:56
+% Created 2026-04-12 Sun 08:12
 % Intended LaTeX compiler: pdflatex
 \documentclass[a4paper,11pt]{article}
 \usepackage[utf8]{inputenc}
@@ -12,6 +12,8 @@
 \usepackage{amssymb}
 \usepackage{capt-of}
 \usepackage{hyperref}
+\usepackage{longtable}
+\usepackage{tabularx}
 % --- Document metadata (must precede bv.sty which uses them in \hypersetup) ---
 \newcommand{\bvReferenceNumber}{XXXXXX}
 \newcommand{\bvIssue}{Pre}
@@ -46,7 +48,7 @@
 \newpage
 
 \section{Introduction}
-\label{sec:org9a553b0}
+\label{sec:orgf2ee1fd}
 
 This report documents the architecture and validation of the \texttt{voyage\_comparison}
 propulsion optimiser tool.  The tool performs long-term hindcast-based voyage
@@ -61,7 +63,7 @@ software architecture after refactoring, and presents validation results from a
 full-year simulation on the Rotterdam--Gothenburg route.
 
 \subsection{Scope}
-\label{sec:orgfe7a644}
+\label{sec:orgbc42274}
 
 The tool addresses the following question: \emph{for a given vessel on a fixed route,
 how much fuel can be saved by optimising the propeller pitch and RPM at each
@@ -69,7 +71,7 @@ operating point, compared to the factory-default combinator schedule?}
 
 The analysis chain covers:
 \begin{itemize}
-\item Calm-water hull resistance from service prediction data.
+\item Calm-water hull resistance from model test data.
 \item Wave added resistance via PdStrip drift transfer functions integrated over
 JONSWAP spectra.
 \item Blendermann (1994) wind resistance model.
@@ -83,23 +85,25 @@ Hindcast weather is provided by NORA3 (Norwegian Reanalysis Archive, 3\thinspace
 resolution) wave and wind fields.
 
 \section{Physical Models}
-\label{sec:org65656b3}
+\label{sec:org5de2acc}
 \subsection{Hull Resistance}
-\label{sec:org75cca49}
+\label{sec:org6fe67e8}
 
-Calm-water thrust demand is interpolated from the vessel 206 service prediction
-at 16 speeds (\SIrange{8}{15.5}{\knot}).  The service prediction includes a
-15\% sea margin which is removed to obtain calm-water baseline values:
+Calm-water resistance is interpolated from the vessel 206 model test trial
+prediction (test 25-0461/25-0288, draught \SI{7.600}{\metre}, displacement
+\SI{11165}{\metre\cubed}) at 15 speeds (\SIrange{8}{15.0}{\knot}).  No sea
+margin removal is needed --- the resistance values are clean calm-water.  The
+total thrust demand including environmental loads is:
 
 \begin{equation}
-  T_\text{calm}(V_s) = \frac{T_\text{service}(V_s)}{1.15}
+  T_\text{prop} = \frac{R_\text{calm} + R_\text{aw} + R_\text{wind} + R_\text{rough} - F_\text{Flettner}}{1 - t}
 \end{equation}
 
-Wake fraction \(w(V_s)\) and thrust deduction \(t(V_s)\) are also interpolated from
-service prediction tables.
+Wake fraction \(w(V_s)\) and thrust deduction \(t(V_s)\) are interpolated from
+the self-propulsion test data.
 
 \subsection{Wave Added Resistance}
-\label{sec:org6689890}
+\label{sec:org76c0b5f}
 
 Wave added resistance is computed from PdStrip strip-theory transfer functions.
 The \texttt{DriftTransferFunction} class loads the \texttt{.dat} output from PdStrip and
@@ -116,7 +120,7 @@ frequency- and heading-dependent drift force transfer function per unit wave
 amplitude squared.
 
 \subsection{Wind Resistance}
-\label{sec:orgf1858fd}
+\label{sec:orgeb044fc}
 
 Hull wind resistance follows Blendermann (1994), using tabulated surge force
 coefficients \(C_X(\alpha)\) for a general cargo vessel:
@@ -131,7 +135,7 @@ the apparent wind speed, and \(A_F = \SI{280}{\metre\squared}\) the frontal
 projected wind area.
 
 \subsection{Flettner Rotor}
-\label{sec:org2fc85b7}
+\label{sec:orgb0af809}
 
 The Flettner rotor model is ported from the BruCon C++ vessel simulator.  Lift
 and drag coefficients follow Bordogna et al. (2019) with aspect-ratio correction
@@ -148,7 +152,7 @@ The net propulsive benefit is the surge component of the Magnus-effect force
 minus the fuel penalty for driving the rotor.
 
 \subsection{Hull and Propeller Roughness}
-\label{sec:orga1ebf7f}
+\label{sec:org0f7008f}
 
 Hull roughness resistance follows Townsin \& Dey (2003):
 
@@ -163,7 +167,7 @@ model of Mosaad (1986).  Both roughness values can be specified directly in
 over time since last cleaning.
 
 \subsection{Factory Combinator}
-\label{sec:org9dd96c2}
+\label{sec:org59807d1}
 
 The \texttt{FactoryCombinator} class replicates the BruCon vessel simulator's
 \texttt{MakeNormalCombinator()} algorithm.  For a given thrust demand, it returns the
@@ -171,7 +175,7 @@ pitch and RPM dictated by the factory schedule---following the propeller curve u
 to a break point, then constant RPM with increasing pitch.
 
 \subsection{Propeller Model and Fuel Optimisation}
-\label{sec:orgd2cfe8d}
+\label{sec:org5663a8f}
 
 The fuel-optimal operating point is found by searching the full \((P/D,\, n)\)
 space of the C-series propeller model.  For each thrust demand, the optimiser
@@ -183,10 +187,10 @@ Results are pre-computed for a grid of 681 thrust values
 workers, then looked up during the voyage simulation for speed.
 
 \section{Software Architecture}
-\label{sec:orgd44128c}
+\label{sec:org7f67e80}
 
 \subsection{Overview}
-\label{sec:org260569b}
+\label{sec:org61c8203}
 
 The original implementation was a single file (\texttt{voyage\_comparison.py},
 4\thinspace913 lines).  The refactoring decomposed it into four sub-packages
@@ -203,7 +207,7 @@ Total                    5,181 lines
 \end{verbatim}
 
 \subsection{\texttt{models/} Package}
-\label{sec:org39d6d2f}
+\label{sec:orgbfb070b}
 
 Contains all physical models, vessel data, and environmental data access.
 
@@ -227,7 +231,7 @@ Module & Lines & Description\\[0pt]
 \end{center}
 
 \subsection{\texttt{simulation/} Package}
-\label{sec:org7d6015f}
+\label{sec:org9fc12dd}
 
 Contains the core simulation loop, caching infrastructure, and top-level
 orchestration functions.
@@ -251,14 +255,14 @@ The core simulation loop in \texttt{evaluate\_voyage()} proceeds as follows:
 \begin{enumerate}
 \item Interpolate the route at 1-hour intervals (great-circle).
 \item Compute speed-dependent quantities once: wake fraction, thrust deduction,
-calm-water thrust, hull roughness resistance, blade roughness factor.
+calm-water resistance, hull roughness resistance, blade roughness factor.
 \item For each hourly position:
 \begin{itemize}
 \item Fetch NORA3 weather (\(H_s\), \(T_p\), wave/wind direction and speed).
 \item Compute wave added resistance via drift transfer function.
 \item Compute Flettner rotor thrust and power.
 \item Compute Blendermann wind resistance.
-\item Assemble total thrust demand: \(T = T_\text{calm} + (R_\text{aw} + R_\text{wind} + R_\text{rough} - F_\text{Flettner}) / (1 - t)\).
+\item Assemble total thrust demand: \(T = (R_\text{calm} + R_\text{aw} + R_\text{wind} + R_\text{rough} - F_\text{Flettner}) / (1 - t)\).
 \item Evaluate factory combinator and optimiser fuel rates (from cache).
 \item Also evaluate no-Flettner variants for savings decomposition.
 \end{itemize}
@@ -269,7 +273,7 @@ Only hours where all four evaluations (factory \(\pm\) Flettner, optimiser \(\pm
 Flettner) are feasible are counted, ensuring a consistent comparison basis.
 
 \subsection{\texttt{plotting/} Package}
-\label{sec:orgb81f26d}
+\label{sec:orgaa65db5}
 
 \begin{center}
 \begin{tabular}{llp{8cm}}
@@ -287,7 +291,7 @@ Module & Lines & Description\\[0pt]
 \end{center}
 
 \subsection{\texttt{reporting/} Package}
-\label{sec:org6cf1521}
+\label{sec:org5191b38}
 
 \begin{center}
 \begin{tabular}{llp{8cm}}
@@ -303,7 +307,7 @@ Module & Lines & Description\\[0pt]
 \end{center}
 
 \subsection{CLI Interface}
-\label{sec:org4a7ec9e}
+\label{sec:org8b630dd}
 
 The entry point \texttt{voyage\_comparison.py} exposes 29 command-line arguments via
 \texttt{argparse}.  Key modes of operation:
@@ -330,7 +334,7 @@ Flag & Description\\[0pt]
 \end{center}
 
 \section{Validation Results}
-\label{sec:org16cf0cf}
+\label{sec:org55abab9}
 
 A full-year simulation was run on the Rotterdam--Gothenburg route for 2024 as an
 end-to-end validation of the refactored codebase:
@@ -340,7 +344,7 @@ python voyage_comparison.py --year 2024 --quiet
 \end{verbatim}
 
 \subsection{Weather Data}
-\label{sec:orgf74c2f9}
+\label{sec:orgc1595fb}
 
 The simulation uses wave and wind data from NORA3, the third-generation
 Norwegian Reanalysis Archive produced by MET Norway.  A \emph{hindcast} is a
@@ -378,7 +382,7 @@ field.  The hourly time step matches the simulation stepping interval exactly, s
 temporal interpolation is not required.
 
 \subsection{Simulation Setup}
-\label{sec:orgcdf440c}
+\label{sec:orgb5e8fb8}
 
 \begin{center}
 \begin{tabular}{lll}
@@ -407,7 +411,7 @@ Engine & MAN L27/38 & 8-cyl, 800 RPM\\[0pt]
 \end{figure}
 
 \subsection{Voyage Statistics}
-\label{sec:org4883473}
+\label{sec:org9b86b57}
 
 362 round-trip voyages were successfully simulated (4 late-December departures
 failed due to missing January 2025 weather data).
@@ -417,12 +421,12 @@ failed due to missing January 2025 weather data).
 \toprule
 Metric & Mean & Median & P10 & P90 & Min & Max\\[0pt]
 \midrule
-Factory no-Fl [kg/voy] & 14502 & 14392 & 13297 & 16200 & 10545 & 19300\\[0pt]
-Opt + Flettner [kg/voy] & 12577 & 12620 & 10614 & 14417 & 8158 & 18030\\[0pt]
-Pitch/RPM saving [kg/voy] & 834 & 869 & 721 & 914 & 369 & 928\\[0pt]
-Flettner saving [kg/voy] & 1091 & 993 & 280 & 2091 & -9 & 3527\\[0pt]
-Pitch/RPM saving & 5.8\% & 6.0\% & 4.5\% & 6.6\% & 2.8\% & 7.0\%\\[0pt]
-Flettner saving & 7.7\% & 6.8\% & 1.9\% & 14.7\% & -0.1\% & 25.0\%\\[0pt]
+Factory no-Fl [kg/voy] & 17271 & 17062 & 16107 & 18996 & 12980 & 22239\\[0pt]
+Opt + Flettner [kg/voy] & 15000 & 15043 & 12865 & 16959 & 10253 & 20844\\[0pt]
+Pitch/RPM saving [kg/voy] & 899 & 929 & 794 & 970 & 462 & 998\\[0pt]
+Flettner saving [kg/voy] & 1372 & 1208 & 331 & 2719 & 8 & 4942\\[0pt]
+Pitch/RPM saving & 5.2\% & 5.4\% & 4.2\% & 5.9\% & 2.6\% & 6.4\%\\[0pt]
+Flettner saving & 8.0\% & 6.9\% & 2.0\% & 16.1\% & 0.0\% & 28.9\%\\[0pt]
 Mean \(H_s\) [m] & 1.4 & 1.3 & 0.7 & 2.3 & 0.4 & 4.0\\[0pt]
 Mean wind speed [m/s] & 7.8 & 7.6 & 5.3 & 10.6 & 3.5 & 14.5\\[0pt]
 Mean \(R_\text{aw}\) [kN] & 4.7 & 2.1 & 0.2 & 12.4 & -0.9 & 45.2\\[0pt]
@@ -441,22 +445,22 @@ Fuel savings are decomposed additively against the factory-no-Flettner baseline:
   + \underbrace{\text{Opt}_\text{NF} - \text{Opt}_\text{+Fl}}_{\text{Flettner}}
 \end{equation}
 
-The pitch/RPM saving (5.8\%) isolates the benefit of optimising the
-operating point at the same thrust demand.  The Flettner saving (7.5\%)
+The pitch/RPM saving (5.2\%) isolates the benefit of optimising the
+operating point at the same thrust demand.  The Flettner saving (7.9\%)
 isolates the thrust reduction from the rotor.  Both percentages are relative to
 the factory-no-Flettner baseline.
 
-Figure \ref{fig:org932836a} shows the daily evolution of fuel savings, significant
+Figure \ref{fig:org82dac97} shows the daily evolution of fuel savings, significant
 wave height, and force components across the full year.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=\textwidth]{voyage_comparison_results.png}
-\caption{\label{fig:org932836a}Annual time-series of per-voyage results.  Top: pitch/RPM and Flettner fuel savings (stacked).  Middle: significant wave height.  Bottom: added wave resistance, wind resistance, and Flettner thrust.}
+\caption{\label{fig:org82dac97}Annual time-series of per-voyage results.  Top: pitch/RPM and Flettner fuel savings (stacked).  Middle: significant wave height.  Bottom: added wave resistance, wind resistance, and Flettner thrust.}
 \end{figure}
 
 \subsection{Factory Combinator Feasibility}
-\label{sec:orgcb6c0c6}
+\label{sec:org24c4702}
 
 \begin{center}
 \begin{tabular}{lr}
@@ -464,8 +468,8 @@ wave height, and force components across the full year.
 Metric & Value\\[0pt]
 \midrule
 Total evaluation hours & 37\thinspace648\\[0pt]
-Both feasible & 97\%\\[0pt]
-Factory infeasible hours & 1\%\\[0pt]
+Both feasible & 98\%\\[0pt]
+Factory infeasible hours & 0\%\\[0pt]
 Voyages with \(\geq 1\) infeasible hour & 7\%\\[0pt]
 \bottomrule
 \end{tabular}
@@ -475,18 +479,18 @@ Factory infeasibility occurs when the engine exceeds its power envelope at the
 factory combinator's fixed RPM schedule.  The optimiser adapts pitch/RPM to
 remain feasible.
 
-Figure \ref{fig:orgaa00e63} shows the correlation between per-voyage fuel saving and
+Figure \ref{fig:org3b55e65} shows the correlation between per-voyage fuel saving and
 mean sea state, coloured by mean wind speed.  Higher seas drive larger absolute
 savings through the Flettner rotor.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.85\textwidth]{voyage_comparison_scatter.png}
-\caption{\label{fig:orgaa00e63}Per-voyage fuel saving vs mean significant wave height, coloured by mean wind speed.  The positive correlation reflects the Flettner rotor's increasing benefit in windier conditions.}
+\caption{\label{fig:org3b55e65}Per-voyage fuel saving vs mean significant wave height, coloured by mean wind speed.  The positive correlation reflects the Flettner rotor's increasing benefit in windier conditions.}
 \end{figure}
 
 \subsection{Annualised Fuel Consumption}
-\label{sec:org96517f6}
+\label{sec:orgbadcc38}
 
 Assuming 15\% idle time, the vessel completes approximately 73 round-trip
 voyages per year.
@@ -496,10 +500,10 @@ voyages per year.
 \toprule
 Configuration & Fuel [tonnes/year]\\[0pt]
 \midrule
-Factory, no Flettner & 1060.5\\[0pt]
-Factory + Flettner & 973.7\\[0pt]
-Optimiser, no Flettner & 999.5\\[0pt]
-Optimiser + Flettner & 919.7\\[0pt]
+Factory, no Flettner & 1262.9\\[0pt]
+Factory + Flettner & 1161.8\\[0pt]
+Optimiser, no Flettner & 1197.2\\[0pt]
+Optimiser + Flettner & 1096.9\\[0pt]
 \bottomrule
 \end{tabular}
 \end{center}
@@ -509,24 +513,24 @@ Optimiser + Flettner & 919.7\\[0pt]
 \toprule
 Saving component & Tonnes/year & Percentage\\[0pt]
 \midrule
-Pitch/RPM & 61.0 & 5.8\%\\[0pt]
-Flettner & 79.8 & 7.5\%\\[0pt]
-Combined & 140.8 & 13.3\%\\[0pt]
+Pitch/RPM & 65.7 & 5.2\%\\[0pt]
+Flettner & 100.3 & 7.9\%\\[0pt]
+Combined & 166.1 & 13.1\%\\[0pt]
 \bottomrule
 \end{tabular}
 \end{center}
 
-Figure \ref{fig:org1802d69} shows the distribution of per-voyage savings, decomposed
+Figure \ref{fig:org3ebc472} shows the distribution of per-voyage savings, decomposed
 into pitch/RPM optimisation and Flettner wind-assist components.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=\textwidth]{voyage_comparison_histogram.png}
-\caption{\label{fig:org1802d69}Histograms of per-voyage fuel savings.  Left: total saving (factory vs optimiser+Flettner).  Centre: pitch/RPM component.  Right: Flettner component.  The Flettner saving has a wider spread reflecting its weather dependence.}
+\caption{\label{fig:org3ebc472}Histograms of per-voyage fuel savings.  Left: total saving (factory vs optimiser+Flettner).  Centre: pitch/RPM component.  Right: Flettner component.  The Flettner saving has a wider spread reflecting its weather dependence.}
 \end{figure}
 
 \subsection{Cost Estimates}
-\label{sec:org1ce64f1}
+\label{sec:orgf17b17f}
 
 At MGO price of \euro650/tonne (typical ECA zone):
 
@@ -535,27 +539,27 @@ At MGO price of \euro650/tonne (typical ECA zone):
 \toprule
 Configuration & Annual cost\\[0pt]
 \midrule
-Factory, no Flettner & \euro689\thinspace318\\[0pt]
-Factory + Flettner & \euro632\thinspace910\\[0pt]
-Optimiser, no Flettner & \euro649\thinspace658\\[0pt]
-Optimiser + Flettner & \euro597\thinspace794\\[0pt]
-Annual saving & \euro91\thinspace524 (13.3\%)\\[0pt]
+Factory, no Flettner & \euro820\thinspace911\\[0pt]
+Factory + Flettner & \euro755\thinspace157\\[0pt]
+Optimiser, no Flettner & \euro778\thinspace194\\[0pt]
+Optimiser + Flettner & \euro712\thinspace970\\[0pt]
+Annual saving & \euro107\thinspace941 (13.1\%)\\[0pt]
 \bottomrule
 \end{tabular}
 \end{center}
 
 \subsection{Seasonal Breakdown}
-\label{sec:orgffae54f}
+\label{sec:org545b276}
 
 \begin{center}
 \begin{tabular}{lrrrrrrr}
 \toprule
 Season & Voyages & Fac NF [kg] & Opt+Fl [kg] & Saving & P/R & Flettner & Mean \(H_s\) [m]\\[0pt]
 \midrule
-Q1 (Jan--Mar) & 91 & 14\thinspace483 & 12\thinspace341 & 5.2\% & 5.5\% & 9.5\% & 1.8\\[0pt]
-Q2 (Apr--Jun) & 91 & 14\thinspace627 & 12\thinspace923 & 5.8\% & 6.0\% & 5.8\% & 1.2\\[0pt]
-Q3 (Jul--Sep) & 92 & 14\thinspace472 & 12\thinspace754 & 5.9\% & 6.0\% & 5.9\% & 1.1\\[0pt]
-Q4 (Oct--Dec) & 88 & 14\thinspace425 & 12\thinspace277 & 5.3\% & 5.6\% & 9.6\% & 1.7\\[0pt]
+Q1 (Jan--Mar) & 91 & 17\thinspace327 & 14\thinspace731 & 5.4\% & 5.0\% & 10.1\% & 1.8\\[0pt]
+Q2 (Apr--Jun) & 91 & 17\thinspace315 & 15\thinspace378 & 5.8\% & 5.4\% & 5.9\% & 1.2\\[0pt]
+Q3 (Jul--Sep) & 92 & 17\thinspace181 & 15\thinspace206 & 5.8\% & 5.4\% & 6.1\% & 1.1\\[0pt]
+Q4 (Oct--Dec) & 88 & 17\thinspace261 & 14\thinspace671 & 5.5\% & 5.1\% & 10.1\% & 1.7\\[0pt]
 \bottomrule
 \end{tabular}
 \end{center}
@@ -563,27 +567,217 @@ Q4 (Oct--Dec) & 88 & 14\thinspace425 & 12\thinspace277 & 5.3\% & 5.6\% & 9.6\% &
 The Flettner benefit is roughly doubled in the winter quarters (Q1, Q4) compared
 to summer, reflecting the stronger and more consistent North Sea wind regime.
 The pitch/RPM optimisation saving is relatively stable across seasons at
-5.5--6.0\%, as it depends primarily on the thrust demand distribution rather than
+5.0--5.4\%, as it depends primarily on the thrust demand distribution rather than
 its magnitude.
 
+\subsection{Shaft Generator Mode}
+\label{sec:orgf287506}
+
+The preceding results assume the vessel operates without a shaft generator (SG).
+When the SG is online, two additional constraints apply:
+
+\begin{enumerate}
+\item \textbf{Parasitic load:} The SG extracts electrical power from the main engine shaft,
+increasing total engine load.  A typical average SG load of \SI{150}{\kilo\watt}
+is assumed.
+
+\item \textbf{RPM floor:} The SG must maintain output frequency within the permitted band
+(\SIrange{48}{60}{\hertz}).  At the PTO gear ratio, this constrains the minimum
+engine RPM to approximately \SI{640}{RPM} (shaft RPM \(\geq\) \SI{94.1}{RPM}).
+\end{enumerate}
+
+Both constraints apply equally to the factory combinator and the optimiser.  The
+factory combinator schedule is constructed with \SI{200}{\kilo\watt} SG headroom
+(the margin the hydrodynamicist uses when designing the combinator, on top of the
+standard \SI{300}{\kilo\watt} between the propeller curve and the torque limit),
+while the actual SG load of \SI{150}{\kilo\watt} is used in the fuel evaluation
+for both factory and optimiser.
+
+\begin{verbatim}
+python voyage_comparison.py --year 2024 --speed 10 --quiet \
+    --sg-load 150 --sg-factory-allowance 200 \
+    --sg-freq-min 48 --sg-freq-max 60
+\end{verbatim}
+
+\subsubsection{Annualised Fuel (SG Mode)}
+\label{sec:orged36cc5}
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+Configuration & Fuel [tonnes/year]\\[0pt]
+\midrule
+Factory, no Flettner & 1513.9\\[0pt]
+Factory + Flettner & 1414.9\\[0pt]
+Optimiser, no Flettner & 1437.7\\[0pt]
+Optimiser + Flettner & 1332.0\\[0pt]
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+Saving component & Tonnes/year & Percentage\\[0pt]
+\midrule
+Pitch/RPM & 76.3 & 5.0\%\\[0pt]
+Flettner & 105.7 & 7.0\%\\[0pt]
+Combined & 182.0 & 12.0\%\\[0pt]
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsubsection{Interpretation}
+\label{sec:org95b0c06}
+
+With the corrected hull data (model test trial prediction), the calm-water
+thrust demand at \SI{10}{\knot} is approximately \SI{133}{\kilo\newton},
+requiring shaft power of approximately \SI{767}{\kilo\watt} and shaft RPM
+\(\approx 75\).  Even with the SG RPM floor at \SI{94.1}{RPM}, the factory
+combinator schedule is built with the SG headroom, so its operating points
+differ from the optimiser's.  The higher resistance means the engine operates
+well above the SG RPM floor for much of the voyage, giving the optimiser room to
+select a better pitch/RPM combination.
+
+The pitch/RPM saving is 5.0\%, comparable to the 5.2\% in
+standard mode.  The Flettner saving is 7.0\%.
+
+At \SI{10}{\knot} the SG constraint does not significantly affect savings with
+the corrected hull data.  The speed sweep under SG constraints was not re-run
+with the updated hull data; however, at \SI{10}{\knot} the results are:
+
+\begin{center}
+\begin{tabular}{lrrrrr}
+\toprule
+Speed & Pitch/RPM saving & Flettner saving & Combined saving & Annual saving\\[0pt]
+\midrule
+\SI{10}{\knot} & 5.0\% & 7.0\% & 12.0\% & \euro118k\\[0pt]
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsubsection{SG vs Auxiliary Genset Fuel Efficiency}
+\label{sec:org3153ccf}
+
+An important question is whether the shaft generator is the most fuel-efficient
+way to supply \SI{150}{\kilo\watt} of electrical power.  The alternative is a
+separate auxiliary diesel genset.
+
+With the SG on the main engine, the factory combinator burns \SI{1514}{t/yr}.
+Without the SG, it burns \SI{1263}{t/yr} --- a difference of \SI{251}{t/yr}.
+This incremental fuel for \SI{150}{\kilo\watt} over \SI{7439}{h/yr} corresponds
+to an \emph{effective} SFOC of \SI{225}{\gram/\kilo\watt\hour}.
+
+This is only slightly worse than a typical auxiliary genset (\SI{210}--\SI{230}{\gram/\kilo\watt\hour}).
+With the corrected hull data, the engine operates at higher load even at
+\SI{10}{\knot}, reducing the RPM floor penalty.  The effective SFOC is close to
+the genset range, making the SG vs genset choice marginal at this speed.
+
+The breakeven genset SFOC --- the value at which a separate genset becomes
+more expensive than running the SG on the ME --- is \SI{225}{\gram/\kilo\watt\hour}
+for the factory combinator.  At a genset SFOC of \SI{215}{\gram/\kilo\watt\hour},
+a separate auxiliary genset saves approximately \SI{11}{t/yr}
+(\euro7k/yr) compared to the SG --- a much smaller margin than
+previously estimated.
+
+At higher speeds the picture changes: the RPM constraint penalty diminishes
+further, and the ME's superior part-load SFOC makes the SG more competitive.
+
+\subsubsection{Cost Estimates (SG Mode)}
+\label{sec:org4776992}
+
+At MGO \euro650/tonne:
+
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+Configuration & Annual cost\\[0pt]
+\midrule
+Factory, no Flettner & \euro984\thinspace050\\[0pt]
+Optimiser + Flettner & \euro865\thinspace769\\[0pt]
+Annual saving & \euro118\thinspace281 (12.0\%)\\[0pt]
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsubsection{Seasonal Breakdown (SG Mode)}
+\label{sec:orge634c4d}
+
+\begin{center}
+\begin{tabular}{lrrrrrrr}
+\toprule
+Season & Voyages & Fac NF [kg] & Opt+Fl [kg] & Saving & P/R & Flettner & Mean \(H_s\) [m]\\[0pt]
+\midrule
+Q1 (Jan--Mar) & 91 & 20\thinspace713 & 17\thinspace886 & 5.9\% & 4.9\% & 8.9\% & 1.8\\[0pt]
+Q2 (Apr--Jun) & 91 & 20\thinspace728 & 18\thinspace587 & 5.9\% & 5.2\% & 5.2\% & 1.2\\[0pt]
+Q3 (Jul--Sep) & 92 & 20\thinspace581 & 18\thinspace400 & 5.9\% & 5.3\% & 5.4\% & 1.1\\[0pt]
+Q4 (Oct--Dec) & 88 & 20\thinspace794 & 17\thinspace975 & 6.0\% & 4.9\% & 8.8\% & 1.7\\[0pt]
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsubsection{Summary Comparison: Standard vs SG Mode}
+\label{sec:org445c8fe}
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+Metric & Standard mode & SG mode (150 kW)\\[0pt]
+\midrule
+Baseline fuel [t/yr] & 1262.9 & 1513.9\\[0pt]
+Pitch/RPM saving & 5.2\% (66 t/yr) & 5.0\% (76 t/yr)\\[0pt]
+Flettner saving & 7.9\% (100 t/yr) & 7.0\% (106 t/yr)\\[0pt]
+Combined saving & 13.1\% (166 t/yr) & 12.0\% (182 t/yr)\\[0pt]
+Annual cost saving & \euro108k & \euro118k\\[0pt]
+\bottomrule
+\end{tabular}
+\end{center}
+
+The choice of whether to operate with the SG has a modest impact on savings.
+When the SG is offline, the Optimiser saves 5.2\% from pitch/RPM
+optimisation.  When the SG is online, the higher resistance from the corrected
+hull data means the engine operates well above the RPM floor, preserving most of
+the optimiser's freedom --- the pitch/RPM saving is 5.0\%.  The
+Flettner rotor remains beneficial in both cases with similar relative impact.
+
+The effective SFOC of the main engine for the SG load is \SI{225}{\gram/\kilo\watt\hour},
+close to a typical auxiliary genset (\SI{215}{\gram/\kilo\watt\hour}).  At
+\SI{10}{\knot} transit speed, a separate genset is only marginally more
+fuel-efficient than the shaft generator, saving approximately \SI{11}{t/yr}
+(\euro7k/yr).
+
+Figure \ref{fig:orgd4cbca2} shows the side-by-side comparison of daily fuel
+savings in standard and SG modes.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{comparison_timeseries.png}
+\caption{\label{fig:orgd4cbca2}Side-by-side comparison of daily fuel savings in standard mode (top) vs shaft generator mode (bottom).  With the corrected hull data, the pitch/RPM saving is preserved in SG mode, and the Flettner benefit remains comparable.}
+\end{figure}
+
 \section{Conclusions}
-\label{sec:orgce1206d}
+\label{sec:org78b6b83}
 
 The refactored \texttt{voyage\_comparison} tool has been validated by running a
 full-year (2024) hindcast simulation on the Rotterdam--Gothenburg route.  Key
 findings:
 
 \begin{enumerate}
-\item \textbf{Pitch/RPM optimisation} saves approximately \textbf{5.8\% fuel} (61 tonnes/year,
-\euro40\thinspace000/year) compared to the factory combinator schedule.  This is
-a conservative, weather-independent benefit available on every voyage.
+\item \textbf{Standard mode (SG offline):} Pitch/RPM optimisation saves \textbf{5.2\%}
+(66 t/yr, \euro43k/yr); Flettner wind-assist adds \textbf{7.9\%}
+(100 t/yr, \euro65k/yr); combined \textbf{13.1\%}
+(166 t/yr, \euro108k/yr) at \SI{10}{\knot}.
 
-\item \textbf{Flettner rotor wind-assist} adds a further \textbf{7.5\% fuel saving}
-(80 tonnes/year, \euro52\thinspace000/year), with strong seasonal variation
-(6--10\% by quarter).
-
-\item \textbf{Combined saving} of \textbf{13.3\%} (141 tonnes/year, \euro92\thinspace000/year) at
-\SI{10}{\knot} transit speed.
+\item \textbf{SG mode (150 kW, 48--60 Hz):} With the corrected hull data (higher
+resistance), the engine operates well above the SG RPM floor even at
+\SI{10}{\knot}, preserving most of the optimiser's freedom.  Pitch/RPM saving
+is \textbf{5.0\%} (76 t/yr).  Flettner retains \textbf{7.0\%}
+(106 t/yr).  Combined saving \textbf{12.0\%} (182 t/yr,
+\euro118k/yr).  The effective SFOC of the main engine for the SG
+load is \SI{225}{\gram/\kilo\watt\hour} --- close to a typical auxiliary
+genset at \SI{215}{\gram/\kilo\watt\hour} --- making the SG vs genset
+trade-off marginal at \SI{10}{\knot}.  A separate genset saves approximately
+\SI{11}{t/yr} (\euro7k/yr).
 
 \item The factory combinator becomes \textbf{infeasible} (engine over-power) on 7\% of
 voyages, while the optimiser adapts pitch/RPM to remain within the power
@@ -595,7 +789,7 @@ visualisation, enabling independent testing and extension of each component.
 \end{enumerate}
 
 \section{References}
-\label{sec:org0537995}
+\label{sec:org05eef08}
 
 \begin{itemize}
 \item Blendermann, W. (1994). Parameter identification of wind loads on ships.

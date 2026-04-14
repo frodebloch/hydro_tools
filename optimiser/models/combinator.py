@@ -1,4 +1,4 @@
-"""Factory combinator: vessel 206 pitch/RPM schedule from propeller curve."""
+"""Combinator models: factory CPP schedule and fixed-pitch propeller baseline."""
 
 import math
 from typing import Optional
@@ -8,6 +8,7 @@ from propeller_model import CSeriesPropeller
 
 from .constants import (
     GEAR_RATIO,
+    HULL_ETA_R,
     HULL_RESISTANCE_KN,
     HULL_SPEEDS_KN,
     HULL_T_DEDUCTION,
@@ -36,7 +37,8 @@ class FactoryCombinator:
                  sg_allowance_kw: float = 0.0,
                  sg_load_kw: Optional[float] = None,
                  engine_rpm_min: Optional[float] = None,
-                 engine_rpm_max: Optional[float] = None):
+                 engine_rpm_max: Optional[float] = None,
+                 eta_R: float = 1.0):
         self.engine = engine
         self.prop = prop
         self.gear_ratio = GEAR_RATIO
@@ -47,6 +49,9 @@ class FactoryCombinator:
         # RPM limits (default to engine's own limits)
         self._eng_rpm_min = engine_rpm_min if engine_rpm_min is not None else engine.min_rpm()
         self._eng_rpm_max = engine_rpm_max if engine_rpm_max is not None else engine.max_rpm()
+        # Relative rotative efficiency for evaluation (behind condition).
+        # Q_behind = Q_open / eta_R, so P_shaft_behind = P_shaft_open / eta_R.
+        self._eta_R = eta_R
 
         self._build_schedule(engine, prop, sea_margin)
 
@@ -74,6 +79,7 @@ class FactoryCombinator:
                                         HULL_RESISTANCE_KN))
             t_ded = float(np.interp(speed_kn, HULL_SPEEDS_KN,
                                     HULL_T_DEDUCTION))
+            eta_R = float(np.interp(speed_kn, HULL_SPEEDS_KN, HULL_ETA_R))
             T_req_N = R_calm_kN * (1.0 + sea_margin) / (1.0 - t_ded) * 1000.0
 
             best_pitch = 0.0
@@ -103,7 +109,7 @@ class FactoryCombinator:
                     return None
 
                 Q = prop.torque(p, n, Va_ms)
-                P_shaft = 2.0 * math.pi * n * Q  # Watts
+                P_shaft = 2.0 * math.pi * n * Q / eta_R  # Watts (behind condition)
                 P_engine = (P_shaft / 1000.0) / SHAFT_EFF  # kW
                 # Target: propeller curve power (~300 kW below torque limit).
                 # Total engine load = P_propulsion + P_sg must sit on this
@@ -205,7 +211,7 @@ class FactoryCombinator:
             return None
 
         Q = self.prop.torque(pitch, n, Va)
-        P_shaft = Q * 2.0 * math.pi * n
+        P_shaft = Q * 2.0 * math.pi * n / self._eta_R  # behind condition
         P_shaft_kw = P_shaft / 1000.0
         P_eng_kw = P_shaft_kw / SHAFT_EFF + self.sg_load_kw
         eta0 = self.prop.eta0(pitch, n, Va)
@@ -260,3 +266,190 @@ class FactoryCombinator:
                 hi = mid
 
         return (lo + hi) / 2.0
+
+
+class FixedPitchCombinator:
+    """Fixed-pitch propeller (FPP) baseline for comparison with CPP optimiser.
+
+    Models a conventional fixed-pitch propeller designed for the vessel's
+    maximum achievable speed with a sea margin.  At the design condition
+    the engine runs at full RPM and propeller-curve power.
+
+    Design procedure:
+      1. Scan hull speeds from high to low.
+      2. At each speed, compute the required thrust with sea margin.
+      3. At maximum shaft RPM, find the pitch where the propeller delivers
+         that thrust (bisection on P/D).
+      4. Compute the resulting shaft power.  If total engine load
+         (propulsion + SG) fits within the propeller curve power at full
+         RPM, this speed is feasible.
+      5. The highest feasible speed defines the design pitch.
+
+    At off-design speeds the RPM is the only free variable: bisect on
+    RPM to match the required thrust at the fixed design pitch.
+    """
+
+    def __init__(self, engine, prop: CSeriesPropeller,
+                 sea_margin: float = 0.15,
+                 sg_load_kw: float = 0.0,
+                 engine_rpm_min: Optional[float] = None,
+                 engine_rpm_max: Optional[float] = None,
+                 eta_R: float = 1.0):
+        self.engine = engine
+        self.prop = prop
+        self.gear_ratio = GEAR_RATIO
+        self.sg_load_kw = sg_load_kw
+        self._eng_rpm_min = engine_rpm_min if engine_rpm_min is not None else engine.min_rpm()
+        self._eng_rpm_max = engine_rpm_max if engine_rpm_max is not None else engine.max_rpm()
+        self._eta_R = eta_R
+
+        self._design_pitch = None
+        self._design_speed_kn = None
+        self._design_thrust_kN = None
+        self._design_power_kw = None
+
+        self._find_design_pitch(engine, prop, sea_margin)
+
+    def _find_design_pitch(self, engine, prop, sea_margin):
+        """Find the FPP design pitch for maximum achievable speed.
+
+        Scans hull speeds from high to low.  At each speed, finds the
+        pitch that delivers the margined thrust at maximum shaft RPM,
+        then checks if the engine power fits within the propeller curve.
+        """
+        max_eng_rpm = self._eng_rpm_max
+        n_max = (max_eng_rpm / self.gear_ratio) / 60.0  # rev/s
+
+        # Scan from highest speed downward
+        for speed_kn in reversed(HULL_SPEEDS_KN):
+            w = float(np.interp(speed_kn, HULL_SPEEDS_KN, HULL_WAKE))
+            Va_ms = speed_kn * 0.5144 * (1.0 - w)
+            R_calm_kN = float(np.interp(speed_kn, HULL_SPEEDS_KN,
+                                         HULL_RESISTANCE_KN))
+            t_ded = float(np.interp(speed_kn, HULL_SPEEDS_KN,
+                                     HULL_T_DEDUCTION))
+            eta_R = float(np.interp(speed_kn, HULL_SPEEDS_KN, HULL_ETA_R))
+            T_req_N = R_calm_kN * (1.0 + sea_margin) / (1.0 - t_ded) * 1000.0
+
+            # Bisect on pitch to find P/D where thrust = T_req at n_max
+            p_lo, p_hi = 0.3, 1.5
+            # Check if max pitch at n_max can deliver the required thrust
+            T_at_hi = prop.thrust(p_hi, n_max, Va_ms)
+            if T_at_hi < T_req_N:
+                continue  # This speed is too fast even at max pitch
+
+            T_at_lo = prop.thrust(p_lo, n_max, Va_ms)
+            if T_at_lo >= T_req_N:
+                # Even minimum pitch delivers enough thrust — unlikely but handle
+                pitch = p_lo
+            else:
+                # Bisect
+                for _ in range(50):
+                    p_mid = (p_lo + p_hi) * 0.5
+                    T = prop.thrust(p_mid, n_max, Va_ms)
+                    if T < T_req_N:
+                        p_lo = p_mid
+                    else:
+                        p_hi = p_mid
+                pitch = (p_lo + p_hi) * 0.5
+
+            # Verify thrust convergence
+            T_check = prop.thrust(pitch, n_max, Va_ms)
+            if abs(T_check - T_req_N) > 500:  # 500 N tolerance
+                continue
+
+            # Compute shaft power at this design point
+            Q = prop.torque(pitch, n_max, Va_ms)
+            P_shaft = 2.0 * math.pi * n_max * Q / eta_R  # W
+            P_shaft_kw = P_shaft / 1000.0
+            P_eng_kw = P_shaft_kw / SHAFT_EFF + self.sg_load_kw
+
+            # Check against propeller curve power at full RPM
+            P_prop_curve = engine.propeller_curve_power(max_eng_rpm)
+            if P_prop_curve <= 0 or P_eng_kw > P_prop_curve:
+                continue
+
+            # Also check absolute power limit
+            if P_eng_kw > engine.max_power(max_eng_rpm):
+                continue
+
+            # This speed is feasible — it's the design point
+            self._design_pitch = pitch
+            self._design_speed_kn = float(speed_kn)
+            self._design_thrust_kN = T_req_N / 1000.0
+            self._design_power_kw = P_shaft_kw
+            return
+
+        raise RuntimeError(
+            "FixedPitchCombinator: no feasible design speed found. "
+            "The engine cannot deliver enough power at any hull speed."
+        )
+
+    @property
+    def design_pitch(self) -> float:
+        return self._design_pitch
+
+    @property
+    def design_speed_kn(self) -> float:
+        return self._design_speed_kn
+
+    def evaluate(self, T_required_N: float, Va: float) -> Optional[dict]:
+        """Find the FPP operating point for given thrust demand.
+
+        With a fixed pitch, the only degree of freedom is RPM.
+        Bisects on RPM to find the shaft speed that delivers the
+        required thrust.
+
+        Returns dict with fuel_rate [g/h], pitch, rpm, power_kw,
+        engine_rpm, eta0, or None if infeasible.
+        """
+        pitch = self._design_pitch
+        min_shaft_rpm = self._eng_rpm_min / self.gear_ratio
+        max_shaft_rpm = self._eng_rpm_max / self.gear_ratio
+        n_min = min_shaft_rpm / 60.0
+        n_max = max_shaft_rpm / 60.0
+
+        # Check if the thrust demand is achievable
+        T_at_max = self.prop.thrust(pitch, n_max, Va) if n_max > 0.01 else 0
+        if T_required_N > T_at_max + 500:
+            return None  # Can't deliver this much thrust
+
+        T_at_min = self.prop.thrust(pitch, n_min, Va) if n_min > 0.01 else 0
+        if T_required_N < T_at_min - 500:
+            return None  # Below minimum
+
+        # Bisect on RPM
+        lo_n, hi_n = n_min, n_max
+        for _ in range(60):
+            mid = (lo_n + hi_n) * 0.5
+            T = self.prop.thrust(pitch, mid, Va)
+            if T < T_required_N:
+                lo_n = mid
+            else:
+                hi_n = mid
+        n = (lo_n + hi_n) * 0.5
+
+        shaft_rpm = n * 60.0
+        eng_rpm = shaft_rpm * self.gear_ratio
+
+        if eng_rpm < self._eng_rpm_min or eng_rpm > self._eng_rpm_max:
+            return None
+
+        Q = self.prop.torque(pitch, n, Va)
+        P_shaft = Q * 2.0 * math.pi * n / self._eta_R  # W (behind condition)
+        P_shaft_kw = P_shaft / 1000.0
+        P_eng_kw = P_shaft_kw / SHAFT_EFF + self.sg_load_kw
+        eta0 = self.prop.eta0(pitch, n, Va)
+
+        if P_eng_kw <= 0 or P_eng_kw > self.engine.max_power(eng_rpm):
+            return None
+
+        fuel = self.engine.fuel_rate(P_eng_kw, eng_rpm)
+        return {
+            "fuel_rate": fuel,  # g/h
+            "pitch": pitch,
+            "rpm": shaft_rpm,
+            "power_kw": P_shaft_kw,
+            "engine_rpm": eng_rpm,
+            "eta0": eta0,
+        }

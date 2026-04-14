@@ -14,11 +14,12 @@ import numpy as np
 from optimiser import make_man_l27_38
 from propeller_model import CSeriesPropeller, load_c_series_data
 
-from models.combinator import FactoryCombinator
+from models.combinator import FactoryCombinator, FixedPitchCombinator
 from models.constants import (
     DATA_PATH_C440,
     DATA_PATH_C455,
     DATA_PATH_C470,
+    HULL_ETA_R,
     HULL_SPEEDS_KN,
     HULL_WAKE,
     KN_TO_MS,
@@ -58,6 +59,7 @@ def run_annual_comparison(
     round_trip: bool = True,
     hull_ks_m: float = 0.0,
     blade_ks_m: float = 0.0,
+    fpp_baseline: bool = False,
 ) -> list[VoyageResult]:
     """Run the full annual comparison: one voyage per day.
 
@@ -156,16 +158,33 @@ def run_annual_comparison(
             print(f"    Leg {i + 1}: {leg['from'].name} -> {leg['to'].name}: "
                   f"{leg['dist_nm']:.0f} nm, bearing {leg['bearing_deg']:.0f} deg")
 
+    # Interpolate relative rotative efficiency for this speed
+    eta_R = float(np.interp(speed_kn, HULL_SPEEDS_KN, HULL_ETA_R))
+    print(f"\n  Relative rotative efficiency: eta_R = {eta_R:.3f}")
+
     factory = FactoryCombinator(engine, prop,
                                 sg_allowance_kw=sg_factory_allowance_kw,
                                 sg_load_kw=sg_load_kw,
                                 engine_rpm_min=engine_rpm_min_sg,
-                                engine_rpm_max=engine_rpm_max_sg)
-    print(f"  Factory combinator: {len(factory._combo_lever)} schedule points")
-    if sg_factory_allowance_kw > 0:
-        print(f"    SG allowance: {sg_factory_allowance_kw:.0f} kW")
-    print(f"    RPM range: {factory._combo_rpm[0]:.1f} - {factory._combo_rpm[-1]:.1f} shaft")
-    print(f"    Pitch range: {factory._combo_pitch[0]:.3f} - {factory._combo_pitch[-1]:.3f}")
+                                engine_rpm_max=engine_rpm_max_sg,
+                                eta_R=eta_R)
+    if fpp_baseline:
+        # Replace the CPP factory combinator with a fixed-pitch propeller
+        factory = FixedPitchCombinator(engine, prop,
+                                       sg_load_kw=sg_load_kw,
+                                       engine_rpm_min=engine_rpm_min_sg,
+                                       engine_rpm_max=engine_rpm_max_sg,
+                                       eta_R=eta_R)
+        print(f"  FPP baseline: design P/D = {factory.design_pitch:.3f}, "
+              f"design speed = {factory.design_speed_kn:.1f} kn")
+        print(f"    Design thrust: {factory._design_thrust_kN:.1f} kN, "
+              f"shaft power: {factory._design_power_kw:.0f} kW")
+    else:
+        print(f"  Factory combinator: {len(factory._combo_lever)} schedule points")
+        if sg_factory_allowance_kw > 0:
+            print(f"    SG allowance: {sg_factory_allowance_kw:.0f} kW")
+        print(f"    RPM range: {factory._combo_rpm[0]:.1f} - {factory._combo_rpm[-1]:.1f} shaft")
+        print(f"    Pitch range: {factory._combo_pitch[0]:.3f} - {factory._combo_pitch[-1]:.3f}")
 
     print("\nLoading NORA3 weather data ...")
     # Weather is loaded per-worker for parallel execution (xarray can't be pickled)
@@ -182,7 +201,8 @@ def run_annual_comparison(
     opt_cache = build_optimiser_cache(prop, engine, Va,
                                        auxiliary_power_kw=sg_load_kw,
                                        engine_rpm_min=engine_rpm_min_sg,
-                                       engine_rpm_max=engine_rpm_max_sg)
+                                       engine_rpm_max=engine_rpm_max_sg,
+                                       eta_R=eta_R)
     factory_cache = build_factory_cache(factory, Va)
 
     # --- Run voyages ---
@@ -325,6 +345,7 @@ def run_speed_sweep(
     round_trip: bool = True,
     hull_ks_m: float = 0.0,
     blade_ks_m: float = 0.0,
+    fpp_baseline: bool = False,
 ) -> list[SpeedSweepResult]:
     """Run annual comparisons at multiple speeds and return summary per speed.
 
@@ -364,6 +385,7 @@ def run_speed_sweep(
             round_trip=round_trip,
             hull_ks_m=hull_ks_m,
             blade_ks_m=blade_ks_m,
+            fpp_baseline=fpp_baseline,
         )
 
         if not results:
@@ -396,6 +418,7 @@ def run_scheduling_analysis(
     sg_factory_allowance_kw: float = 0.0,
     sg_freq_min: float = 0.0,
     sg_freq_max: float = 0.0,
+    fpp_baseline: bool = False,
 ) -> dict[float, list[VoyageResult]]:
     """Run annual comparisons at multiple speeds, return per-speed results.
 
@@ -419,6 +442,7 @@ def run_scheduling_analysis(
             sg_load_kw=sg_load_kw,
             sg_factory_allowance_kw=sg_factory_allowance_kw,
             sg_freq_min=sg_freq_min, sg_freq_max=sg_freq_max,
+            fpp_baseline=fpp_baseline,
         )
         if results:
             all_results[spd] = results

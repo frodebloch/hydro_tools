@@ -126,6 +126,11 @@ def main():
                         help="Run 2D (departure time x speed) scheduling "
                              "optimization. Specify candidate speeds, e.g. "
                              "--scheduling-analysis 8 9 10 11 12")
+    parser.add_argument("--fpp-baseline", action="store_true",
+                        help="Use a fixed-pitch propeller (FPP) as the "
+                             "baseline instead of the factory CPP combinator. "
+                             "The FPP is designed for maximum achievable speed "
+                             "with 15%% sea margin at propeller curve power.")
 
     args = parser.parse_args()
 
@@ -173,6 +178,7 @@ def main():
                 round_trip=do_round_trip,
                 hull_ks_m=h_ks,
                 blade_ks_m=b_ks,
+                fpp_baseline=args.fpp_baseline,
             )
             if results:
                 sweep_summaries.append((age, h_ks, b_ks, results))
@@ -201,6 +207,7 @@ def main():
             sg_factory_allowance_kw=args.sg_factory_allowance,
             sg_freq_min=args.sg_freq_min,
             sg_freq_max=args.sg_freq_max,
+            fpp_baseline=args.fpp_baseline,
         )
         sched_data = print_scheduling_analysis(
             all_results, idle_pct=args.idle_pct,
@@ -236,6 +243,7 @@ def main():
             round_trip=do_round_trip,
             hull_ks_m=hull_ks_m,
             blade_ks_m=blade_ks_m,
+            fpp_baseline=args.fpp_baseline,
         )
         print_speed_sweep_summary(sweep, idle_pct=args.idle_pct,
                                   fuel_price_eur_per_t=args.fuel_price)
@@ -257,6 +265,7 @@ def main():
             round_trip=do_round_trip,
             hull_ks_m=hull_ks_m,
             blade_ks_m=blade_ks_m,
+            fpp_baseline=args.fpp_baseline,
         )
         print_summary(results_std, args.speed, idle_pct=args.idle_pct,
                       fuel_price_eur_per_t=args.fuel_price,
@@ -279,6 +288,7 @@ def main():
             round_trip=do_round_trip,
             hull_ks_m=hull_ks_m,
             blade_ks_m=blade_ks_m,
+            fpp_baseline=args.fpp_baseline,
         )
         print_summary(results_sg, args.speed, idle_pct=args.idle_pct,
                       fuel_price_eur_per_t=args.fuel_price,
@@ -302,6 +312,7 @@ def main():
         round_trip=do_round_trip,
         hull_ks_m=hull_ks_m,
         blade_ks_m=blade_ks_m,
+        fpp_baseline=args.fpp_baseline,
     )
 
     print_summary(results, args.speed, idle_pct=args.idle_pct,

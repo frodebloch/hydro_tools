@@ -452,6 +452,7 @@ def find_optimal_operating_point(
     min_rpm: float = 0.0,
     pitch_range: Optional[tuple[float, float]] = None,
     pitch_step: float = 0.005,
+    eta_R: float = 1.0,
 ) -> OperatingPoint:
     """Find the pitch/rpm combination that minimises shaft power.
 
@@ -482,6 +483,9 @@ def find_optimal_operating_point(
         positive thrust or [min, 0] for negative thrust.
     pitch_step : float
         Pitch grid spacing for the fine sweep, default 0.005.
+    eta_R : float
+        Relative rotative efficiency (behind condition), default 1.0.
+        Q_behind = Q_open / eta_R, so P_shaft is reduced when eta_R > 1.
 
     Returns
     -------
@@ -504,7 +508,7 @@ def find_optimal_operating_point(
             return None
 
         Q = prop.torque(pitch, n, Va)
-        P = Q * 2.0 * math.pi * n
+        P = Q * 2.0 * math.pi * n / eta_R  # behind condition
 
         if abs(Q) > max_torque:
             return None
@@ -580,12 +584,13 @@ def find_min_fuel_operating_point(
     pitch_step: float = 0.005,
     engine_rpm_min: Optional[float] = None,
     engine_rpm_max: Optional[float] = None,
+    eta_R: float = 1.0,
 ) -> OperatingPoint:
     """Find the pitch/rpm combination that minimises fuel consumption.
 
     Uses a two-pass coarse-then-fine search.  The coarse pass sweeps at
-    10× the pitch step to locate the region of minimum fuel, then a fine
-    pass refines within ±1 coarse step at the requested resolution.
+    10x the pitch step to locate the region of minimum fuel, then a fine
+    pass refines within +/-1 coarse step at the requested resolution.
 
     For each candidate pitch, finds the rpm to deliver T_required via
     bisection, then computes the total engine load (propeller shaft power /
@@ -618,6 +623,9 @@ def find_min_fuel_operating_point(
         constraint).  If None, uses engine.min_rpm().
     engine_rpm_max : float, optional
         Override maximum engine RPM.  If None, uses engine.max_rpm().
+    eta_R : float
+        Relative rotative efficiency (behind condition), default 1.0.
+        Q_behind = Q_open / eta_R, so P_shaft is reduced when eta_R > 1.
 
     Returns
     -------
@@ -647,7 +655,7 @@ def find_min_fuel_operating_point(
         if abs(Q) > max_torque:
             return None
 
-        P_shaft = Q * 2.0 * math.pi * n  # W
+        P_shaft = Q * 2.0 * math.pi * n / eta_R  # W (behind condition)
         P_shaft_kw = P_shaft / 1000.0
 
         P_engine_kw = P_shaft_kw / shaft_efficiency + auxiliary_power_kw

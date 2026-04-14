@@ -73,6 +73,12 @@ HULL_WAKE = np.array([.223, .224, .226, .227, .227, .228, .229, .229,
 HULL_T_DEDUCTION = np.array([.174, .173, .173, .172, .171, .170, .169, .169,
                              .168, .171, .175, .171, .168, .168, .171])
 
+# Relative rotative efficiency from self-propulsion test (ETAR column)
+# eta_R > 1 means the propeller in behind condition requires less torque
+# than in open water for the same thrust.  P_shaft_behind = P_shaft_open / eta_R.
+HULL_ETA_R = np.array([1.000, 1.003, 1.005, 1.007, 1.010, 1.012, 1.014, 1.016,
+                        1.017, 1.018, 1.018, 1.018, 1.019, 1.018, 1.018])
+
 # Backward-compatible alias: calm-water propeller thrust [kN].
 # T_calm = R_calm / (1 - t)
 HULL_THRUST_CALM_KN = HULL_RESISTANCE_KN / (1.0 - HULL_T_DEDUCTION)
@@ -97,7 +103,7 @@ PROP_N_BLADES = 4           # number of propeller blades
 # approximately 100m Loa.  Values based on typical general arrangement:
 #   Frontal (transverse) projected wind area: superstructure + hull freeboard
 #   Lateral projected wind area: full profile view above waterline
-WIND_AREA_FRONTAL_M2 = 280.0   # A_F [m^2]
+WIND_AREA_FRONTAL_M2 = 320.0   # A_F [m^2] (from GA drawing)
 WIND_AREA_LATERAL_M2 = 1100.0  # A_L [m^2]
 VESSEL_LOA_M = 100.0           # Overall length [m] (for yaw moment, not used here)
 
