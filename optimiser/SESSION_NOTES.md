@@ -270,6 +270,35 @@ T=133 kN is the calm-water operating point at 10 kn: T_calm = R_calm/(1-t) = 110
 3. **Optimiser, no rotor** -- Optimiser P/D-RPM schedule (above), Flettner disabled but stopped-rotor drag included. Annual: 1208.5 t/yr.
 4. **Optimiser + Flettner** -- Optimiser schedule, Flettner spinning. Annual: 1105.6 t/yr.
 
+#### Phase 15: Fixed-Pitch Propeller (FPP) Baseline Comparison
+- **`FixedPitchCombinator`** class in `models/combinator.py`: models a conventional FPP
+  designed for maximum achievable speed with 15% sea margin at propeller curve power.
+- **Design procedure**: scans hull speeds high-to-low, at each speed bisects on P/D
+  to find the pitch where the propeller at max shaft RPM delivers the margined thrust,
+  checks if engine power fits within propeller curve.
+- **Design point**: P/D = 0.790, design speed = 14.0 kn, T = 309.6 kN, P_shaft = 2565 kW.
+- **At off-design speeds**: RPM is the only free variable (fixed pitch). Bisects on RPM.
+- **CLI**: `--fpp-baseline` flag swaps the factory CPP combinator for the FPP baseline.
+- **Results (FPP baseline at 10 kn)**:
+
+| Configuration                     | Fuel [t/yr] |
+|-----------------------------------|-------------|
+| FPP no rotor                      |      1122.3 |
+| CPP Opt no rotor                  |      1099.1 |
+| CPP Opt + Flettner                |      1030.3 |
+
+| Saving (vs FPP baseline)  | Tonnes/year | Percentage |
+|---------------------------|-------------|------------|
+| CPP pitch/RPM flexibility |        23.2 |       2.1% |
+| Flettner wind-assist      |        68.7 |       6.1% |
+| **Combined**              |    **91.9** |   **8.2%** |
+
+- **Note**: FPP baseline fuel (1122.3 t/yr) is lower than CPP factory (1270.8) because
+  the FPP at P/D=0.790 is closer to the efficiency optimum than the factory combinator's
+  propeller-curve-following schedule. However, the FPP has 9% infeasible hours (can't
+  handle high thrust demands in rough weather), which are excluded from the comparison.
+  The CPP factory has only 1% infeasible hours due to its variable pitch capability.
+
 ---
 
 ## Open Items
@@ -279,6 +308,10 @@ T=133 kN is the calm-water operating point at 10 kn: T_calm = R_calm/(1-t) = 110
 3. **Dynamic overhead:** RT shows ~2-4% fuel penalty from shaft dynamics/governor even with `sea_state_margin=0`. Expected: Jensen's inequality on SFOC convexity + governor transients.
 4. **SG speed sweep:** Only 10 kn re-run under SG. Could re-run 12/14 kn: `python3 voyage_comparison.py --speed-sweep 10 12 14 --sg-load 150 --sg-factory-allowance 200 --quiet`
 5. **Lateral wind area:** AL=1100 m2 not reviewed for Flettner lateral projection (28*4=112 m2). Only affects sway, low priority.
+6. **RT eta_R fix:** RT simulator uses eta_R=1.07 (ETAH column, hull efficiency). Should use ETAR=1.010 at 10 kn.
+7. **Standalone tools need eta_R:** `compare_combinators.py`, `combinator_generator.py`, `diagnose_diameter.py`, `demo.py` all use bare `Q * 2*pi*n` without `/ eta_R`. Low priority (not used for reporting).
+8. **FPP infeasibility:** 9% of hours infeasible for FPP (can't deliver thrust in rough weather). Could investigate adaptive speed reduction or alternative FPP design points.
+9. **FPP report section:** FPP baseline results not yet written into the `.org` reports.
 
 ## Usage Examples
 
@@ -296,6 +329,9 @@ python3 voyage_comparison.py --compare-sg --sg-load 150 --sg-factory-allowance 2
 # Speed sweep
 python3 voyage_comparison.py --speed-sweep 8 10 12 14 --quiet
 
+# FPP baseline comparison (fixed-pitch propeller vs CPP optimiser)
+python3 voyage_comparison.py --year 2024 --fpp-baseline --quiet --plot
+
 # One-way mode (backwards compatibility)
 python3 voyage_comparison.py --year 2024 --speed 10 --quiet --one-way
 ```
@@ -305,7 +341,7 @@ python3 voyage_comparison.py --year 2024 --speed 10 --quiet --one-way
 - `voyage_comparison.py` -- main CLI tool
 - `optimiser.py` -- `find_min_fuel_operating_point()`, engine models
 - `propeller_model.py` -- C-series Fourier coefficient model
-- `models/combinator.py` -- `FactoryCombinator` schedule builder
+- `models/combinator.py` -- `FactoryCombinator` schedule builder, `FixedPitchCombinator` FPP baseline
 - `models/constants.py` -- hull data, propeller params, wind areas
 - `models/flettner.py` -- Flettner rotor model (incl. stopped-rotor drag)
 - `simulation/engine.py` -- hourly evaluation loop
