@@ -573,6 +573,106 @@ with a `chamber_pressure_differential` input (driven by a heel-angle
 controller) and re-linearise the gas-spring stiffness around the
 biased equilibrium `tau_eq != 0`.
 
+### 4.y Fully active U-tube via in-duct thruster (not modelled)
+
+A natural extension beyond the air-valve scheme is a U-tube with a
+**rim-driven thruster (RDT) installed in the bottom of the duct**,
+buffered by a battery or supercapacitor bank. Instead of modulating
+the natural dynamics via valve control, the RDT directly drives the
+fluid back and forth to produce an *optimally* phased moment that
+cancels the wave-exciting moment in real time.
+
+**Performance ceiling.** The fluid is bounded geometrically to the
+same ~2.82 MN m of static moment (sec. 4.x), giving a peak tank
+moment amplitude of ~2.82 MN m at any frequency. The relevant
+comparison is *not* with the broadband wave-moment significant value
+(7-8 MN m at our test seastates) but with the wave moment near
+vessel resonance, where roll motion is actually generated:
+
+| seastate | wave M significant (full band) | wave M significant (near resonance ±10%) | active tank covers |
+| -------- | ------------------------------ | ----------------------------------------- | ------------------ |
+| Hs=3 m, Tp=8.5 s (off-resonance) | 7.06 MN m | 1.74 MN m | 162 % |
+| Hs=2 m, Tp=11 s (resonance)      | 5.25 MN m | 3.71 MN m |  76 % |
+
+Off-resonance, the tank has 1.6x the moment budget needed to cancel
+the resonance-band component; on-resonance, it covers 76 %. Honest
+performance estimates against the irregular-seas baseline in
+`csov_irregular_seakeeping.py`:
+
+| seastate | best passive (measured) | ideal active U-tube (estimated) |
+| -------- | ----------------------- | ------------------------------- |
+| Hs=3 m, Tp=8.5 s | 48 % (free-surface) | ~85-90 % |
+| Hs=2 m, Tp=11 s  | 54 % (TMD)          | ~70-80 % |
+
+These are linear-theory ceilings; nonlinear free-surface effects at
+the required ~1-1.7 m fluid offsets (vs nominal 2.5 m fluid height)
+will degrade by 20-30 %, so a *realistic* delivered figure is more
+like **70-80 % off-resonance, 60-70 % on-resonance** -- still
+roughly a 1.5-2x improvement over the best passive tank, in line
+with Holden, Perez & Fossen 2011's reported active-U-tube results
+for similarly sized vessels.
+
+**RDT thrust requirement.** To produce the maximum tank moment at
+the wave frequency, the in-duct thruster must overcome (i) the
+gravity head between the asymmetrically filled reservoirs, (ii) the
+inertial reaction of the moving fluid, and (iii) duct friction. For
+our CSOV geometry (`A_res = 10 m^2`, `A_duct ~ 3 m^2`, `W_duct =
+16 m`):
+
+| metric | Tp=8.5 s (off-resonance) | Tp=11 s (resonance) |
+| ------ | ------------------------ | ------------------- |
+| required fluid offset tau_a | 1.08 m | 1.75 m |
+| peak duct velocity         | 2.66 m/s | 3.34 m/s |
+| peak flow rate Q           | 8.0 m^3/s | 10.0 m^3/s |
+| **peak thrust required**   | **170 kN** | **210 kN** |
+| peak shaft power           | 460 kW    | 700 kW    |
+| dissipated power (avg)     | 12 kW     | 24 kW     |
+
+170-210 kN places the actuator in the *bow tunnel thruster* class --
+a 1.6-1.8 m diameter rim-driven thruster (e.g. Brunvoll RDT-160 or
+Rolls-Royce TT class) is a direct off-the-shelf fit and dramatically
+simpler than the equivalent compressor system (which would need
+8-10 m^3/s of low-pressure airflow at 20-35 kPa Δp).
+
+**Energy buffering.** The peak shaft power is **reactive**: it
+flows back and forth between fluid kinetic energy and gravitational
+potential energy each half-cycle. The total swing energy per cycle is
+**0.3-0.6 MJ** (~170 Wh = 0.17 kWh). A modest battery or
+supercapacitor bank in the kWh class absorbs all peaks, so the ship
+electrical bus only sees the **24 kW dissipated** -- *less than a
+coffee machine*. For context, the CSOV's installed power is
+~5-10 MW, so even the unbuffered peaks would be ~10 % of installed
+power; with buffering the active-tank load is essentially invisible
+to the power system.
+
+This is the strongest reason to favour an in-duct RDT over an
+air-driven scheme: the ship never sees a power spike, the actuator
+hardware is already standard marine equipment, and the failure mode
+is benign (loss of RDT power reverts the U-tube to a passive
+open-top tank with its geometric resonance still intact).
+
+**Caveats specific to in-tank RDTs.** (i) Cavitation: at the duct
+elevation in our geometry (~6.5 m below the waterline), ambient
+pressure is ~1.65 bar absolute, well above water vapour pressure;
+peak suction-side pressure drops are within tolerance for moderate
+loading but blade design matters. (ii) Two-phase ingestion: if the
+free surfaces in the reservoirs slosh hard and entrain air, that air
+gets pulled through the RDT and degrades thrust unpredictably; the
+deeply submerged duct geometry (`duct_below_waterline = 6.5 m`)
+helps. (iii) Forward-feed control: the controller needs phase-
+accurate wave-moment prediction to within ~30 deg; a `phi_dot`-only
+scheme will not suffice and a wave-radar or pressure-sensor feed-
+forward path is needed for the headline numbers above. Without
+forward feed, expect 15-25 % loss of the theoretical reduction.
+
+A natural follow-up implementation would be a new `RDTUtubeTank`
+class (or extension of `OpenUtubeTank`) with a
+`thrust_command_func: Callable[[VesselKin, TankState, t], float]`
+input mapped onto a duct pressure differential `dp = F / A_duct`,
+plus an `RDTController` that takes a wave-moment estimate and solves
+for the thrust command needed to produce `M_tank = -M_wave_estimate`
+at the current state.
+
 ---
 
 ## 5. Free-surface tank (`free_surface.py`)
