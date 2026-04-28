@@ -1,0 +1,2841 @@
+      A Lagrangian approach to nonlinear modeling of anti-roll tanks
+
+                         Christian Holdena,c,∗, Tristan Perezb,c , Thor I. Fossena,c
+  a Department of Engineering Cybernetics, Norwegian University of Science and Technology, NO-7491 Trondheim,
+
+                                                      Norway
+ b School of Engineering, Discipline of Mechanical and Mechatronics, The University of Newcastle, University Drive,
+
+                                          Callaghan NSW 2308, Australia
+  c Centre for Ships and Ocean Structures, Norwegian University of Science and Technology, NO-7491 Trondheim,
+
+                                                      Norway
+
+
+
+
+Abstract
+
+This paper presents two novel nonlinear models of u-shaped anti-roll tanks for ships, and their lin-
+earizations. In addition, a third simplified nonlinear model is presented. The models are derived using
+Lagrangian mechanics. This formulation not only simplifies the modeling process, but also allows one
+to obtain models that satisfy energy-related physical properties. The proposed nonlinear models and
+their linearizations are validated using model-scale experimental data. Unlike other models in the
+literature, the nonlinear models in this paper are valid for large roll amplitudes. Even at moderate
+roll angles, the nonlinear models have three orders of magnitude lower mean square error relative to
+experimental data than the linear models.
+Keywords: Roll stabilization, Anti-roll tanks, U-tanks, Lagrangian dynamics, Ship stability,
+Nonlinear systems
+
+
+1. Introduction
+
+   Roll motion affects the performance of seagoing surface vessels by limiting the effectiveness of the
+crew and the operation of on-board equipment. In some cases, excessive roll motion can lead to cargo
+damage or cargo loss, passenger injury and, in extreme cases, capsize (Beck et al., 1989). In order to
+reduce roll motion, several ship roll stabilization systems have been proposed – see, for example, Perez
+(2005) and references therein. Among these roll stabilization systems, we find anti-roll tank stabilizers.
+   The most widely used anti-roll tank is the u-tank; originally developed by Frahm (1911). This type
+of tank is composed of two reservoirs, one on the port side and one on the starboard side, connected
+at the bottom by a duct – see Figure 2.
+   As the ship rolls, the fluid inside the tank (usually water) moves with the same period as the vessel
+in roll, but lagging a quarter of a period behind the rolling motion. This way, the weight of the fluid
+produces a moment that opposes the roll motion. This moment attains its maximum values when
+the ship passes through its vertical position. Thus, the vessel’s roll kinetic energy is transformed into
+
+  ∗ Corresponding author. Tel +47 73594374. Fax +47 73594599.
+
+    Email addresses: c.holden@ieee.org (Christian Holden), tristan.perez@newcastle.edu.au (Tristan Perez),
+fossen@ieee.org (Thor I. Fossen)
+    URL: www.kybernetes.net (Christian Holden), www.cdsc.org.au/TP (Tristan Perez),
+www.itk.ntnu.no/ansatte/Fossen_Thor (Thor I. Fossen)
+
+
+
+
+Preprint submitted to Ocean Engineering                                                           September 7, 2010
+kinetic and potential energy of the tank fluid. Part of the energy is dissipated by vortex shedding and
+fluid viscous effects related to skin friction on the walls of the tank (Beck et al., 1989).
+   The main advantages of u-tanks are their medium to high performance in terms of roll reduction –
+estimated to be in the range of 20–70 % (RMS) – and that performance is independent of the operating
+speed of the vessel. This makes them the preferred option for vessels that spend a large amount of
+time operating at low or zero speed and require clean hulls for operations, e.g. fishing vessels (Moaleji
+and Greig, 2006).
+   Anti-roll tanks can be either passive or active. In passive tanks, the fluid flows freely from side to
+side. The tank is dimensioned so that the tank fluid’s natural period equals the natural roll period of
+the ship (Lloyd, 1989, 1998). In the presence of waves, however, the roll period is determined by the
+frequency of the waves, not the natural frequency in roll (Nayfeh and Mook, 1995). Therefore, active
+control is necessary to maintain performance.
+   Active tanks operate in a similar manner to their passive counterparts, but they incorporate a
+control system which modifies the period of the tank to match the actual ship roll period, and can
+also ensure optimal phase difference. Control can be achieved by adjusting the air that flows from one
+reservoir to the other by means of an air duct and a controlled valve, high-pressure air, or by pumps
+located in the fluid duct (Sellars and Martin, 1992).
+   In recent years, there has been a significant interest in u-tanks in relation to their potential for
+reducing the likelihood of ship parametric roll resonance. This is an autoparametric resonance phe-
+nomenon whose onset causes a sudden rise in roll oscillations. The resulting heavy roll motion, which
+can reach 30 to 40 degrees of roll angle, may bring the vessel into conditions dangerous for the ship, the
+cargo, and the crew. Modern container ships and fishing vessels are known to be prone to parametric
+roll, and several incidents have been reported with significant damage to cargo as well as structural
+damages for millions of dollars (France et al., 2001). The origin of this unstable motion is the time-
+varying geometry of the submerged hull due to the passing of the waves, which produces periodic
+variations of the transverse stability properties of the ship (Biran, 2003). Due to rapid increase in roll
+motion and potentially large amplitudes during parametric resonance, a u-tank model should be valid
+not only for small roll amplitudes but also for large ones.
+   Several models of u-tanks already exist; one of the oldest (Moaleji and Greig, 2007) is the model of
+Goodrich (1968). It is fairly simple; the tank’s effect on roll is only attributed to a single linear term
+proportional to the difference in fluid depth in the two reservoirs. Kagawa et al. (1989, 1990) developed
+a model based on Lagrangian mechanics for the purpose of controlling the swaying of skyscrapers during
+earthquakes. However, they only modeled the tank’s effect on sway, not on roll. The most commonly
+used model is that of Lloyd (1989, 1998), which includes roll, sway, yaw and the motion of the tank
+fluid. This model, however, is linear and thus only valid for small motions.
+   In this paper, we derive two novel nonlinear models of u-tank ship roll stabilizing systems and
+their linearizations. Unlike other models in the literature, the nonlinear models are valid for large roll
+amplitudes. To derive the models we use tools from analytical mechanics, in particular the Lagrangian
+formulation (see, for instance, Lanczos (1970)). This formulation simplifies the modeling process, but
+
+
+                                                     2
+also allows one to obtain models that satisfy energy-related physical properties, which are useful to
+analyze stability using passivity and Lyapunov theories.
+   Using different levels of model sophistication we derive two nonlinear models. In the first model,
+the damping on the tank is assumed to generate a negligible moment in roll (while still damping the
+motion of the tank fluid). This assumption is used in all previous u-tank models (Moaleji and Greig,
+2007). In the second model, this assumption is removed. Through experimental model validation, we
+find that the inclusion of this moment can increase the ability of the model to reproduce experimental
+results by up to 40 %. However, the nonlinear models are so close to experimental data, that this
+decrease is almost undetectable to the naked eye.
+   The proposed models are validated using an extensive set of model-scale experiments. This experi-
+mental set-up consists of a rectangular u-tank (see Figure 2(b)) mounted on a mechanical rig that can
+force roll motion (see Figure 3). A total of 44 experiments were performed, which can be classified as
+follows:
+
+Free decay tests (4 experiments) These tests were performed to find the damping in the tank.
+
+Sinusoidal tests (32 experiments) The rolling motion followed a sinusoidal pattern of 16 different
+      frequencies. Sixteen experiments were conducted with fluid in the tank and sixteen without, the
+      roll motion being the same.
+
+Pseudorandom tests (8 experiments) The rolling motion followed a pseudorandom pattern. Four
+      different patterns were used, with and without fluid in the tank.
+
+Performing the tests with and without fluid in the tank allows finding the torque exerted on roll by
+the tank fluid.
+   The two nonlinear models and their linearized versions are compared to the experimental data.
+This validation shows a significant better fit for the nonlinear models, three orders of magnitude lower
+mean square error relative to experimental data than the best linear model.
+   A third nonlinear model, a simplification of one of the others, is also presented.
+   The rest of the paper is organized as follows: The nomenclature is in Section 2. Section 3 presents
+the major assumptions used in deriving the new models, which are derived in Section 4. Section
+5 presents the laboratory setup that was used to validate the models. Sections 6–8 contains the
+experimental results. Section 9 suggests a simplification of the Lagrangian models. Section 10 contains
+the conclusions. The appendices contain further details on the model derivation.
+
+
+2. Nomenclature
+
+2.1. The models
+
+L: A nonlinear model, first presented in this paper, based on Lagrangian (analytical) mechanics.
+
+Ll : The linearization of L about zero. This model is functionally identical to the model of Lloyd (1989,
+      1998) and that of Faltinsen and Timokha (2009).
+
+
+                                                    3
+eL: An extension of L, containing additional tank-induced moments in roll.
+
+eLl : The linearization of eL about zero. This model contains an additional tank-induced moment in
+     roll not part of Lloyd (1998)’s or Faltinsen and Timokha (2009)’s models.
+
+eLr : A nonlinear simplification of eL.
+
+
+2.2. The ship
+
+L [m]: Length of the ship.
+
+B [m]: Breadth of the ship.
+
+D [m]: Draft of the ship.
+
+m [kg]: Mass of the ship.
+
+zg [m]: Vertical position of the ship’s center of gravity.
+
+Iφ [kg·m2 ]: The ship’s moment of inertia about its x-axis; its moment of inertia in roll.
+
+Aφ [kg·m2 ]: Hydrodynamic added mass in roll.
+
+
+2.3. The tank
+
+yT (σ) [m]: Function describing the transversal position of the u-tank’s centerline, in the body frame.
+
+zT (σ) [m]: Function describing the vertical position of the u-tank’s centerline, in the body frame.
+
+A(σ) [m2 ]: Function describing the cross-sectional area of the u-tank.
+
+A0 [m]: Cross-sectional area at the midpoint of the u-tank.
+
+ρt [kg/m3 ]: Density of the tank fluid.
+
+w [m]: Width of a rectangular u-tank, equal to the sum of the width of the duct and the width of one
+     of the reservoirs.
+
+wr [m]: Width of a reservoir of a rectangular u-tank.
+
+xt [m]: Longitudinal depth of a rectangular u-tank.
+
+hd [m]: Height of the duct of a rectangular u-tank.
+
+rd [m]: Vertical position of the center of the duct of a rectangular u-tank, in the body frame.
+
+ht [m]: Datum level of the reservoirs of a rectangular u-tank.
+
+
+
+
+                                                    4
+2.4. Model parameters
+
+φ [rad]: The ship’s roll angle.
+
+ω [rad/s]: The ship’s angular velocity in roll, ω = φ̇.
+
+ξ [m]: Half of the difference in fluid level between the port and starboard side reservoirs of a rect-
+      angular u-tank, equal to the difference between the level in the port reservoir and the datum
+      level.
+
+ν [m/s]: The average velocity of the fluid in the tank at the midpoint, positive to port.
+
+q1 [rad]: Generalized coordinate, q1 = φ .
+
+q2 [m]: Generalized coordinate, q2 = ξ.
+
+U [kg·m2 /s2 ]: Total potential energy of the system.
+
+T [kg·m2 /s2 ]: Total kinetic energy of the system.
+
+L̄ [kg·m2 /s2 ]: Lagrangian of the system.
+
+α1 [kg·m2 /s2 ]: Potential energy coefficient.
+
+α2 [kg·m2 /s2 ]: Potential energy coefficient.
+
+α3 [kg·m/s2 ]: Potential energy coefficient.
+
+α4 [kg/s2 ]: Potential energy coefficient.
+
+α5 [kg]: Coriolis coefficient.
+
+It (q2 ) [kg·m2 ]: Moment of inertia of the tank fluid about the ship’s x-axis as a function of the position
+      of the fluid in the tank.
+
+V̄t [m3 ]: Effective volume of tank fluid, in general not equal to the actual volume.
+
+c [m4 ]: Cross-coupling parameter.
+
+τ [multiple]: Vector of generalized non-conservative forces.
+
+u [kg·m/s2 ]: Control input.
+
+B [–]: Matrix indicating directly actuated states.
+
+τn [multiple]: Vector of generalized non-conservative forces other than control input.
+
+τe [multiple]: Vector of generalized environmental forces.
+
+dφ (q̇1 ) [kg·m2 /s]: Damping function for roll.
+
+d1,l [kg·m2 /s]: Linear coefficient of dφ (q̇1 ).
+
+
+
+                                                     5
+d1,n [kg·m2 ]: Quadratic coefficient of dφ (q̇1 ).
+
+dξ (q̇2 ) [kg/s]: Damping function for the tank fluid.
+
+d2,l [kg/s]: Linear coefficient of dξ (q̇2 ).
+
+d2,n [kg/m]: Quadratic coefficient of dξ (q̇2 ).
+
+dφξ (q̇2 ) [kg·m/s]: Cross-coupled damping function for roll.
+
+d12,l [kg·m/s]: Linear coefficient of dφξ (q̇2 ).
+
+d12,n [kg]: Quadratic coefficient of dφξ (q̇2 ).
+
+ᾱ1 [kg·m2 /s2 ]: Spring coefficient used in the simplified model required by the laboratory setup. Not
+      part of the model proper.
+
+2.5. Miscellaneous
+
+R [–]: Rotation matrix between the body-fixed non-inertial reference frame, and the Earth-fixed in-
+      ertial reference frame.
+
+g [m/s2 ]: The acceleration of gravity.
+
+ρo [kg/m3 ]: Ocean density.
+
+ms [kg]: Total mass of ship and the fluid in the tank.
+
+φd (t) [rad]: Desired roll angle in the experiments.
+
+A [rad]: Amplitude of input used in the experiments.
+
+$ [rad/s]: Frequency of input used in the experiments.
+
+ru (t) [–]: Scaling function used in the experiments.
+
+rd (t) [–]: Scaling function used in the experiments.
+
+a(y, u) [[y]/[u]]: Function approximating, for nonlinear systems, amplitude in a Bode diagram .
+
+p(y, u) [rad]: Function approximating, for nonlinear systems, phase in a Bode diagram.
+
+
+3. Assumptions and definitions
+
+3.1. Modeling hypotheses
+
+   The following assumptions apply to the u-tank:
+
+A1 The surface of the fluid in the tank is not horizontal, instead being always parallel to the deck of
+    the ship.
+A2 Incompressible fluid in the tank.
+A3 One-dimensional tank flow.
+
+
+                                                     6
+ A4 The u-tank is placed at the longitudinal and transversal geometrical center of the ship.
+ A5 The duct is always full of fluid.
+ A6 The reservoirs are open to air.
+ A7 The tank fluid memory effects are negligible.
+
+    Assumption A1 is clearly false for a rolling ship; the actual fluid surface in the tank is likely to behave
+ in a complicated and chaotic fashion. Modeling this accurately without resorting to computational
+ fluid dynamics is unfeasible. Assuming the fluid surface to be horizontal would not be much more
+ accurate than Assumption A1.
+
+
+ 3.2. Ship assumptions
+
+    The following assumptions apply to the ship:
+
+ A8 The motion of the ship is restricted to roll.
+ A9 The ship is shaped like a rectangular prism (barge or “shoebox”).
+A10 The ship is port-starboard and fore-aft symmetric (in mass distribution as well as in geometry).
+A11 The ship’s mass is equal to its buoyancy (floating ship).
+A12 There is no current.
+A13 Fluid memory effects are negligible.
+A14 The ship’s added mass is constant.
+
+
+ 3.3. Coordinate systems
+
+    To use the Lagrangian approach, the dynamics must be defined in an inertial reference frame
+ (Egeland and Gravdahl, 2002). However, the geometrical properties of the system are most easily
+ expressed in a coordinate system fixed to the ship. This paper will therefore use two reference frames,
+ “n” and “b”.
+    The two reference frames have their origin in the center of floatation Cf , the point around which
+ the ship is rolling. Since the ship is restricted to roll, this point is taken to lie in the longitudinal center
+ of the tank, which coincides with the longitudinal center of the ship.
+    The n-frame is an inertial reference frame, while the b-frame is rotating with the ship. The angle
+ between the two reference frames is the same as the roll angle of the ship, φ. The xb -axis points fore,
+ the y b -axis starboard and the z b -axis down. Note that xn and xb coincide ∀ t. Both the n- and the
+ b-frame are right-hand coordinate systems. See Figure 1.
+    A vector p that can be interpreted as a point in physical space (i.e., a position) or the time derivative
+ of such a point (i.e., a physical velocity) will be written as p~. Decomposed in either coordinate system,
+ it will be written as pb or pn . These two coordinate vectors are related by the relationship
+                                                                     
+                                                1     0        0
+                                                                     
+                                 pn = Rpb =  0 cos(φ) − sin(φ)  pb                                         (1)
+                                                                     
+                                                                     
+                                                0 sin(φ) cos(φ)
+
+
+
+                                                        7
+where R is a rotation matrix (Fossen, 2002). Note that R−1 = RT .
+   A vector x that does not have an interpretation as a physical position, physical linear velocity or
+a physical angular velocity will be written as x. Matrices are also written in non-bold italics.
+
+3.4. The tank
+   The tank fluid is assumed to be parametrizable as a tube of varying cross-sectional area. Defining
+the midline of the tube of fluid as ~rt (σ) with parameter σ, rbt (σ) can be written as
+                                                              
+                                                          0
+                                                              
+                                            rbt (σ) =  yT (σ)  .                                        (2)
+                                                              
+                                                              
+                                                        zT (σ)
+
+   The parameter σ has zero point at the ship midline and is positive to port. The tank is assumed
+to be symmetrical around the midline. The fluid surfaces are located at σ = −ςs ≤ 0 (starboard side)
+and σ = ςp ≥ 0 (port side). Thus, σ ∈ [−ςs , ςp ] ⊂ R defines the fluid-filled part of the tank. When
+the water level is equal in both starboard and port side reservoirs, ςp = ςs = ς0 , and σ ∈ [−ς0 , ς0 ] ⊂ R
+defines the fluid-filled part of the tank.
+   To fully describe the tank fluid, the cross-sectional area A(σ) is also needed. We define A0 , A(0).
+The fluid is assumed to fill the entire area A(σ) ∀ σ ∈ [−ςs , ςp ], i.e., no air bubbles. See Figure 2(a).
+   As the fluid is assumed incompressible, the volume of fluid in the tank is constant, and the fluid
+displaced on the starboard side must have moved to the port side (and vice versa). This gives the
+following relationship:
+                              Z ςp                Z ς0                  Z ς0
+                                     A(σ) dσ =            A(σ) dσ = 2          A(σ) dσ.
+                               −ςs                  −ς0                  0
+
+   A specific type of u-tank is one consisting of three rectangular prisms; one for each reservoir and
+one (the duct) connecting them (see Figure 2(b)). This is the type of tank used by Lloyd (1989, 1998).
+It can be defined by
+                                                         
+                                         
+                                         
+                                                   0
+                                         
+                                                         
+                                                            ∀ σ ∈ σs
+                                                         
+                                         
+                                         
+                                                 w/2
+                                         
+                                                         
+                                         
+                                         
+                                         
+                                             rd + w/2 + σ
+                                         
+                                                     
+                                         
+                                         
+                                         
+                                                   0
+                                                     
+                                 b
+                                rt (σ) =          −σ       ∀ σ ∈ σd                                     (3)
+                                                      
+                                         
+                                                     
+                                         
+                                         
+                                         
+                                                   rd
+                                         
+                                                         
+                                         
+                                         
+                                         
+                                                   0
+                                         
+                                                         
+                                                  −w/2      ∀ σ ∈ σp
+                                         
+                                                         
+                                         
+                                          
+                                         
+                                                         
+                                              rd + w/2 − σ
+                                         
+                                         
+                                         
+                                          w x ∀ σ ∈ σs
+                                          r t
+                                         
+                                         
+                                A(σ) =     hd xt ∀ σ ∈ σd                                                 (4)
+                                         
+                                         
+                                          w x ∀σ∈σ
+                                         
+                                                  r t           p
+
+                                     A0 = hd xt                                                           (5)
+
+
+                                                           8
+where
+
+                              σs , [−ςs , −w/2] (starboard side reservoir)
+
+                              σd , [−w/2, w/2] (duct)
+
+                              σp , [w/2, ςp ] (port side reservoir).
+
+
+4. System dynamics
+
+4.1. Choice of generalized coordinates
+
+   For the motion of the ship, we choose φ as the generalized coordinate.
+   The ship (and the tank with it) is rotating at an angular velocity ω = φ̇ around the body-fixed
+x-axis (which coincides with the inertial x-axis). The angular velocity vector ω
+                                                                               ~ is thus given by
+ω n = ω b = [ω, 0, 0]T . We choose ω as a generalized velocity.
+   For the rectangular u-tank, we note that the cross-sectional area doesn’t change in the reservoirs.
+Assuming that the duct is always full of fluid, we note the following relationships
+
+                                ςp + ςs ≡ 2ς0 = 2ht + w
+
+                                ςp − ςs ≡ 2(ςp − ς0 ) = 2(ςp − ht − w/2)
+
+                                         ≡ 2(ςs − ς0 ) = 2(ςs − ht − w/2).                           (6)
+
+For the tank fluid, we choose ξ , ςp − ς0 as the generalized coordinate. This is equal to the fluid level
+in the port-side reservoir, relative to the datum level. This choice of generalized coordinate gives the
+relationships
+
+                                            ςp = ht + w/2 + ξ
+
+                                            ςs = ht + w/2 − ξ.
+
+   The velocity w
+                ~ of the tank fluid, relative to the tank walls, at a position σ is given by
+
+                                                   A0 υ d
+                                          w(σ)
+                                          ~    =           ~rt (σ)                                   (7)
+                                                   A(σ) dσ
+
+where υ is the velocity of the tank fluid at σ = 0, relative to the tank walls, and positive in the same
+direction as σ (to port). Note that A0 υ is then the volumetric flow in the tank. Equation (7) follows
+from the incompressibility of the tank fluid and the continuity equations (White, 2002).
+   For a rectangular tank, w
+                           ~ is given by
+                                       
+                                       
+                                       
+                                              [0, 0, hd υ/wr ]T     ∀ σ ∈ σs
+                                       
+                                b                                T
+                              w (σ) =               [0, −υ, 0]       ∀ σ ∈ σd                        (8)
+                                       
+                                                                T
+                                             [0, 0, −hd υ/wr ]       ∀ σ ∈ σp
+                                       
+                                       
+
+   We note that
+
+                                                     A0 υ     hd
+                                          ξ˙ = ς˙p =        =    υ
+                                                     A(ςp )   wr
+
+
+                                                     9
+as the cross-sectional area in the port reservoir is constant, and υ is positive to port. This lends
+naturally to the choice of hd υ/wr as the generalized velocity of the tank fluid.
+     Thus,
+                                                                      
+                                                      φ             q1
+                                             q=           ,                                                    (9)
+                                                      ξ              q2
+                                                                                 
+                                                           ω                  q̇1
+                                             q̇ =                  =                                          (10)
+                                                      hd υ/wr                 q̇2
+
+4.2. Potential and kinetic energy
+
+Proposition 1 (Potential energy). The total potential energy U of the ship–tank system, relative
+to q = 0, is given by
+                                                                        
+                                                               1
+                U (q) = α1 (1 − cos(q1 )) + α2                               + α3 q2 sin(q1 ) + α4 q22 cos(q1 )   (11)
+                                                          cos(q1 ) − 1
+
+with
+
+                                                                                            12D2 − B 2
+                     α1 , g [mzg + ρt xt (hd rd w + wr ht (2rd − ht ))] − gms
+                                                                                               24D
+                             gms B 2
+                     α2 ,
+                              24D
+                     α3 , gρt xt wr w
+
+                     α4 , gρt xt wr
+
+where ms is the total mass of the ship and the tank fluid.
+
+Derivation. See Appendix B.
+
+Proposition 2 (Kinetic energy). The total kinetic energy T of the ship–tank–ocean system is given
+by
+
+                                          1                           1
+                            T (q, q̇) =     (Iφ + Aφ + It (q2 ))q̇12 + ρt V̄t q̇22 + cρt q̇1 q̇2                  (12)
+                                          2                           2
+
+where
+                                                      2                         2                     
+                                                      ht                          w hd   wwr ht
+ It (q2 ) = 2ρt wr xt (ht − rd )q22 + 2ρt wr xt ht       − rd ht + rd2 + ρt xt w       +        + hd rd2   (13)
+                                                       3                           12      2
+         c = wwr xt (ht + rd )                                                                                    (14)
+                              
+                           wwr
+       V̄t = wr xt 2ht +         .                                                                                (15)
+                            hd
+
+and Aφ is the hydrodynamic added mass in roll.
+
+Derivation. See Appendix C.
+
+
+
+
+                                                               10
+4.3. The Lagrangian
+
+   The Lagrangian L̄ of the system is given by
+
+                                               L̄(q, q̇) = T (q, q̇) − U (q)                            (16)
+
+which gives the dynamics
+
+                                                   d ∂ L̄ ∂ L̄
+                                                           −    =τ                                      (17)
+                                                   dt ∂ q̇   ∂q
+
+where τ is a vector of generalized non-conservative forces (Egeland and Gravdahl, 2002). With u as
+control input and τn as other non-conservative forces,
+
+                                               d ∂ L̄ ∂ L̄
+                                                       −    = τn + Bu                                   (18)
+                                               dt ∂ q̇   ∂q
+
+where B determines which states are directly controllable.
+   There are no direct actuators in roll. With a single actuator exerting force on the tank fluid, B will
+be given by
+                                                                    
+                                                                 0
+                                                      B=                                              (19)
+                                                                 1
+
+and u will be the control force exerted on the tank fluid.
+
+
+4.4. Non-conservative forces
+
+   The main non-conservative forces acting upon the system (apart from control input) is friction –
+including vortex shedding and other dissipative effects – and environmental disturbances.
+   The ship, as it is submerged in a fluid, will suffer several varieties of fluid-related energy-dissipating
+forces (Fossen, 2002). This damping is a function of the relative velocity between the ship and the
+surrounding fluid. Assuming zero current and no waves, this will purely be a function of ω. We combine
+all energy-dissipating moments in roll into a single function dφ (q̇1 ) > 0 ∀ q̇1 6= 0 where −dφ (q̇1 )q̇1 is
+the dissipative moment, as done in Fossen (2002).
+   Similarly, the fluid in the u-tank will suffer friction from contact with the tank walls, vortex shedding
+at the bends, etc. These dissipative forces are combined into a single function dξ (q̇2 ) > 0 ∀ q̇2 6= 0
+were −dξ (q̇2 )q̇2 is the dissipative force.
+   Many of these dissipative forces on the tank fluid are exerted on the fluid by the tank itself. By
+Newton’s Third Law, one would also expect there to be a counter-force on the tank by the tank fluid.
+As the tank is fixed to the ship, this will generate a moment in roll. This moment, here denoted by
+−dφξ (q̇2 )q̇2 , is usually neglected in literature (Faltinsen and Timokha, 2009; Frahm, 1911; Goodrich,
+1968; Kagawa et al., 1989; Lloyd, 1989, 1998; Moaleji and Greig, 2006, 2007; Sellars and Martin, 1992).
+   Thus the non-conservative force vector τn is given by
+                                                           
+                               dφ (q̇1 )q̇1 + dφξ (q̇2 )q̇2
+                    τn = −                                  + τe (t) , −Γ(q̇)q̇ + τe (t)              (20)
+                                        dξ (q̇2 )q̇2
+
+
+                                                            11
+where τe (t) is the environmental forces and other unmodeled disturbances.
+   Due to the complicated nature of fluid flow (White, 2002), the precise analytical nature of Γ will be
+unknown. This is especially true for the fluid in the u-tank, where the fluid velocity is poorly defined
+at the bends.
+   Approximations to the damping functions dφ , dφξ and dξ can be found through experiments. Com-
+mon approximations are
+
+                                                 dφ (q̇1 ) = d1,l + d1,n |q̇1 |                            (21)
+
+                                                  dξ (q̇2 ) = d2,l + d2,n |q̇2 |                           (22)
+
+where all the parameters are constant and determined by experiments (Fossen, 2002; Lloyd, 1998). As
+the moment −dφξ (q̇2 )q̇2 is the moment caused by the counter-force of −dξ (q̇2 )q̇2 , it seems a reasonable
+assumption that dφξ will be similar in form to dξ . Thus,
+
+                                                dφξ (q̇2 ) = d12,l + d12,n |q̇2 |                          (23)
+
+with all parameters constant.
+
+4.5. System dynamics
+Proposition 3 (Main result). The dynamics of the system are given by
+
+                                 M (q)q̈ + C(q, q̇)q̇ + Γ(q̇)q̇ + k(q) = τe (t) + Bu                       (24)
+
+where
+                                                                           
+                                        Iφ + Aφ + It (q2 )          ρt c
+                       M (q) ,                                                                           (25)
+                                                  ρt c             ρt V̄t
+                                                              
+                                                  q̇2    q̇1
+                     C(q, q̇) , 2α5 q2                                                                   (26)
+                                                 −q̇1     0
+                                                                                            
+                                          α1 + cosα2 (q
+                                                     2
+                                                        1)
+                                                           − α q
+                                                              4 2
+                                                                 2
+                                                                     sin(q1 ) + α q
+                                                                                 3 2 cos(q 1 )
+                         k(q) ,                                                               .          (27)
+                                                   2α4 q2 cos(q1 ) + α3 sin(q1 )
+Derivation. For the ship–tank–ocean system with a box-shaped hull and a rectangular tank, the
+Lagrangian L̄ is given by
+                              1                           1
+                L̄(q, q̇) =     (Iφ + Aφ + It (q2 ))q̇12 + ρt V̄t q̇22 + ρt cq̇1 q̇2 − α1 (1 − cos(q1 ))   (28)
+                              2                         2
+                                         1
+                              − α2             − 1 − α3 q2 sin(q1 ) − α4 q22 cos(q1 ).
+                                      cos(q1 )
+   This gives
+                                                                       
+                         ∂ L̄  (Iφ + Aφ + It (q2 ))q̇1 + ρt cq̇2 
+                              =
+                         ∂ q̇           ρt cq̇1 + ρt V̄t q̇2
+                                                                                         
+                      d ∂ L̄  Iφ + Aφ + It (q2 ) ρt c                      4α5 q2 q̇1 q̇2
+                              =                                     q̈ +                   
+                      dt ∂ q̇           ρt c            ρt V̄t                    0
+                                                                                              
+                         ∂ L̄        α1 + cosα2 (q
+                                                2
+                                                   1)
+                                                      − α  4 q2
+                                                               2
+                                                                   sin(q 1 ) + α 3 q2 cos(q  1 )
+                              = −                                                               
+                         ∂q                                          
+                                        2 α4 cos(q1 ) − α5 q̇12 q2 + α3 sin(q1 )
+
+
+                                                               12
+                                      ∂It
+where α5 , ρt xt wr (ht − rd ) = 4q12 ∂q2
+                                          .
+   Inserting this into Equation (18), and using τn of Equation (20) for non-conservative, non-control
+generalized forces, gives Equation (24).
+
+   The system matrices can be shown to have the following properties:
+
+Property 1 (Positive definiteness). The matrix M is positive definite, i.e., satisfies
+
+                         M (q) = M T (q) > 0 ∀ q ⇒ xT M (q)x > 0 ∀ x ∈ R2 \{0}.
+
+Proof. The first statement of Property 1 can readily be seen from Equation (25). Proof that the
+second statement follows from the first can be found in Kreyszig (1999).
+
+Property 2 (Skew-symmetry). The matrix Ṁ (q) − 2C(q, q̇) is skew-symmetric, i.e., satisfies
+
+           Ṁ (q) − 2C(q, q̇) = −(Ṁ (q) − 2C(q, q̇))T ⇔ xT (Ṁ (q) − 2C(q, q̇))x = 0 ∀ x ∈ R2 .
+
+Proof.
+                                                                                            
+                                              ∂It (q2 )
+                                                ∂q2 q̇2    0                    q̇2      q̇1
+                     Ṁ (q) − 2C(q, q̇) =                      − 4α5 q2                     
+                                                  0        0                    −q̇1     0
+                                                                                                    
+                                              4(ρt xt wr (ht − rd ) − α5 )q2 q̇2       −4α5 q2 q̇1
+                                        =                                                           
+                                                          4α5 q2 q̇1                           0
+                                                                       
+                                                  0       −4α5 q2 q̇1
+                                        =                              
+                                           4α5 q2 q̇1           0
+                                                                           
+                                                   0           4α5 q2 q̇1
+                                        = −                                
+                                             −4α5 q2 q̇1            0
+
+                                        = −(Ṁ (q) − 2C(q, q̇))T
+
+since α5 , ρt xt wr (ht − rd ). The equivalency of the two statements in Property 2 can be found in
+Kreyszig (1999).
+
+   The dynamics (24) and the above two properties are recognized as being typical of n-link robotic
+manipulators (Sciavicco and Siciliano, 2000).
+
+4.5.1. Model validity
+   This model is only valid for a limited range of q values. There are implicit assumptions not
+specifically listed in Section 3 that give rise to constraints in the model.
+   The derived model is computed based on the assumption that the ship deck does not enter the
+water, that is
+                                                                 2(H − D) π
+                                                                            
+                                                     2D
+                            |q1 | = |φ| < min arctan    , arctan         ,     .
+                                                      B             B      2
+Also, the duct must always be full of tank fluid. That is,
+
+                                                 |q2 | = |ξ| < ht .
+
+
+                                                          13
+4.6. The four Lagrangian models
+    With the above, four of the Lagrangian models listed in Section 2.1 can now be explicitly defined.
+
+Model 1 (Lagrangian model L). The Lagrangian model is given by
+
+                                 L : M (q)q̈ + C(q, q̇)q̇ + ΓL (q̇)q̇ + k(q) = τe (t) + Bu                                       (29)
+
+with
+                                                                                         
+                                                                dφ (q̇1 )        0
+                                               ΓL (q̇) =                                 .
+                                                                    0         dξ (q̇2 )
+
+The functions dφ and dξ are approximated as in Equations (21) and (22).
+
+Model 2 (Linearized Lagrangian model Ll ). Linearizing the Lagrangian model about q = 0 gives
+the model
+
+                                           Ll : Ma q̈ + Γa q̇ + Ka q = τe (t) + Bu                                               (30)
+
+where
+                                                                                              
+                                                         Iφ + Aφ + It (0)             ρt c
+                                             Ma =                                             
+                                                                   ρt c               ρt V̄t
+                                                                         
+                                                         d1,l       0
+                                              Γa =                       
+                                                          0        d2,l
+                                                                                
+                                                         α1 + α2            α3
+                                             Ka =                               .
+                                                              α3          2α4
+    It is worth noting that the linearized Lagrangian model Ll is almost identical to the models of
+(Faltinsen and Timokha, 2009, Equation (3.59) p. 92) and Lloyd (1989, 1998).
+    Ll is identical to the model of (Faltinsen and Timokha, 2009), except that there It (0) = 0.1 Ll is
+functionally identical – requiring only a scaling of the tank equation – to the model of Lloyd (1989,
+1998), except that also there It (0) = 0.2 Excluding the moment of inertia It is likely to have only
+small effect on the accuracy of the model.
+
+Model 3 (Extended Lagrangian model eL). The extended Lagrangian model takes the form
+
+                                 eL : M (q)q̈ + C(q, q̇)q̇ + Γe (q̇)q̇ + k(q) = τe (t) + Bu                                      (31)
+
+where
+                                                                                         
+                                                                dφ (q̇1 ) dφξ (q̇2 )
+                                                Γe (q̇) =                                
+                                                                   0          dξ (q̇2 )
+
+with dφ , dξ and dφξ as in Equations (21)–(23).
+
+
+   1 Note that in Faltinsen and Timokha (2009) η = −ξ = −q and η = −φ = −q .
+                                                u         2      4           1
+   2 Note that in Lloyd (1989, 1998), x = φ = q and τ = 2ξ/w = 2q /w. Also note that the signage is wrong for the
+                                       4       1                 2
+
+tank-induced moment in roll in Lloyd (1989, 1998). (Lloyd, 1998, Equation (12.54b) p. 266)) reads (neglecting sway and
+yaw motions) (I44 + a44 )ẍ4 + b44 ẋ4 + c44 x4 − [a4τ τ̈ + c4τ τ ] = Fw40 sin(ωe t + γ4 ), but should read (I44 + a44 )ẍ4 + b44 ẋ4 +
+c44 x4 + [a4τ τ̈ + c4τ τ ] = Fw40 sin(ωe t + γ4 ). This error is propagated throughout (Lloyd, 1989, 1998).
+
+
+                                                                    14
+Model 4 (Linearized extended Lagrangian model eLl ). Linearizing the extended Lagrangian model
+about q = 0 gives the model
+
+                                  eLl : Ma q̈ + Γea q̇ + Ka q = τe (t) + Bu                       (32)
+
+where
+                                                                     
+                                                       d1,l   d12,l
+                                           Γea =                     
+                                                        0     d2,l
+
+and the other matrices are as in the linearized Lagrangian model Ll .
+
+   Apart from the extra tank-induced torque in roll, the extended models are identical to their regular
+counterparts.
+
+4.6.1. The damping term
+   In all four models, it is reasonable to assume that the damping is dissipative, that is
+
+                       xT Γ(q̇)x > 0 ∀ x ∈ R2 \{0}, Γ(q̇) ∈ {ΓL (q̇), Γa , Γe (q̇), Γel }.
+
+   If this property does not hold, then the damping can, at certain times, generate energy (Egeland
+and Gravdahl, 2002).
+
+
+5. Laboratory setup
+
+5.1. The rig
+
+   The lab setup consists of a mechanized see-saw, powered by a computer-controlled electrical step
+motor. A rectangular tank of the type seen in Figure 2(b) is placed on top of the movable part. The
+complete rig can be seen in Figure 3.
+   The motion of the see-saw is analogous to the rolling motion of the ship. The rig is also capable
+of moving sideways, analogous to sway, but this capability was not used in the experiments. The rig,
+excluding the tank, was borrowed from Sintef Marintek.
+   The tank has dimensions
+
+                                                wr = 10 cm
+
+                                                  w = 70 cm
+
+                                                 xt = 40 cm
+
+                                                 hd = 4 cm
+
+                                                 rd = 9.8 cm.
+
+All measurements are internal.
+   Due to the extremely elongated cross-section of the duct, it was impossible to fit an off-the-shelf
+valve on the tank. Instead, a gate mechanism was used: In the middle of the duct, an operator can
+lower or raise a gate to block the fluid or allow it to flow from one reservoir to the other. The gate
+
+
+                                                       15
+is bigger than the duct cross section, and the interior of the duct is grooved to allow room for the
+gate. This design limits leakage. Despite this, the gate is not entirely water-tight. Also, when the
+gate is open, some fluid will flow up into the gate mechanism itself. These effects are small, and only
+measurable when the fluid is not in motion.
+   The tank was filled to a level of ht ≈ 18 cm with tap water. A few grams of the coloring agent
+“fluoresceinum natricum” was added for easier observation of the behavior of the fluid.
+   The parameters ρt and g were assumed to take the values
+
+                                           ρt = 1000 kg/m3
+
+                                            g = 9.81 m/s2 .
+
+5.2. Input
+
+   The rig is capable of running pre-programmed roll patterns, by use of the step motor, limited to a
+range of φ ∈ [−25, 25]◦ . The motor can handle speeds well in excess of those needed in the experiments,
+even under full load.
+
+5.3. Measurements
+
+   A potentiometer hooked up to the rotating axis was used to measure actual roll angle.
+   Three sets of sensors were used to measure the torque. The sensors all work by measuring the
+deformation of the beam upon which the tank is resting, which is proportional to the torques involved.
+   Two of the torque sensors measure the component of the torque normal to the beam upon which
+the tank is resting. The average of the two measurements is used. The final torque sensor measures
+the component of the torque parallel to the beam upon which the tank is resting. The total torque is
+then the sum of these two components, appropriately scaled.
+   The depth is measured with two separate resistive sensors, one on the port side and one on the
+starboard side. On each sensor, two straight, rigid, conductive rods are inserted into the fluid, which
+closes the circuit. The greater the depth of the fluid in the reservoir, the further up the rods the
+circuit is closed, giving a lower measured resistance. The port sensor measures q2 directly, and the
+starboard sensor measures −q2 . After sign-reversing the starboard measurement, the average of these
+two measurements is used.
+
+5.4. Revised dynamics
+
+   The artificial laboratory setup has some key differences with the real-world system described in
+Section 4. The main differences are:
+
+  1. Roll is the input into the system, not a state.
+  2. There is no buoyancy.
+  3. There is no added mass.
+  4. There is no damping in roll.
+
+These differences necessitate some changes to the model.
+
+                                                  16
+5.4.1. Roll dynamics
+   While the actual roll angle q1 is assumed to perfectly follow the commanded roll angle φd , the
+rolling motion is still governed by a differential equation. If we assume the model L of Equation (29)
+to be correct, by Euler’s second axiom
+
+                                Iφ q̈1 = −α̃1 sin(q1 ) + τc + τL (q1 , q2 , q̇1 , q̇2 , q̈1 , q̈2 )                  (33)
+
+where α̃1 , gmzg , τc is the control input and
+
+                    τL (q1 , q2 , q̇1 , q̇2 , q̈1 , q̈2 ) = −It (q2 )q̈1 − ρt cq̈2 − 4α5 q2 q̇1 q̇2
+
+                                                       − ᾱ1 sin(q1 ) + α4 q22 sin(q1 ) − α3 q2 cos(q1 )             (34)
+
+with ᾱ1 , gρt xt (hd rd w + wr ht (2rd − ht )). τL is the moment in roll that would be zero if ρt = 0. In
+the case where there is no fluid in the tank, τL ≡ 0.
+   The measured moment τm = −τc , giving
+
+                                 τm = τL (q1 , q2 , q̇1 , q̇2 , q̈1 , q̈2 ) − Iφ q̈1 − α̃1 sin(q1 ).
+
+   As q1 (t) ≡ φd (t) by assumption, the measured moment is then
+
+                               τm = τL (φd , q2 , φ̇d , q̇2 , φ̈d , q̈2 ) − Iφ φ̈d − α̃1 sin(φd ).                   (35)
+
+   With no fluid in the tank, the measured roll moment is τm,0 = −Iφ φ̈d − α̃1 sin(φd ).
+   Taking the difference τm − τm,0 yields
+
+                                         τm − τm,0 = τL (φd , q2 , φ̇d , q̇2 , φ̈d , q̈2 ).
+
+All experiments are therefore done both with and without fluid in the tank. The difference of the two
+measurements yields the total tank-induced moment in roll.
+   Doing similar analysis for the other models, we get
+
+    τL = −It (q2 )φ̈d − ρt cq̈2 − ᾱ1 sin(φd ) − α3 q2 cos(φd ) + α4 q22 sin(φd ) − 4α5 q2 φ̇d q̇2                   (36)
+
+   τLl = −It (0)φ̈d − ρt cq̈2 − ᾱ1 φd − α3 q2                                                                       (37)
+
+   τeL = −It (q2 )φ̈d − ρt cq̈2 − ᾱ1 sin(φd ) − α3 q2 cos(φd ) − dφξ (q̇2 )q̇2 + α4 q22 sin(φd ) − 4α5 q2 φ̇d q̇2   (38)
+
+  τeLl = −It (0)φ̈d − ρt cq̈2 − ᾱ1 φd − α3 q2 − d12,l q̇2                                                           (39)
+
+as the total tank-induced torque in roll for, respectively, the Lagrangian model, the linearized La-
+grangian model, the extended Lagrangian model and the extended linearized Lagrangian model.
+
+5.4.2. Tank dynamics
+   The nonlinear dynamics of (29) and (31) (models L and eL) simplify down to
+
+                        ρt V̄t q̈2 + dξ (q̇2 )q̇2 + 2α4 q2 cos(φd ) + α3 sin(φd ) + ρt cφ̈d = 0.                     (40)
+
+This is a second-order non-homogenous ordinary differential equation with φd ≡ q1 as input.
+   The linear dynamics of (30) and (32) (models Ll and eLl ) simplify down to
+
+                                   ρt V̄t q̈2 + d2,l q̇2 + 2α4 q2 + α3 φd + ρt cφ̈d = 0.                             (41)
+
+This is a linear, second-order non-homogenous ordinary differential equation with φd ≡ q1 as input.
+
+
+                                                                 17
+6. Tank free decay tests
+
+   The purpose of these experiments was to determine the damping parameters in the tank, parameters
+that cannot be determined theoretically.
+
+6.1. Experiment
+
+   To determine the damping in the tank, four experiments of two types were performed. They can
+be classified as follows:
+
+Type A (q1 (t) ≡ 0, q2 (0) 6= 0) With the gate open, the tank was inclined to a non-zero roll angle.
+      When the fluid level had stabilized, the gate was closed, and the tank returned to zero angle.
+      When the fluid surface was calm, the gate was opened and the behavior of the fluid recorded.
+
+Type B (q1 (t) ≡ q1 (0) 6= 0, q2 (0) ≈ 0) With the gate closed and the tank fluid in the equilibrium
+      position, the tank was inclined to a non-zero roll angle. When the fluid surface was calm, the
+      gate was opened and the behavior of the fluid recorded.
+
+There were two experiments of each type:
+
+A1 q1 (t) ≡ 0, q2 (0) = −3.65 cm, q̇2 (0) = 0.62 cm/s.
+
+A2 q1 (t) ≡ 0, q2 (0) = 2.95 cm, q̇2 (0) = −0.20 cm/s.
+
+B1 q1 (t) ≡ 6.78◦ , q2 (0) = −0.57 cm, q̇2 (0) = −0.29 cm/s.
+
+B2 q1 (t) ≡ −6.89◦ , q2 (0) = 0.53 cm, q̇2 (0) = 0.24 cm/s.
+
+   As the derivatives of the states were not directly measured, the values for q̇2 (0) are estimates
+calculated by taking the numerical derivative of q2 , which is directly measured, at t = 0.
+
+6.2. Data processing
+
+   The data series gathered from tank free decay tests were processed with the following procedure
+(each step is performed on the output of the previous step):
+
+   1. Zero-phase lowpass-filtering with cut-off frequency of 3.0 Hz.
+   2. Downsampling from 200 Hz to 50 Hz.
+   3. Re-calibration.
+   4. Averaging the two depth measurements to get the final depth measurement.
+
+6.3. Results
+
+   To determine the unknown parameters, least-squares curve fitting was used to fit the model to the
+experimental data.
+   For the nonlinear models,
+                                                                     X
+                      (d2,l , d2,n , V̄t ) = arg       min                kq2 (t) − q̄2 (t; d2,l , d2,n , V̄t )k2
+                                                   d2,l ,d2,n ,V̄t
+                                                                      t
+
+
+                                                                     18
+where q2 (t) is the measured value of q2 and q̄2 (t; d2,l , d2,n , V̄t ) is the simulated value of q2 using the
+specific parameters. The simulations were started with the same initial conditions as the real system,
+and then simulated without input from the measured data. For the linear models,
+                                                          X
+                             (d2,l , V̄t ) = arg min           kq2 (t) − q̄2 (t; d2,l , V̄t )k2 .
+                                              d2,l ,V̄t
+                                                          t
+
+Each of the minimization problems were solved for the four time series, each truncated so that they
+were of equal length.
+   The results of the curve fitting can be seen in Tables 1 and 2. As an example, the results of
+experiment A1 can be seen in Figure 4.
+   As can be seen from Tables 1 and 2, the error of the nonlinear models is less than a third (27.9 %) of
+the error of the linear models. Changing the nonlinear damping function to a higher-order polynomial
+did not significantly increase accuracy.
+   For use in the linear models, the average parameters in Table 1 will be used, while in the nonlinear
+models the average parameters in Table 2 will be used.
+
+6.4. Analysis
+
+   The effective tank volume V̄t , which is distinct from the actual tank volume Vt , can be computed
+based on the theoretical considerations of Section 4. However, for a tank with a non-smooth midline
+function, the velocity of the tank fluid becomes poorly defined at the points at which the spatial
+derivative of the midline function doesn’t exist. In this case, the intersection between the duct and
+the reservoirs. One should therefore expect inaccuracies in the model parameters, most notably in the
+effective tank volume V̄t , which is based on the kinetic energy of the fluid. This is why the optimization
+algorithm was free to choose this parameter.
+                                                                                               
+   If we look at the theoretical value of V̄t , it should take the value V̄t = wr xt 2ht + ww
+                                                                                            hd
+                                                                                              r
+                                                                                                  . For
+the tank used in the experiments, this gives V̄t = 0.0844 m3 . The algorithm gives a value of V̄t of
+approximately 0.0793 m3 , a discrepancy of about 6 %.
+   Is this difference significant? Instead of letting the curve fitting algorithm choose V̄t , we could use
+the theoretical value and just let the algorithm choose the damping parameters. This gives results as
+in Tables 3 and 4.
+   In the linear case, the mean square error has increased by 560 %, while in the nonlinear case, the
+mean square error has increased by 2000 %. The function described by the parameters of Table 4
+does not even form a positive definite function, meaning the damping term will, in certain situations,
+generate energy. This huge discrepancy is because V̄t determines the natural frequency of the tank
+fluid, and even a small discrepancy here causes the simulations to be completely out of sync with the
+experimental data.
+   The areas of the tank where the model does not accurately reflect real behavior are the places
+where the spatial derivative of the tank midline function is discontinuous, i.e., the corners of the tank
+used in the experiments. Keeping the dimensions of the tank constant, the uncertain region increases
+in size with the ratio of duct height to fluid depth, hd /ht . One would expect that the discrepancy
+
+                                                              19
+between actual values and theoretical values will increase as the ratio hd /ht increases. At any values
+hd /ht ≥ 2, the model loses all validity as the duct will no longer be filled with fluid. (In the experiments,
+hd /ht ≈ 0.22.)
+   This suggests that, for maximum accuracy, the value of V̄t should be computed based on experi-
+mental data, rather than computed from theory, especially for high values of hd /ht .
+
+
+7. Sinusoidal input tests
+
+   To determine the validity of the theoretical models, and determine the parameters of dφξ , a series
+of experiments with sinusoidal inputs were performed.
+
+
+7.1. Experiment
+
+   To get a smoother transient behavior of the system, an increasing sinusoid was used instead of a
+pure sinusoid. The input took the form
+                              
+                              
+                              
+                                              0                   ∀ t ∈ [0, 5]
+                              
+                              
+                               r (t; 5, 5)A sin($(t − 5))
+                              
+                                                                   ∀ t ∈ (5, 330]
+                                   u
+                     φd (t) =                                                                            (42)
+                              
+                              
+                               rd (t; 5, 330)A sin($(t − 5))      ∀ t ∈ (330, 380]
+                              
+                              
+                                                                   ∀ t ∈ (380, ∞)
+                              
+                                              0
+
+with
+
+                                                T − (T + t − ∆)e−(t−∆)/T
+                                 ru (t; T, ∆) =                                                          (43)
+                                                            T
+                                                (T + t − ∆)e−(t−∆)/T
+                                 rd (t; T, ∆) =                      .                                   (44)
+                                                          T
+
+   An example input signal can be seen in Figure 5.
+   All inputs had amplitude A = 7◦ , while the input frequencies $ were (in rad/s, to three decimals
+precision) $ ∈ {0.500, 1.000, 2.199, 2.387, 2.576, 2.764, 2.858, 2.953, 3.047, 3.141, 3.330, 3.518, 3.707,
+3.895, 4.500, 5.000}.
+   For each $, experiments were performed twice. Once with the gate open (were the tank fluid is
+free to move) and once without tank fluid, giving a total of 32 experiments.
+
+
+7.2. Data processing
+
+   The data series gathered from experiments with sinusoidal input were processed with the following
+procedure (each step is performed on the output of the previous step):
+
+   1. Zero-phase bandpass-filtering with pass band between 0.05 Hz and 3.0 Hz.
+   2. Downsampling from 200 Hz to 50 Hz.
+   3. Re-calibration.
+   4. (a) Averaging the two depth measurements to get the final depth measurement.
+       (b) Calculating the roll moment based on the normal and parallel components.
+
+
+
+                                                     20
+7.3. Results
+7.3.1. Tank fluid
+   For the motion of the tank fluid (Equations (40) and (41)) it was deemed advantageous to create
+a Bode diagram to summarize the data. However, the system (40) is nonlinear, and a standard Bode
+diagram is only applicable for linear systems. Instead, the following procedure is used:
+   For any system with input u and output y we define the functions a and p as
+                                                  max |y(t)|
+                                                t∈[t1 ,t2 ]
+                          a(y, u; t1 , t2 ) =
+                                                 max |u(t)|
+                                                t∈[t1 ,t2 ]
+                                                                       Z t2                       
+                                                                 2
+                          p(y, u; t1 , t2 ) = arccos                              n(y(t))n(u(t)) dt
+                                                              t2 − t1        t1
+
+where
+                                                                   x(t)
+                                                n(x(t)) =                   .
+                                                                 max |x(t)|
+                                                               t∈[t1 ,t2 ]
+
+Assuming that u and y both are sinusoidal signals, the two functions a and p approximate the amplitude
+and phase difference between u and y. For a linear system, with t2 and t1 given wide enough range, a
+and p are equal to the amplitude and phase difference.
+   Considering the roll angle q1 as input and the tank state q2 as the output, the functions a(q2 , q1 ; t1 , t2 )
+and p(q2 , q1 ; t1 , t2 ) (or rather, their discrete equivalents) were therefore used as a measure of the “am-
+plitude” and the “phase” of the tank state. The time interval was chosen to be t1 = 100 s to t2 = 300
+s, where the system is in steady-state.
+   The simulations were initialized with the same initial conditions as the real system, and then
+simulated without input from the measured data. The tank damping parameters found in Section 6.3
+were used in the simulation. A comparison of the simulation and the measurements can be seen in
+Figure 6, showing a in dB (using 20 log10 (a)) and p in degrees. The mean square errors are in Table
+5. More detailed example figures can be seen in Figures 7 and 8.
+   The nonlinear models L and eL are significantly better fits to the experimental results than the
+linear models Ll and eLl , having only 0.14 % of the mean square error, a reduction by three orders of
+magnitude. However, it can be shown that this is almost entirely due to the presence of the nonlinear
+damping terms. Using linear damping terms in the (still) nonlinear models causes the accuracy of the
+linear and nonlinear models to be almost identical.
+
+7.3.2. Roll moment
+   The tank-induced moment in roll is merely an analytical function of the states and their derivatives.
+As such, a Bode diagram is not applicable for this data. Instead, a direct comparison between the
+calculated torque and the measured torque is performed, and the mean square error computed.
+   To accurately reflect the differences in the models, the measured tank state was not used in these
+calculations. Instead, the tank simulations from Section 7.3.1 were used. The linear models Ll and
+eLl were fed the linear simulation results, and the nonlinear models L and eL were fed the nonlinear
+simulation results.
+
+                                                                21
+   For the extended models eL and eLl there is the additional problem that the terms of the damping
+function dφξ are unknown. To estimate them, we took the time interval t ∈ [60, 315] s for all experiments
+(that is, the steady-state response) and used least squares curve fitting on the entire data set to find
+the parameters that best fitted the total data set. That is,
+                                            X
+    (d12,l , d12,n ) = arg      min              kτm (t) − τeL (φd (t), q2 (t), φ̇d (t), q̇2 (t), φ̈d (t), q̈2 (t); d12,l , d12,n )k2
+                             d12,l ,d12,n
+                                             t
+
+for eL and
+                                      X
+              d12,l = arg min               kτm (t) − τeLl (φd (t), q2 (t), φ̇d (t), q̇2 (t), φ̈d (t), q̈2 (t); d12,l )k2
+                              d12,l
+                                      t
+
+for eLl , where τm is the combined measured moment for all experiments, and τeL and τeLl are as
+in Equations (38) and (39). Note that the measured value of q2 was used for the purpose of finding
+the parameters. This means that different data sets were used for estimation and validation, as the
+validation was done using the simulated values of q2 .
+   For the nonlinear model eL, the parameters found were
+
+                                                       d12,l = 0.0578 kg·m/s
+
+                                                      d12,n = 4.3390 kg.
+
+For the linear model eLl , the parameter found was
+
+                                                      d12,l = 1.3872 kg·m/s.
+
+   The experimental results are summarized in Table 6. More detailed example figures can be seen in
+Figures 9 and 10.
+   As can be seen from the data, there is significant differences between the models. The nonlinear
+models L and eL had three orders of magnitude lower mean square error relative to the experimental
+data than the linear models Ll and eLl . The extended Lagrangian model eL also outperformed the
+Lagrangian model L, having on average 24 % lower mean square error and 41 % lower at the most.
+The difference is greatest around the peak frequency (3.14 rad/s), as that is when the velocity of the
+tank fluid is greatest. However, the mean square errors are so low for the nonlinear models, that this
+difference is almost invisible to the naked eye.
+   The two linear Lagrangian models Ll and eLl perform, for all practical purposes, identically. The
+extended model, in fact, performs marginally worse and is slightly more complicated. It is therefore
+reasonable to conclude that extending the linear model is not worthwhile.
+
+
+8. Pseudorandom input tests
+
+8.1. Experiment
+
+   To approximate bandwidth-limited zero-mean Gaussian white noise, a sum of sinusoids with pseu-
+dorandomly selected frequencies and phases were used.
+
+
+                                                                    22
+   The pseudorandom input signals were generated as
+                                  N
+                                  X
+                       φd (t) =         ϕn (t)
+                                  n=1
+                                  
+                                  
+                                  
+                                                    0                  ∀   t ∈ [0, 5]
+                                  
+                                  
+                                                                        ∀   t ∈ (5, 385]
+                                  
+                                       ru (t; 2, 5)A sin($n t + θn )
+                       ϕn (t) =
+                                  
+                                  
+                                   rd (t; 2, 385)A sin($n t + θn ) ∀       t ∈ (385, 405]
+                                  
+                                  
+                                                                    ∀       t ∈ (405, 410]
+                                  
+                                                  0
+
+with ru and rd as in (43) and (44).
+   The number of sinusoids N = 100. The amplitude of each sinusoid A = 7◦ in all experiments. The
+phases θn were uniformly distributed in the range [0, 2π). The frequencies $n were taken to lie in
+the range [0.7π, 1.2π) rad/s = [0.35, 0.6) Hz. The frequency range was split into N evenly distributed
+frequencies $̄i , and $n uniformly randomly selected from the range [$̄n , $̄n+1 ).
+   Example input series and their power spectral density can be seen in Figures 11 and 12.
+
+
+8.2. Data processing
+
+   The data series gathered from experiments with pseudorandom input were processed with the
+following procedure (each step is performed on the output of the previous step):
+
+  1. Zero-phase bandpass-filtering with pass band between 0.05 Hz and 3.0 Hz.
+  2. Downsampling from 200 Hz to 50 Hz.
+  3. Re-calibration.
+  4. (a) Averaging the two depth measurements to get the final depth measurement.
+      (b) Calculating the roll moment based on the normal and parallel components.
+
+
+8.3. Results
+
+8.3.1. Tank fluid
+   As before, the simulations were initialized with the same initial conditions as the real system, and
+then simulated without input from the measured data. The tank damping parameters found in Section
+6.3 were used in the simulation. A Bode diagram is no longer suitable, so direct comparison between
+the experimental data and the models was performed. The results are summarized in Table 7. Example
+time series can be seen in Figures 13 and 14.
+   As can be seen from the data, the error is significantly lower with the nonlinear models than with
+the linear models, having a mean square error of only 0.19 % of the linear models. Once again, however,
+this difference is almost entirely due to the presence of the nonlinear damping terms in the nonlinear
+models. Using linear damping terms in the (still) nonlinear models causes the mean square error of
+the linear and nonlinear models to be almost identical.
+
+
+
+
+                                                          23
+8.3.2. Roll moment
+   As before, the estimated torques are directly compared to the measured torques. For the extended
+models, the parameters of dφξ found in Section 7.3.2 were used. To accurately reflect the differences
+in the model, the simulated tank responses from Section 8.3.1 rather than the measured values were
+used to compute the estimated torques. The linear models Ll and eLl were fed the linear simulation
+results, and the nonlinear models L and eL were fed the nonlinear simulation results. The details are
+summarized in Table 8. Example time series can be seen in Figures 15 and 16.
+   The data is largely consistent with the results presented in Section 7.3.2. The nonlinear models L
+and eL had three orders of magnitude lower mean square error relative to experimental data than the
+linear models Ll and eLl . The extended Lagrangian model eL outperformed the Lagrangian model
+L, having 13 % lower mean square error, on average. The pseudorandom experiments showed a lower
+reduction in mean square error than the sinusoidal experiments because the tank fluid moves at a
+lower velocity, on average, in the pseudorandom experiments. As before, the mean square error of the
+nonlinear models is so low that the difference between L and eL is almost invisible to the naked eye.
+   The two linear Lagrangian models Ll and eLl are again almost indistinguishable in quality, and
+again the extended model is marginally worse.
+
+
+9. Lagrangian model revisited
+
+   From Sections 6–8, the extended Lagrangian model eL has the best fit with the experimental data.
+However, the model is fairly complex and highly nonlinear. Unfortunately, the linear models eLl and
+Ll have significantly higher error relative to experimental data. But, as was noted in Sections 6–8, the
+most important nonlinearities are the damping terms.
+   This suggests a simplified model:
+
+Model 5 (Simplified extended Lagrangian model eLr ).
+
+                                eLr : Ma q̈ + Γe (q̇)q̇ + Ka q = τe (t) + Bu                       (45)
+
+where Ma , Γe and Ka are as in Equations (30) and (31).
+
+Note that the linearization of eLr about q = 0 is identical to eLl .
+   To test the model eLr , it and the models eL and Ll were simulated and compared (eLl was not
+simulated, as its behavior and accuracy is virtually indistinguishable from that of Ll ). The following
+
+
+
+
+                                                    24
+(arbitrary but consistent) parameters were used:
+
+                                            Iφ = 237.13 kg·m2
+
+                                             m = 2475 kg
+
+                                             L = 7.37 m
+
+                                             B = 0.9 m
+
+                                             D = 0.3731 m
+
+                                             zg = 0.1119 m
+
+                                             ρo = 1000 kg/m3
+
+                                            Aφ = 23.713 kg·m2
+
+                                           d1,l = 25 kg·m2 /s
+
+                                           d1,n = 17.5 kg·m2 .
+
+These parameters are not based on any real ship. The tank parameters were the same as those used
+(and found) in Sections Sections 6–8. The tank is slightly more than 1 % of this ship’s mass m.
+   The system was excited by a generalized force τe (t) given by
+                                                             
+                                               Aτ sin(ωτ t)
+                                    τe (t) =                 
+                                                      0
+
+with frequency ωτ = 3.1524 rad/s, equal to the ship’s – and the tank’s – natural frequency. Ten
+simulations were performed, all with initial conditions q(0) = q̇(0) = 0, and Aτ ∈ {5, 10, 15, 20,
+25, 30, 35, 40, 45, 50} N·m. The tank state q2 was limited to the range |q2 | ≤ ht .
+   The results are summarized in Tables 9 and 10. The mean square errors in Table 9 are based on
+steady-state data from t = 30 s to t = 100 s. An example time series can be seen in Figure 17. For
+comparison the linear model Ll has also been simulated.
+   The reduced model eLr is very accurate in predicting the correct amplitude for both q1 and q2 , but
+is slightly off in phase. The phase error of the linear model Ll varies depending on the simulation, and
+can be both greater and smaller than the phase error of eLr . However, the linear model Ll is highly
+inaccurate in amplitude for both states across all time series.
+   It is also worth noting that the linear model Ll overestimates the effectiveness of the tank, mostly
+due to overestimating the response of the tank fluid. The linear model estimates that the difference in
+fluid level between the port and starboard reservoirs will be much greater than the nonlinear models
+estimate, which gives an unreasonably high weight difference between port and starboard, and thus
+a greater torque. As can be seen in Table 9, the most accurate model eL predicts a reduction of, on
+average, 54 %, while the linear model Ll predicts a reduction of 67 % on average. The reduced model
+eLr predicts 54 % reduction.
+   If one uses the nonlinear spring term k(q) rather than its linearization about q = 0, Ka q, the
+reduced model performs almost identically to the full model eL. However, this comes at a high cost
+
+
+
+                                                    25
+in complexity. The reduced eLr can therefore probably serve as a useful design tool, especially for
+feedback control, combining simplicity with reasonable accuracy.
+
+
+10. Conclusions
+
+   In this paper, we have derived five models of u-shaped anti-roll tanks; three novel nonlinear models
+and their linearized counterparts (two of which are identical). One of the linear models is functionally
+identical to the models of Lloyd (1989, 1998) and Faltinsen and Timokha (2009). As a main modeling
+tool, we used Lagrangian mechanics. The proposed models satisfy physical energy-related properties
+and are validated using data from 44 different experiments performed on a small-scale rig. The models
+are limited to roll and the motion of the tank fluid.
+   The models were designated as follows:
+
+L: A nonlinear model, first presented in this paper, based on Lagrangian (analytical) mechanics.
+
+Ll : The linearization of L about zero. This model is functionally identical to the model of Lloyd (1989,
+     1998) and that of Faltinsen and Timokha (2009).
+
+eL: An extension of L, containing additional tank-induced moments in roll.
+
+eLl : The linearization of eL about zero. This model contains an additional tank-induced moment in
+     roll not part of Lloyd (1998)’s or Faltinsen and Timokha (2009)’s models.
+
+eLr : A nonlinear simplification of eL.
+
+   From the model validation, it was found that the nonlinear terms in the models have a profound
+effect on the model performance, even at medium roll amplitudes. The nonlinear models L and eL had
+three orders of magnitude lower mean square error relative to the experimental data than the linear
+models Ll and eLl . The extended Lagrangian model eL performed better than the Lagrangian model
+L, having up to 41 % lower mean square error relative to experimental data. This difference is greatest
+at the resonance frequency. However, the mean square error of the nonlinear models is so low, that
+the difference between eL and L is almost invisible to the naked eye.
+   The two linear models Ll and eLl performed, for all practical purposes, identically. However, eLl
+had 0.5 % greater mean square error relative to experimental data than Ll , and is marginally more
+complex. Its use is therefore not recommended.
+   The models L and eL are complex, and a simplified but still nonlinear model, eLr was proposed
+to combine the accuracy of the nonlinear models and the simplicity of the linear models. It can be
+a useful compromise in certain situations, for instance in control or observer design where feedback
+compensates for any remaining inaccuracies.
+   The models presented in this paper are a novel contribution, and they can be extended to incor-
+porate other degrees of freedom, such as yaw, sway and the vertical plane motion. In addition, the
+model can be extended to other tank shapes, including ones not open to the atmosphere. This work
+is beyond the scope of this paper.
+
+                                                   26
+Acknowledgements
+
+   The authors would like to thank Sintef Marintek for the use of their laboratory and especially Kjetil
+Berget for his assistance with the experiments.
+
+
+Appendix A. Nomenclature for the appendices
+
+~nz [–]: The z-axis of the inertial reference frame, parallel to the gravity field and pointing towards
+      the center of the Earth.
+
+dV [m3 ]: An infinitesimal volume block of the ship–tank system.
+
+ρ(~r) [kg/m3 ]: Density of dV ; a function of the position ~r of dV .
+
+~v (~r) [m/s]: The velocity of dV ; a function of the position ~r of dV .
+
+h(~r) [m]: Height above the zero level of dV ; a function of the position ~r of dV .
+
+dUg [kg·m2 /s2 ]: Potential energy of dV due to gravity.
+
+dUb [kg·m2 /s2 ]: Potential energy of dV due to buoyancy.
+
+dTT [kg·m2 /s2 ]: Kinetic energy of dV .
+
+rbg [m]: Position of the ship’s center of gravity, in the body frame.
+
+r̄bg [m]: Position of the tank’s center of gravity, in the body frame.
+
+rbb [m]: Position of the ship’s center of buoyancy, in the body frame.
+
+Vt [m3 ]: Total volume of tank fluid.
+
+hg0 [m]: The zero level for gravity.
+
+hb0 [m]: The zero level for buoyancy.
+
+Ug [kg·m2 /s2 ]: Potential energy of the ship–tank system due to gravity.
+
+Ub [kg·m2 /s2 ]: Potential energy of the ship–tank system due to buoyancy.
+
+Tt [kg·m2 /s2 ]: Kinetic energy of the fluid in the tank.
+
+Ts [kg·m2 /s2 ]: Kinetic energy of the ship, excluding the fluid in the tank.
+
+TT [kg·m2 /s2 ]: Kinetic energy of the ship–tank system, TT = Tt + Ts .
+
+To [kg·m2 /s2 ]: Kinetic energy of the ocean due to the motion of the ship.
+
+
+Appendix B. Potential energy
+
+   There are two main sources of potential energy for the tank–ship system: gravity and buoyancy.
+
+
+                                                     27
+Appendix B.1. Gravity
+
+    Any infinitesimal volume block dV of the ship–tank system at a position ~r and density ρ(~r) will
+have gravitational potential energy
+
+                                              dUg = gρ(~r)h(~r)dV                                    (B.1)
+
+where h(~r) is the volume block’s height above the zero level. This is the same as the z-component of
+~r in the inertial reference frame, relative to some arbitrary zero point. In other words,
+
+                                               h(~r) = hg0 − ~r · ~nz                                (B.2)
+
+where ~nz is the unit vector along the z n -axis (the negative signage is because z n points towards the
+center of the Earth, i.e., with the gravity field). This allows us to express h conveniently as
+
+                                  h(~r) = hg0 − [0, 0, 1]rn = hg0 − [0, 0, 1]Rrb .                   (B.3)
+
+    As the geometry of the ship is easiest to describe in the body frame, we will use body vectors,
+giving
+
+                                      dUg = gρ(rb )(hg0 − [0, 0, 1]Rrb )dV.                          (B.4)
+
+    The total potential energy caused by gravity is then given by
+                        Z                                Z
+                  Ug = gρs (r )(h0 − [0, 0, 1]Rr ) dV + gρt (hg0 − [0, 0, 1]Rrb ) dV
+                                b  g              b
+                         ship                              tank
+                                                    Z                 Z        
+                                     g                      b b            b
+                     = g(ρt Vt + m)h0 − g[0, 0, 1]R    ρs (r )r dV + ρt r dV
+                                                             ship                    tank
+
+                         = g(ρt Vt + m)hg0 − g[0, 0, 1]R   mrbg + ρt Vt r̄g
+                                                                         b
+                                                                           
+                                                                                                     (B.5)
+
+where
+                                                     Z
+                                                   1
+                                             rbg ,     ρs (rb )rb dV                                 (B.6)
+                                                   m ship
+                                                     Z
+                                               b   1
+                                             r̄g ,      rb dV                                        (B.7)
+                                                   Vt tank
+
+are, respectively, the ship’s and the tank fluid’s center of gravity expressed in the body frame.
+    The ship’s center of gravity is assumed to be constant in the body frame, and a priori known and
+given as rbg = [0, 0, zg ].
+    The center of gravity of the tank fluid, however, is changing since the tank fluid is not a rigid body.
+The infinitesimal volume dV satisfies dV = A(σ)dσ, giving
+                                               Z ςp
+                                             1
+                                      r̄bg =      rb (σ)A(σ) dσ.                                     (B.8)
+                                             Vt −ςs t
+
+    When ςp = ςs = ς0 , the center of gravity of the tank fluid is
+                                           Z ς0
+                                         1
+                                  r̄bg =      rb (σ)A(σ) dσ , [0, 0, z̄g ].                          (B.9)
+                                         Vt −ς0 t
+
+
+                                                        28
+      The fluid surface is assumed parallel to the duct. This gives
+                                                                                                
+                Z −w/2           0                               0                           0
+                                                        Z w/2                 Z ςp               
+Vt r̄bg = xt wr                              dσ + xt hd        −σ  dσ + xt wr            −w/2      dσ
+                                                                                                
+                                w/2                                                  
+                 −ςs                                    −w/2                  w/2               
+                           rd + w/2 + σ                          rd                     rd + w/2 − σ
+                                                    
+                                 0
+                                                    
+        = xt                −wwr ξ                                                                (B.10)
+                                                    
+                                                     
+                                                    
+                hd rd w + wr ht (2rd − ht ) − wr ξ 2
+
+where it has been used that ςp = ht + w/2 + ξ and ςs = ht + w/2 − ξ.
+
+Appendix B.2. Buoyancy
+   Buoyancy is also caused by gravity, but it is the weight of the surrounding water, not the weight
+of the ship–tank system, that causes it. It can be viewed as a “buoyancy field” going in the opposite
+direction of the gravity field.
+   Any infinitesimal volume block dV of the submerged part of the ship–tank system is subject to
+buoyancy. This gives the volume block a potential energy of
+
+                                               dUb = gρo h(~r)dV                                 (B.11)
+
+where h(~r) is the volume block’s height above the zero level. This is the same as the z-component of
+~r in the inertial reference frame, relative to some arbitrary zero point. In other words,
+
+                                               h(~r) = hb0 + ~r · ~nz                            (B.12)
+
+where ~nz is the unit vector along the z n -axis (the positive signage is because z n points towards the
+center of the Earth, i.e., against the “buoyancy field”). This allows us to express h conveniently as
+
+                                  h(~r) = hb0 + [0, 0, 1]rn = hb0 + [0, 0, 1]Rrb .               (B.13)
+
+   As the geometry of the ship is easiest to describe in the body frame, we will use body vectors,
+giving
+
+                                       dUb = gρo (hb0 + [0, 0, 1]Rrb )dV.                        (B.14)
+
+   The potential energy given by buoyancy is then given by
+                                Z
+                           Ub = gρo (hb0 + [0, 0, 1]Rrb ) dV
+                                  submerged
+                                                           Z
+                              = gρo Vs hb0 + gρo [0, 0, 1]R rb dV
+                                                                   submerged
+
+                                   = g(m + ρt Vt )hb0 + g(m + ρt Vt )[0, 0, 1]Rrbb               (B.15)
+
+where the mass of the submerged volume ρo Vs is equal to the total ship mass (including tank fluid)
+ms , or ρo Vs ≡ ρo LBD ≡ (m + ρt Vt ) , ms (the ship is floating) and
+                                                   Z
+                                           b    ρo
+                                          rb ,         rb dV                                     (B.16)
+                                                ms submerged
+
+
+                                                        29
+is the ship’s center of buoyancy. This will be a non-constant, and in the simplified case discussed in
+this paper, will vary only with roll angle.
+   Assuming a box-shaped ship, the center of buoyancy is given by
+                                                                                   
+                     Z L/2 Z B/2 Z D         x                              0
+                                                           LBρo     B2
+                                                                                      
+         ms rbb = ρo                       y  dz dy dx =
+                                                                                   
+                                                                        6 tan(φ)
+                                                               2 
+                                                                                     
+                      −L/2 −B/2 −y tan(φ)     
+                                                                           2
+                                                                                      
+                                             z                      D2 − B12 tan2 (φ)
+                                        
+                                 0
+                  ms        B2
+                                         
+                =                                                                                   (B.17)
+                                        
+                             6  tan(φ)
+                  2D 
+                                        
+                                         
+                           2    B2   2
+                         D − 12 tan (φ)
+since ms = m + ρt Vt = LBDρo (floating ship).
+
+Appendix B.3. Total potential energy
+   The total potential energy U is thus given by
+
+          U = Ug + Ub = gms (hg0 + hb0 ) − g[0, 0, 1]R mrbg + gρt Vt r̄bg + gms [0, 0, 1]Rrbb .
+                                                                         
+                                                                                                    (B.18)
+
+   Noting that [0, 0, 1]R = [0, sin(φ), cos(φ)], for a rectangular tank in a box-shaped floating ship, U
+becomes
+                                                                         gms B 2
+           U = gms (hg0 + hb0 ) − gmzg cos(φ) + gρt xt wr wξ sin(φ) +                               (B.19)
+                                                                       24D cos(φ)
+                                                                                   B2
+                                                                                     
+                                                                             D
+                − gρt xt hd rd w + wr ht (2rd − ht ) − wr ξ 2 cos(φ) + gms
+                                                             
+                                                                                −       cos(φ)
+                                                                             2    24D
+using the relationship tan(φ) sin(φ) = tan2 (φ) cos(φ) = 1/ cos(φ) − cos(φ).
+   A priori we know that q = 0 is an equilibrium point for the ship–tank system. For convenience,
+we will therefore take this to be the zero point for potential energy. The value U0 of U in this case is
+                                                    D
+              U0 = gms (hg0 + hb0 ) − gmzg + gms      − gρt xt (hd rd w + wr ht (2rd − ht )) , 0
+                                                    2
+which implies
+                                                   D
+                   gms (hg0 + hb0 ) = gmzg − gms     + gρt xt (hd rd w + wr ht (2rd − ht )) .
+                                                   2
+   Inserting this into Equation (B.19) gives
+                                                                     12D2 − B 2
+                                                                                  
+             U = g mzg + ρt xt (hd rd w + wr ht (2rd − ht )) − ms                    (1 − cos(φ))
+                                                                         24D
+                     gms B 2
+                                          
+                                  1
+                   +                   − 1 + gρt xt wr wξ sin(φ) + gρt xt wr ξ 2 cos(φ)
+                       24D     cos(φ)
+                                                       
+                                                1
+                , α1 (1 − cos(q1 )) + α2                  + α3 q2 sin(q1 ) + α4 q22 cos(q1 )        (B.20)
+                                           cos(q1 ) − 1
+with
+                                                                               12D2 − B 2
+                    α1 , g [mzg + ρt xt (hd rd w + wr ht (2rd − ht ))] − gms
+                                                                                  24D
+                           gms B 2
+                    α2 ,
+                            24D
+                    α3 , gρt xt wr w
+
+                    α4 , gρt xt wr .
+
+
+                                                      30
+Appendix C. Kinetic energy
+
+Appendix C.1. Kinetic energy of the ship and u-tank
+
+   Any infinitesimal volume block dV of the ship-tank system at a position ~r with a velocity ~v (~r) and
+density ρ(~r) will have kinetic energy
+
+                                                    1
+                                            dTT =     ρ(~r)k~v (~r)k22 dV.                          (C.1)
+                                                    2
+
+   The velocity and density depends on the position of the volume block:
+                                          
+                                           ρ (~r) in the ship
+                                             s
+                                 ρ(~r) =                                                            (C.2)
+                                           ρ        in the tank
+                                               t
+                                          
+                                           ω  ~ × ~r     in the ship
+                                ~v (~r) =                                                           (C.3)
+                                            ~ × ~r + w
+                                           ω         ~ in the tank
+
+   The kinetic energy of the ship–tank system is then given by
+                          Z                            Z
+                        1                           ρt                2
+                  TT =               ω × ~rk22 dV +
+                             ρs (~r)k~                   k~
+                                                          ω × ~r + wk
+                                                                   ~ 2 dV = Ts + Tt
+                        2 ship                      2 tank
+
+  The kinetic energy of the ship, Ts , is given by
+
+                                                             ω2
+                                  Z                             Z
+                               1                      2
+                         Ts =                  ω × ~rk2 dV =
+                                       ρs (~r)k~                  ρs (~r)(y 2 + z 2 ) dV.           (C.4)
+                               2 ship                        2 ship
+
+We recognize ship ρs (~r)(y 2 + z 2 ) dV as the rigid-body moment of inertia of the ship about the x-axis,
+            R
+
+Iφ . This gives
+
+                                                          1
+                                                   Ts =     Iφ ω 2 .                                (C.5)
+                                                          2
+
+   The kinetic energy of the fluid in the tank, Tt , is given by
+                        Z
+                    ρt                       2
+              Tt =            k~
+                               ω × ~r + wk
+                                         ~ 2 dV
+                    2 tank
+                    ρt ςp b
+                        Z
+                 =           kω × rbt (σ) + wb k22 A(σ) dσ
+                    2 −ςs
+                    ρ t ω 2 ςp 2
+                             Z                                   Z ςp                 
+                                                                          dzT      dyT
+                 =                 (yT + zT2 )A(σ) dσ + ρt A0 ωυ       yT     − zT       dσ
+                       2       −ςs                                −ςs     dσ       dσ
+                                              2        2
+                                           dyT
+                              2 2 Z ςp
+                        ρ t A0 υ            dσ    + dz
+                                                     dσ
+                                                       T
+
+                   +                                        dσ
+                             2       −ςs        A(σ)
+                    1            1
+                 = It ω 2 + ρt V̄t (hd υ̇/wr )2 + cρt ω(hd υ/wr )                                   (C.6)
+                    2            2
+
+where
+                                            Z ςp
+                                 I t = ρt       (yT2 + zT2 )A(σ) dσ
+                                             −ςs
+                                               Z ςp                    
+                                                         dzT       dyT
+                                   c = xt wr          yT      − zT        dσ
+                                                −ςs       dσ        dσ
+                                                          2        2
+                                               Z ςp dyT       + dz T
+                                                       dσ         dσ
+                                 V̄t = x2t wr2                          dσ.
+                                                −ςs         A(σ)
+
+
+                                                          31
+   For a rectangular tank
+                     Z −w/2                                        Z w/2
+                              2                   2
+       It = ρt wr xt        (w /4 + (rd + w/2 + σ) ) dσ + ρt hd xt       (σ 2 + rd2 ) dσ
+                         −ςs                                                       −w/2
+                             Z ςp
+                + ρt wr xt          (w2 /4 + (rd + w/2 − σ)2 ) dσ
+                              w/2
+                                                                                                w2
+                                                                                                  
+                1                                  w     
+            =     ρt wr xt (ςp3 + ςs3 ) − wr xt ρt    + rd (ςp2 + ςs2 ) + wr xt ρt rd2 + rd w +      (ςp + ςs )
+                3                                   2                                           2
+                                                                         
+                                hd      wr          1
+                + wxt ρt            −        w2 − wr rd w + (hd − wr )rd2
+                                12      3           2
+                      "Z                                                   #
+                          −w/2                Z w/2         Z        ςp
+        c = wr xt                   w/2 dσ +          rd dσ +             w/2 dσ
+                         −ςs                   −w/2              w/2
+
+             wwr xt                           w r xt w 2
+            =        (ςp + ςs ) + rd wwr xt −
+                2                                 2
+                   Z −w/2
+                             wr2 xt w/2
+                                    Z              Z ςp                                     
+                                                                                        wr
+       V̄t = wr xt     dσ +           dσ + wr xt       dσ = wr xt (ςp + ςs ) + wwr xt      −1 .
+                    −ςs        hd −w/2              w/2                                 hd
+
+     Inserting ςp = ht + w/2 + q2 and ςs = ht + w/2 − q2 gives
+                                                   2                        2                    
+                                 2                 ht            2            w hd   wwr ht       2
+ It (q2 ) = 2ρt wr xt (ht − rd )q2 + 2ρt wr xt ht     − rd ht + rd + ρt xt w       +        + hd rd (C.7)
+                                                    3                          12      2
+      c = wwr xt (ht + rd )                                                                                        (C.8)
+                           
+                        wwr
+    V̄t = wr xt 2ht +         .                                                                                    (C.9)
+                         hd
+
+Appendix C.2. Kinetic energy of the ocean
+
+   The kinetic energy of the ocean due to the passage of the ship is given by
+
+                                                                1
+                                                        To =      Aφ ω 2                                          (C.10)
+                                                                2
+
+where Aφ > 0 is the hydrodynamic added mass in roll (Fossen, 2002).
+
+Appendix C.3. Total kinetic energy of the system
+
+   The total kinetic energy T of the system is given by
+
+                                                 1                           1
+                        T = Ts + Tt + To =         (Iφ + Aφ + It (q2 ))q̇12 + ρt V̄t q̇22 + cρt q̇1 q̇2 .         (C.11)
+                                                 2                           2
+
+References
+
+Beck, R. F., Cummins, W. E., Dalzell, J. F., Mandel, P., Webster, W. C., 1989. Motion in waves. In:
+  Lewis, E. W. (Ed.), Principles of Naval Architecture. Vol. III. The Society of Naval Architects and
+  Marine Engineers, pp. 1–187.
+
+Biran, A., 2003. Ship Hydrostatics and Stability. Butterworth-Heinemann.
+
+Egeland, O., Gravdahl, J. T., 2002. Modeling and Simulation for Automatic Control. Marine Cyber-
+  netics.
+
+Faltinsen, O. M., Timokha, A. N., 2009. Sloshing. Cambridge University Press.
+
+                                                                32
+Fossen, T. I., 2002. Marine Control Systems: Guidance, Navigation and Control of Ships, Rigs and
+  Underwater Vehicles. Marine Cybernetics.
+
+Frahm, H., 1911. Results of trials of anti-rolling tanks at sea. Trans. of the Institution of Naval
+  Architects 53.
+
+France, W. N., Levadou, M., Treakle, T. W., Paulling, J. R., Michel, R. K., Moore, C., 2001. An
+  investigation of head-sea parametric rolling and its influence on container lashing systems. SNAME
+  Annual Meeting.
+
+Goodrich, G. J., 1968. Development and design of passive roll stabilizers. In: Transactions of the Royal
+  Institution of Naval Architects.
+
+Kagawa, K., Fujita, K., Matsuo, M., Koukawa, H., Zensho, Y., 1989. Development of tuned liquid
+  damper for ship vibrations. In: Transactions of the West Japan Society of Naval Architects. Vol. 78.
+  p. 251.
+
+Kagawa, K., Fujita, K., Matsuo, M., Koukawa, H., Zensho, Y., 1990. Development of tuned liquid
+  damper for ship vibrations. In: Transactions of the West Japan Society of Naval Architects. Vol. 81.
+  p. 181.
+
+Kreyszig, E., 1999. Advanced Engineering Mathematics, 8th Edition. John Wiley & Sons, Inc.
+
+Lanczos, C., 1970. The Variational Principles of Mechanics, 4th Edition. Dover Publications, Inc.
+
+Lloyd, A. R., 1989. Seakeeping: Ship Behaviour in Rough Weather. Ellis Horwood Series in Marine
+  Technology. Ellis Horwood.
+
+Lloyd, A. R., 1998. Seakeeping: Ship Behaviour in Rough Weather. ARJM Lloyd.
+
+Moaleji, R., Greig, A. R., 2006. Inverse control for roll stabilization of ships using active tanks. In:
+  Proceedings of 7th Conference on Maneuvering and Control of Marine Craft.
+
+Moaleji, R., Greig, A. R., 2007. On the development of ship anti-roll tanks. Ocean Engineering 34,
+  103–121.
+
+Nayfeh, A. H., Mook, D. T., 1995. Nonlinear Oscillations. John Wiley & Sons, Inc.
+
+Perez, T., 2005. Ship Motion Control. Advances in Industrial Control. Springer-Verlag, London.
+
+Sciavicco, L., Siciliano, B., 2000. Modeling and Control of Robot Manipulators. Advanced Textbooks
+  in Control and Signal Processing. Springer-Verlag.
+
+Sellars, F. H., Martin, J., 1992. Selection and evaluation of ship roll stabilization systems. Marine
+  Technology, SNAME 29 (2), 84–101.
+
+White, F. M., 2002. Fluid Mechanics. McGraw Hill Text.
+
+
+
+                                                  33
+                                      Fore
+                                xn/xb
+Port
+                           ω
+             Cf                     yn
+                          φ                  Water line
+                               yb        Starboard
+          zb zn                          L
+  Aft
+                                                  ~g
+ B
+
+
+
+        Figure 1: Reference frames.
+
+
+
+
+                    34
+            σ
+  ςp                                                yb
+                                                                       −ςp
+                ς0                        zb
+  ςs                                                       −ς0         −ςs
+                 ~rt(σ)
+A(σ)
+                                  σ=0
+
+        Port                              A0                     Starboard
+                            (a) A generic u-tank.
+
+
+
+            σ
+                                                    yb
+  ςp                                                                   −ςp
+                ς0                        zb
+  ςs                                                       −ς0         −ςs
+                 ~rt(σ)                        rd
+A(σ)                        ht
+       wr            w/2           σ=0                   w/2      wr
+  xt                                                  hd
+        Port                            A0                       Starboard
+                          (b) A rectangular u-tank.
+
+                           Figure 2: U-tank design.
+
+
+
+
+                                     35
+Figure 3: The laboratory setup at Sintef Marintek.
+
+
+
+
+                       36
+           4
+
+                                                                        Exp.
+           3                                                            L/eL
+                                                                        Ll /eLl
+
+           2
+
+
+           1
+q2 [cm]
+
+
+
+
+           0
+
+
+          -1
+
+
+          -2
+
+
+          -3
+
+
+          -4
+               0   10     20       30          40      50          60   70        80
+                                           time [s]
+
+
+                        Figure 4: Tank decay test experiment A1.
+
+
+
+
+                                          37
+            8
+
+
+            6
+
+
+            4
+
+
+            2
+q1 [ ◦ ]
+
+
+
+
+            0
+
+
+           -2
+
+
+           -4
+
+
+           -6
+
+
+           -8
+                0   50       100       150        200       250        300   350
+                                               time [s]
+
+
+                    Figure 5: Example input signal. A = 7◦ , $ = 1 rad/s.
+
+
+
+
+                                             38
+                  40
+                              Exp.
+                   20         L/eL
+ Magnitude [dB]
+
+
+
+
+                              Ll /eLl
+                    0
+
+                  -20
+
+                  -40
+
+                  -60
+                    0.5   1                  2                 3                 4   5
+
+
+
+                  200
+
+
+                  150
+Phase [◦ ]
+
+
+
+
+                  100
+
+
+                   50
+
+
+                   0
+                    0.5   1                  2                 3                 4   5
+                                                   Frequency [rad/s]
+
+
+                                Figure 6: “Bode” diagram: Roll [rad] to depth [m].
+
+
+
+
+                                                       39
+          10
+                                                                                      Exp.
+           8                                                                          Ll /eLl
+                                                                                      L/eL
+           6
+
+            4
+
+            2
+q2 [cm]
+
+
+
+
+            0
+
+           -2
+
+           -4
+
+           -6
+
+           -8
+
+          -10
+            200            201             202              203            204                  205
+                                                 time [s]
+
+
+                  Figure 7: Depth measurements, sinusoidal inputs, $ ≈ 2.576 rad/s.
+
+
+
+
+                                                 40
+           40
+                                                                                      Exp.
+                                                                                      Ll /eLl
+           30
+                                                                                      L/eL
+
+
+           20
+
+
+           10
+q2 [cm]
+
+
+
+
+            0
+
+
+          -10
+
+
+          -20
+
+
+          -30
+
+
+          -40
+            200            201             202              203            204                  205
+                                                 time [s]
+
+
+                  Figure 8: Depth measurements, sinusoidal inputs, $ ≈ 3.141 rad/s.
+
+
+
+
+                                                 41
+               25
+
+                20                                                                          Exp.
+                                                                                            Ll
+                                                                                            eLl
+                15                                                                     •    L
+                                                                                            eL
+                10
+
+                 5
+moment [N·m]
+
+
+
+
+                 0
+
+                -5
+
+               -10
+
+               -15
+
+               -20
+
+               -25
+                 200             201             202              203            204               205
+                                                       time [s]
+
+
+                       Figure 9: Torque measurements, sinusoidal inputs, $ ≈ 2.576 rad/s.
+
+
+
+
+                                                       42
+                80
+
+                                                                                           Exp.
+                60                                                                         Ll
+                                                                                           eLl
+                                                                                       •   L
+                40                                                                         eL
+
+
+                20
+moment [N·m]
+
+
+
+
+                 0
+
+
+               -20
+
+
+               -40
+
+
+               -60
+
+
+               -80
+                 200             201             202              203            204              205
+                                                       time [s]
+
+
+                       Figure 10: Torque measurements, sinusoidal inputs, $ ≈ 3.141 rad/s.
+
+
+
+
+                                                       43
+                      12
+
+
+                       9
+
+
+                       6
+
+
+                       3
+q1 [◦ ]
+
+
+
+
+                       0
+
+
+                      -3
+
+
+                      -6
+
+
+                      -9
+
+
+                     -12
+                           0   50     100       150              200         250         300    350   400
+                                                             time [s]
+
+                                                (a) Time domain.
+
+
+                      80
+
+
+                      70
+
+
+                      60
+
+
+                      50
+Pq1 q1 [(◦ )2 /Hz]
+
+
+
+
+                      40
+
+
+                      30
+
+
+                      20
+
+
+                      10
+
+
+                      0
+                           0    0.1      0.2          0.3              0.4         0.5         0.6    0.7
+                                                       frequency [Hz]
+
+                                      (b) Power spectral density (estimate).
+
+                                       Figure 11: Pseudorandom input 1.
+
+
+
+
+                                                            44
+                      12
+
+
+                       9
+
+
+                       6
+
+
+                       3
+q1 [◦ ]
+
+
+
+
+                       0
+
+
+                      -3
+
+
+                      -6
+
+
+                      -9
+
+
+                     -12
+                           0   50     100       150              200         250         300    350   400
+                                                             time [s]
+
+                                                (a) Time domain.
+
+
+                      80
+
+
+                      70
+
+
+                      60
+
+
+                      50
+Pq1 q1 [(◦ )2 /Hz]
+
+
+
+
+                      40
+
+
+                      30
+
+
+                      20
+
+
+                      10
+
+
+                      0
+                           0    0.1      0.2          0.3              0.4         0.5         0.6    0.7
+                                                       frequency [Hz]
+
+                                      (b) Power spectral density (estimate).
+
+                                       Figure 12: Pseudorandom input 4.
+
+
+
+
+                                                            45
+           20
+
+                                                                           Exp.
+           15                                                              L/eL
+                                                                           Ll /eLl
+
+           10
+
+
+            5
+q2 [cm]
+
+
+
+
+            0
+
+
+           -5
+
+
+          -10
+
+
+          -15
+
+
+          -20
+            235       240            245              250            255             260
+                                           time [s]
+
+
+                  Figure 13: Depth with pseudorandom input, exp. no. 1.
+
+
+
+
+                                           46
+           20                                                              Exp.
+                                                                           L/eL
+           15                                                              Ll /eLl
+
+
+           10
+
+
+            5
+q2 [cm]
+
+
+
+
+            0
+
+
+           -5
+
+
+          -10
+
+
+          -15
+
+
+          -20
+
+
+            170       175            180              185            190             195
+                                           time [s]
+
+
+                  Figure 14: Depth with pseudorandom input, exp. no. 4.
+
+
+
+
+                                           47
+                                                                                          Exp.
+                30                                                                        Ll
+                                                                                          eLl
+                                                                                      •   L
+                20                                                                        eL
+
+
+                10
+moment [N·m]
+
+
+
+
+                 0
+
+
+               -10
+
+
+               -20
+
+
+               -30
+
+
+
+                 235               240            245              250          255              260
+                                                        time [s]
+
+
+                     Figure 15: Torque measurements, pseudorandom input, experiment number 1.
+
+
+
+
+                                                        48
+                40
+                                                                                          Exp.
+                                                                                          Ll
+                30                                                                        eLl
+                                                                                      •   L
+                                                                                          eL
+                20
+
+
+                10
+moment [N·m]
+
+
+
+
+                 0
+
+
+               -10
+
+
+               -20
+
+
+               -30
+
+
+               -40
+                 170               175            180              185          190              195
+                                                        time [s]
+
+
+                     Figure 16: Torque measurements, pseudorandom input, experiment number 4.
+
+
+
+
+                                                        49
+            15
+
+                                                                      eL
+                                                                      eLr
+            10                                                        Ll
+                                                                      no tank
+
+
+             5
+q1 [ ◦ ]
+
+
+
+
+             0
+
+
+
+            -5
+
+
+
+           -10
+
+
+
+           -15
+              30   31             32               33            34             35
+                                         time
+
+                                 (a) Roll angle.
+
+
+            20
+
+                                                                         eL
+            15                                                           eLr
+                                                                         Ll
+
+            10
+
+
+             5
+q2 [cm]
+
+
+
+
+             0
+
+
+            -5
+
+
+           -10
+
+
+           -15
+
+
+           -20
+              30   31             32               33            34             35
+                                         time
+
+                                 (b) Tank state.
+
+                   Figure 17: Simulation results, Aτ = 35 N·m.
+
+
+
+
+                                       50
+            A1       A2        B1       B2      Avg.       Unit
+d2,l      18.70     16.51    19.18    19.61     18.50    kg/s
+
+V̄t         7.93     7.95     8.04      8.02     7.99    10−2 m3
+
+MSE         1.28     0.98     1.36      1.26     1.22    10−2 cm2
+
+       Table 1: Tank decay tests, linear models (Ll and eLl ).
+
+
+
+
+                                 51
+           A1        A2       B1       B2      Avg.      Unit
+d2,l       5.34     5.26      6.83     7.48    6.24    kg/s
+
+d2,n      279.7    293.5    264.3    251.2    272.2    kg/m
+
+V̄t        7.91     7.93      7.95     7.93    7.93    10−2 m3
+
+MSE        0.13     0.24      0.52     0.46    0.34    10−2 cm2
+
+      Table 2: Tank decay tests, nonlinear models (L and eL).
+
+
+
+
+                                52
+                    A1       A2      B1      B2      Avg.       Unit
+           d2,l     30.7    28.3    27.2     28.2    28.6     kg/s
+
+          MSE       8.59    6.71    5.97     6.27    6.89     10−2 cm2
+
+Table 3: Tank decay tests, linear models (Ll and eLl ). Theoretical value of V̄t .
+
+
+
+
+                                        53
+                     A1      A2      B1      B2      Avg.       Unit
+            d2,l    43.3    42.3     38.5    38.9    40.7     kg/s
+
+           d2,n     -232    -321    -186     -170    -227     kg/m
+
+           MSE      8.34    6.44     6.68    7.00    7.11     10−2 cm2
+
+Table 4: Tank decay tests, nonlinear models (L and eL). Theoretical value of V̄t .
+
+
+
+
+                                        54
+            $            MSE [cm2 ]
+          [rad/s]     Ll /eLl      L/eL
+          0.5000        0.0052     0.0038
+          1.0000        0.0024     0.0036
+          2.1991        0.2740     0.0068
+          2.3876        1.0679     0.0222
+          2.5761        4.6073     0.0918
+          2.7646      22.8388      0.1261
+          2.8588      46.8886      0.3873
+          2.9531     111.7322      0.2022
+          3.0473     265.9854      0.1768
+          3.1416     438.5790      0.1409
+          3.3301      93.7724      0.1183
+          3.5186      15.1579      0.0550
+          3.7071        3.0985     0.0764
+          3.8956        0.4164     0.0028
+          4.5000        0.0010     0.0006
+          5.0000        0.0003     0.0005
+           Avg.       62.7767      0.0884
+
+Table 5: Mean square errors in q2 , sinusoidal input.
+
+
+
+
+                         55
+         $          Mean square error [(N·m)2 ]
+      [rad/s]       eLl           Ll       L      eL
+        0.50         0.12          0.12   0.12   0.12
+        1.00         0.05          0.05   0.05   0.05
+        2.20         1.60          1.29   0.09   0.07
+        2.39         5.09          4.37   0.23   0.17
+        2.58        18.68         16.95   0.70   0.52
+        2.76        82.65         78.33   1.20   0.89
+        2.86       168.31     162.21      2.42   1.87
+        2.95       376.90     367.71      1.90   1.44
+        3.05       870.74     860.27      1.42   1.01
+        3.14     1352.17     1351.37      1.10   0.82
+        3.33       276.25     283.29      0.62   0.37
+        3.52        39.56         42.15   0.31   0.19
+        3.71         6.16          6.98   0.19   0.14
+        3.90         1.04          1.32   0.17   0.14
+        4.50         0.48          0.54   0.49   0.48
+        5.00         0.53          0.55   0.54   0.54
+       Avg.        200.02     198.59      0.72   0.55
+
+Table 6: Mean square errors in roll moment, sinusoidal input.
+
+
+
+
+                             56
+             Exp.        MSE [cm2 ]
+              no.     Ll /eLl     L/eL
+               1      31.4629    0.0380
+               2      40.1877    0.0541
+               3      23.1057    0.0536
+               4      17.7036    0.0679
+             Avg.     28.1150    0.0534
+
+Table 7: Mean square errors in q2 , pseudorandom input.
+
+
+
+
+                          57
+        Exp.        Mean square error [(N·m)2 ]
+         no.       eLl         Ll        L        eL
+          1     122.068     121.463    0.604    0.576
+          2     156.355     155.888    0.969    0.837
+          3       89.966     89.659    0.587    0.494
+          4       68.591     68.445    0.415    0.326
+        Avg.    109.245     108.864    0.644    0.559
+
+Table 8: Mean square errors in roll moment, pseudorandom input.
+
+
+
+
+                              58
+ Aτ             eL to eLr                  eL to Ll
+[N·m]     q1 [(◦ )2 ]   q2 [cm2 ]   q1 [(◦ )2 ]   q2 [cm2 ]
+ 5          0.0000       0.0000       0.0340        0.0305
+ 10         0.0000       0.0000       0.3893        0.2902
+ 15         0.0001       0.0003       1.4595        1.1038
+ 20         0.0017       0.0040       3.4996        2.8073
+ 25         0.0125       0.0239       6.6244        5.6715
+ 30         0.0573       0.0928     10.9539         9.6846
+ 35         0.1941       0.2718     16.2193       16.3562
+ 40         0.5272       0.6515     12.8853       18.8573
+ 45         1.2102       1.3423       6.3290      20.2132
+ 50         2.4334       2.4544       1.8136      24.1079
+Avg.        0.4436       0.4841       6.0208        9.9122
+
+        Table 9: Mean square errors, simulations.
+
+
+
+
+                            59
+            Aτ               Reduction [%]
+           [N·m]       eL           eLr         Ll
+             5      77.0107     77.0111     77.7064
+             10     73.6133     73.6168     75.4787
+             15     68.7077     68.7540     73.3612
+             20     61.7126     61.8314     71.2425
+             25     55.3550     55.5995     69.1165
+             30     49.6062     50.0072     67.0226
+             35     44.4629     45.0067     64.9957
+             40     39.9191     40.5362     63.0462
+             45     35.9665     36.5259     61.1726
+             50     32.5646     32.9052     44.5092
+           Avg.     53.8919     54.1794     66.7652
+
+Table 10: Estimated roll reduction tank vs. no tank, simulations.
+
+
+
+
+                               60
+
