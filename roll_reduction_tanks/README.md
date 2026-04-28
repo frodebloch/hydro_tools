@@ -648,8 +648,8 @@ to the power system.
 This is the strongest reason to favour an in-duct RDT over an
 air-driven scheme: the ship never sees a power spike, the actuator
 hardware is already standard marine equipment, and the failure mode
-is benign (loss of RDT power reverts the U-tube to a passive
-open-top tank with its geometric resonance still intact).
+is recoverable provided the RDT is designed to *freewheel* on
+power loss (see caveat (iv) below).
 
 **Caveats specific to in-tank RDTs.** (i) Cavitation: at the duct
 elevation in our geometry (~6.5 m below the waterline), ambient
@@ -670,6 +670,29 @@ wave-moment prediction to within ~30 deg; a `phi_dot`-only scheme
 will not suffice and a wave-radar or pressure-sensor feed-forward
 path is needed for the headline numbers above. Without forward
 feed, expect 15-25 % loss of the theoretical reduction.
+(iv) **Stopped-RDT blockage / failure mode.** With realistic blade
+solidity ~60 % (typical for a thrust-class RDT), a *locked* rotor
+in the duct presents an orifice-style flow blockage with loss
+coefficient `K ~ 25-80` referenced to the duct dynamic pressure
+(textbook range for ~60 % blockage with sharp- to rounded-edge
+blades). For our CSOV duct geometry this is **~30-100x the existing
+wall friction**, giving equivalent linear damping ratios of
+**80-160 % at typical operating amplitudes** -- i.e. the tank
+becomes catastrophically overdamped, the fluid barely moves, and
+roll reduction collapses to a few per cent (and may be net negative
+in some seastates because the trapped-fluid inertia still adds to
+the vessel roll inertia without contributing absorption). The tank
+does **not** revert to a useful passive U-tube on a stopped RDT,
+contrary to what one might naively assume. The RDT must therefore
+be designed to *freewheel* on power loss (drive set to torque-free
+mode on fault, or mechanical clutch) so the impeller spins with
+the flow and contributes only rim drag (`K ~ 1-3`); this is
+standard capability for modern marine RDT drives but must be
+specified explicitly. Alternative mitigations are a parallel
+bypass duct that opens on fault (doubles hardware cost), feathering
+blades (adds mechanical complexity), or simply accepting that the
+active U-tube has no passive fallback and providing actuator
+redundancy at the system level (two parallel RDTs).
 
 A natural follow-up implementation would be a new `RDTUtubeTank`
 class (or extension of `OpenUtubeTank`) with a
