@@ -14,6 +14,21 @@ gamma = 3.3, beam seas) through every tank design in
 amplitude ``phi_1/3 = 4 * std(phi)`` for each. A 60 s warmup is
 discarded before the statistic is taken so transients don't leak in.
 
+Note on reduction magnitudes
+----------------------------
+Tank reductions reported here (~30-50% best case at the operational
+point) are substantially smaller than the per-frequency notch depths
+visible in the regular-wave RAO plots (70-90%). The gap is real and
+expected: it stacks from off-resonant Tp vs vessel T_n, generous
+bare-vessel damping (b44 ~ 10% critical to compensate for absent
+bilge keels in the panel-method calculation), Holden quadratic
+U-tube damping, and the free-surface tank's m_eq fundamental
+ceiling. Both numbers are correct -- they answer different
+questions ("operational reduction at this seastate" vs
+"design-point capability"). See README sec. 7.z for the full
+discussion and the rationale for deferring a design-point
+companion example to Brucon.
+
 Output:
   examples/output/csov_irregular_seakeeping.png
   + console table of phi_1/3 per design.

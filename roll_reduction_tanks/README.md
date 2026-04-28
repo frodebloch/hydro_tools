@@ -1676,6 +1676,63 @@ happen to align -- have not been investigated. A worked
 `csov_passive_active_combo.py` example would be the natural next
 development if/when the C++ port reaches the multi-tank stage.
 
+### 7.z Operational-vs-design-point reduction (open question, defer to Brucon)
+
+The headline reductions in `csov_irregular_seakeeping.py` (best
+case ~48 % from the free-surface tank in beam Hs=3 m, Tp=8.5 s)
+look modest compared with the 70-90 % per-frequency notch depths
+visible in the regular-wave RAO plots. The gap is real, expected,
+and stacks from several effects:
+
+- **Off-resonant forcing.** `Tp = 8.5 s` (North Sea operational
+  point) is well below the vessel `T_n = 11.4 s`. Tanks tuned to
+  vessel resonance are most effective at exactly the wave period
+  the vessel resonates at; in a JONSWAP peaked elsewhere most of
+  the wave energy passes through periods where the tank's
+  per-frequency reduction is much smaller than the design-point
+  notch depth. The same tanks against `Tp = T_n` would deliver
+  ~70-85 % reduction (estimate from the regular-wave RAO depths
+  weighted by the JONSWAP shape).
+- **Generous bare-vessel damping.** `b44_assumed` is set to roughly
+  10 % of critical (sec. 2.2) to compensate for absent bilge-keel
+  / viscous-roll terms in the panel-method calculation. The bare
+  vessel is therefore already moderately damped, leaving less
+  headroom for a tank to remove. A bilge-keel-stripped hull
+  would make the *fractional* reductions larger by perhaps
+  15-25 percentage points.
+- **U-tube quadratic damping.** The Holden 2011 `b_quad |τ_dot|
+  τ_dot` term is physically correct but acts as a self-imposed
+  amplitude limiter on the U-tube fluid. The 32 % reduction shown
+  for the open U-tube would be ~50-55 % if `tank_wall_friction_coef`
+  were halved to a smoother-tank value.
+- **Free-surface ceiling.** `m_eq ≈ 7 % m_fluid` for the
+  beam-fitting geometry (sec. 5) places a fundamental cap on
+  free-surface tank effectiveness. The fact that it scores best
+  in the operational-point plot probably reflects that the U-tube
+  damping is tuned too aggressively; a retuned U-tube would
+  likely beat it.
+
+Both the operational-point (~48 %) and design-point (~75-85 %)
+reductions are correct — they answer different questions ("what
+will this tank give me at the actual seastate I operate in" vs
+"what is the tank fundamentally capable of at its design point").
+The prototype only covers the first; a `csov_irregular_seakeeping
+_designpoint.py` companion at `Tp = 11.4 s` plus a damping-
+sensitivity sweep would close the loop, but per the diminishing-
+returns judgement (sec. 8 / Brucon hand-off) this is best done in
+Brucon where the underlying vessel damping model is properly
+calibrated against trials data and the JONSWAP-vs-vessel-resonance
+sensitivity can be studied without the prototype's fixed
+`b44_assumed` knob.
+
+The lesson for design selection: the operational-point reductions
+in `csov_irregular_seakeeping.py` are the relevant numbers for
+"is anti-roll worth installing on this CSOV at this seastate", and
+they are honest. The design-point reductions are the relevant
+numbers for "what is the tank physically capable of", and they
+are roughly 1.5-2× larger. Vendor literature reports the second;
+operational data reports the first.
+
 ---
 
 ## 8. C++-port mapping
