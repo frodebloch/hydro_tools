@@ -881,6 +881,69 @@ the dynamics suggest a genuine performance benefit on top of those
 practical drivers. A worked combination example is a natural
 follow-up; the existing infrastructure supports it directly.
 
+### 7.y Recommended architecture: passive free-surface + active U-tube
+
+Combining the threads from sections 4.x (anti-heel duty), 4.y
+(active in-duct RDT), 5 (free-surface stiffness boost) and 7.x
+(multi-tank summing) leads to a specific architectural recommendation
+for offshore vessels where roll reduction matters and active hardware
+is acceptable: **install one passive free-surface tank and one active
+RDT-driven U-tube, sized to operate together.**
+
+The argument is multi-pronged:
+
+1. **Failure-mode redundancy is solved cleanly.** The active tank's
+   worst weakness (caveat 4.y(iv): a stopped or failed RDT presents
+   a 60 % blockage that catastrophically overdamps the U-tube) is
+   absorbed by the passive free-surface tank, which keeps working
+   with zero electrical demand. Loss of RDT power degrades the
+   system from "active+passive" to "passive only" -- a graceful
+   degradation, not a cliff. Removes the need for exotic freewheel
+   / bypass-duct hardware on the RDT for the safety case (though
+   freewheel remains good practice).
+
+2. **Frequency-band complementarity.** The free-surface tank is the
+   only modelled device that improves *sub-resonance* response (via
+   `dc44_extra` adding stiffness, sec. 5). The active U-tube
+   handles the resonance band where the free-surface tank's notch
+   doesn't reach. They occupy complementary frequency regions.
+
+3. **Vessel re-tune helps both.** The free-surface tank pushes the
+   effective vessel period from `T_n` to `T_eff > T_n`, into the
+   sparse short-period tail of typical wave spectra (broadly
+   beneficial). The active U-tube is then designed for `T_eff`
+   rather than the bare-vessel `T_n`.
+
+4. **Naval-architectural orthogonality.** Free-surface tanks must
+   sit *high* (above the metacentre is best for `dc44_extra` sign
+   and magnitude). U-tubes sit *low* (full beam at double-bottom
+   level). No competition for ship volume.
+
+5. **Smaller active hardware.** Once the free-surface tank handles
+   the broadband / sub-resonance load, the active U-tube only needs
+   enough authority to mop up the residual at vessel resonance. A
+   smaller RDT (~1.0-1.2 m diameter, ~70-100 kN thrust) and
+   correspondingly smaller energy buffer (~100-200 kJ/cycle vs
+   ~600 kJ for a single active tank handling everything) suffice.
+
+6. **Anti-heel duty is naturally orthogonal.** The free-surface
+   tank physically cannot do anti-heel correction (the surface is
+   always horizontal -- no static-offset capability). The active
+   U-tube can, by parking the RDT at a static thrust setpoint that
+   holds the desired `tau_eq` offset against gravity. So in the
+   dual-tank architecture there is no conflict between roll-
+   reduction duty and heel-correction duty: free-surface tank does
+   roll continuously, active U-tube switches between roll-mode and
+   heel-mode on demand.
+
+Honest qualifier: this combination has not been simulated in this
+prototype. The infrastructure supports it directly (sec. 7.x), but
+plausible coupled-mode interactions between U-tube fluid swing and
+free-surface sloshing -- particularly if their natural frequencies
+happen to align -- have not been investigated. A worked
+`csov_passive_active_combo.py` example would be the natural next
+development if/when the C++ port reaches the multi-tank stage.
+
 ---
 
 ## 8. C++-port mapping
