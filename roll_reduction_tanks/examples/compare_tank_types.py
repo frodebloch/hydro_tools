@@ -32,7 +32,7 @@ from roll_reduction_tanks.coupling import CoupledSystem
 from roll_reduction_tanks.pdstrip_io import load_csov
 from roll_reduction_tanks.simulation import run_simulation
 from roll_reduction_tanks.tanks.free_surface import (
-    FreeSurfaceConfig, FreeSurfaceTank,
+    FreeSurfaceConfig, FreeSurfaceTank, tune_self_consistent,
 )
 from roll_reduction_tanks.tanks.tuned_mass_damper import (
     TunedMassDamperConfig, TunedMassDamperTank, den_hartog_optimal,
@@ -84,28 +84,27 @@ def make_air_utube():
     return AirValveUtubeTank(cfg, controller=FullyOpenValve())
 
 
-def make_free_surface():
-    # Tune for vessel T_n at GM = 3.0 m (~11.4 s). With h = 1.5 m this needs
-    # L ~ 21.7 m, fitting within the 22.4 m beam.
+def make_free_surface(c44: float, I_tot: float):
+    # The free-surface tank's static surface-tilt term ``dc44_extra``
+    # destabilises the hull, lowering the effective vessel restoring
+    # stiffness from ``c44`` to ``c44 - dc44_extra``. Naively tuning the
+    # tank to the *bare* vessel period (~11.4 s) would leave it mistuned
+    # in operation against the resulting longer effective period.
     #
-    # Width sized per Faltinsen 1990 §5.4: target classical free-surface GM
-    # loss Delta_GM/GM in [0.15, 0.30]. For the CSOV (rho_s nabla = 1.11e7 kg,
-    # GM = 3 m) and L = 21.7 m, this gives W in [5.7, 11.5] m. We pick the
-    # middle of the range (W = 8 m, Delta_GM/GM ~ 0.21).
-    #
-    # CAVEAT: the tank model includes only the lowest sloshing mode. That
-    # mode contributes only ~7 % of the classical (multi-mode) free-surface
-    # GM loss (factor 96 h / (pi^4 L) for our geometry). The dynamic TMD
-    # share that the model captures is also limited to the same lowest-mode
-    # share of the equivalent mass (~26 % of m_fluid for deep tanks, ~6 %
-    # for our shallow geometry). So predicted reductions are physically
-    # honest but represent a lower bound; multi-bay or multi-mode models
-    # would predict more.
-    return FreeSurfaceTank(FreeSurfaceConfig(
-        length=21.7, width=8.0, fluid_depth=1.5,
+    # We use ``tune_self_consistent`` to fix-point iterate: with the tank
+    # length pinned at the beam (L = 22.4 m, the geometric maximum), the
+    # depth ``h`` is the tuning knob (Faltinsen 1990 eq. 3.76 in the
+    # shallow limit ``omega^2 ~ pi^2 g h / L^2``). For W = 8 m this gives
+    # h ~ 1.25 m, T_eff ~ 12.85 s, GM_loss/GM ~ 0.22 (mid-Faltinsen
+    # range). Compare ``examples/free_surface_self_consistent.py`` for
+    # a width sweep.
+    cfg, _info = tune_self_consistent(
+        length=22.4, width=8.0,
         z_tank=8.5, z_cog=2.5,        # h_arm = 6 m (mounted high)
         damping_ratio=0.10,
-    ))
+        vessel_c44=c44, vessel_inertia_total=I_tot,
+    )
+    return FreeSurfaceTank(cfg)
 
 
 def make_tmd(I44_total: float, omega_p: float):
@@ -141,7 +140,9 @@ def main():
         ("bare vessel",       lambda: None),
         ("open U-tube",       make_open_utube),
         ("air-valve (open)",  make_air_utube),
-        ("free-surface",      make_free_surface),
+        ("free-surface",      lambda: make_free_surface(
+                                  pd.rho * pd.g * pd.displacement * 3.0,
+                                  I44_total)),
         ("TMD (mu=5%, opt)",  lambda: make_tmd(I44_total, omega_p)),
     ]
 

@@ -7,6 +7,8 @@ import pytest
 from roll_reduction_tanks.tanks.free_surface import (
     FreeSurfaceConfig,
     FreeSurfaceTank,
+    _depth_for_omega,
+    tune_self_consistent,
 )
 from roll_reduction_tanks.tanks.tuned_mass_damper import (
     TunedMassDamperConfig,
@@ -280,3 +282,87 @@ def test_den_hartog_invalid_inputs():
         den_hartog_optimal(mass=1.0, h_arm=0.0, I44_total=1.0, omega_p=1.0)
     with pytest.raises(ValueError):
         den_hartog_optimal(mass=1.0, h_arm=1.0, I44_total=-1.0, omega_p=1.0)
+
+
+# ----------------------------------------------------- self-consistent tuning
+
+
+def test_depth_for_omega_round_trip():
+    """Depth solver inverts the dispersion exactly."""
+    L = 22.4
+    g = 9.81
+    h_target = 1.5
+    kL = np.pi / L
+    omega = float(np.sqrt(g * kL * np.tanh(kL * h_target)))
+    h = _depth_for_omega(omega, L, g)
+    assert h == pytest.approx(h_target, rel=1e-9)
+
+
+def test_depth_for_omega_returns_nan_above_deep_water_limit():
+    """Above sqrt(pi g / L), no real depth solves the dispersion."""
+    L = 10.0
+    g = 9.81
+    omega_max = float(np.sqrt(np.pi * g / L))
+    assert np.isnan(_depth_for_omega(omega_max * 1.001, L, g))
+
+
+def test_tune_self_consistent_tank_matches_effective_vessel_period():
+    """After self-consistent tuning, omega_n_tank == omega_eff exactly."""
+    # CSOV-like numbers (omega_bare ~ 0.55 rad/s -> T_n ~ 11.4 s).
+    c44 = 3.27e8
+    I_tot = 1.06e9
+    cfg, info = tune_self_consistent(
+        length=22.4, width=8.0, z_tank=8.5, z_cog=2.5,
+        damping_ratio=0.10, vessel_c44=c44, vessel_inertia_total=I_tot,
+    )
+    tank = FreeSurfaceTank(cfg)
+    assert info["converged"]
+    assert tank.natural_frequency == pytest.approx(info["omega_eff"], rel=1e-7)
+    # The detuned vessel period must be longer than the bare period
+    # (dc44_extra is destabilising, lowers c44).
+    assert info["omega_eff"] < info["omega_bare"]
+    # Recompute dc44_extra from cfg and check sign / consistency.
+    rho, g = cfg.rho, cfg.g
+    L, W, h = cfg.length, cfg.width, cfg.fluid_depth
+    dc44_classical = rho * g * W * L**3 / 12.0
+    dc44_dyn = (8.0 / np.pi**4) * rho * g * W * L**2 * h
+    assert info["dc44_extra"] == pytest.approx(dc44_classical - dc44_dyn, rel=1e-6)
+    assert info["dc44_extra"] > 0  # destabilising
+
+
+def test_tune_self_consistent_raises_when_tank_too_wide():
+    """Capsize-overflow case: dc44_extra would exceed c44."""
+    c44 = 1.0e7  # tiny restoring stiffness
+    I_tot = 1.0e8
+    with pytest.raises(RuntimeError, match="capsize"):
+        tune_self_consistent(
+            length=22.4, width=20.0, z_tank=8.5, z_cog=2.5,
+            damping_ratio=0.10, vessel_c44=c44, vessel_inertia_total=I_tot,
+        )
+
+
+def test_tune_self_consistent_naive_vs_self_at_csov():
+    """Naive tank (h tuned to bare T_n) is NOT self-consistent: tank
+    natural period differs noticeably from the detuned vessel period.
+    """
+    c44 = 3.27e8
+    I_tot = 1.06e9
+    omega_bare = float(np.sqrt(c44 / I_tot))
+    L, W = 22.4, 8.0
+    h_naive = _depth_for_omega(omega_bare, L)
+    cfg_naive = FreeSurfaceConfig(
+        length=L, width=W, fluid_depth=h_naive,
+        z_tank=8.5, z_cog=2.5, damping_ratio=0.10,
+    )
+    tank_naive = FreeSurfaceTank(cfg_naive)
+    cfg_self, info = tune_self_consistent(
+        length=L, width=W, z_tank=8.5, z_cog=2.5,
+        damping_ratio=0.10, vessel_c44=c44, vessel_inertia_total=I_tot,
+    )
+    # The two designs differ in depth (h_self < h_naive because
+    # omega_eff < omega_bare requires shallower water).
+    assert cfg_self.fluid_depth < h_naive
+    # Naive tank period equals bare vessel period; self-consistent
+    # tank period equals effective vessel period (which is longer).
+    assert tank_naive.natural_frequency == pytest.approx(omega_bare, rel=1e-9)
+    assert info["omega_eff"] < omega_bare

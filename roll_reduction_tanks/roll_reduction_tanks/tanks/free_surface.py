@@ -321,3 +321,152 @@ class FreeSurfaceTank(AbstractTank):
             + self.dc44_extra * phi
         )
         return {"surge": 0.0, "sway": 0.0, "roll": M_roll, "yaw": 0.0}
+
+
+# ---------------------------------------------------------------------------- helpers
+
+
+def _depth_for_omega(omega_target: float, L: float, g: float = 9.81) -> float:
+    """Invert ``omega^2 = (pi g / L) tanh(pi h / L)`` for ``h`` (m).
+
+    Returns NaN if ``omega_target`` exceeds the deep-water limit
+    ``sqrt(pi g / L)`` (no real positive depth solves the relation).
+    """
+    arg = omega_target**2 * L / (np.pi * g)
+    if arg <= 0.0 or arg >= 1.0:
+        return float("nan")
+    return float(L / np.pi * np.arctanh(arg))
+
+
+def tune_self_consistent(
+    *,
+    length: float,
+    width: float,
+    z_tank: float,
+    z_cog: float,
+    damping_ratio: float,
+    vessel_c44: float,
+    vessel_inertia_total: float,
+    rho: float = 1025.0,
+    g: float = 9.81,
+    warn_fill_ratio: float = 0.5,
+    rel_tol: float = 1e-7,
+    max_iter: int = 100,
+) -> tuple[FreeSurfaceConfig, dict]:
+    """Self-consistently tune fluid depth ``h`` for a fixed-length tank.
+
+    Physics. A free-surface tank's static surface-tilt stiffness
+    ``dc44_extra`` enters the hull moment as ``+dc44_extra * phi`` and
+    therefore reduces the *effective* roll restoring stiffness from
+    ``c44`` to ``c44_eff = c44 - dc44_extra``. The vessel's effective
+    natural frequency is then ``omega_eff = sqrt(c44_eff / I_tot)``,
+    which is lower than the bare ``omega_n``. Tuning the tank to the
+    bare vessel period would leave it mistuned in operation.
+
+    Why fix L (not W). The along-beam tank length ``L`` is the
+    *geometric* constraint: it cannot exceed the ship beam. The
+    sloshing dispersion ``omega^2 = (pi g / L) tanh(pi h / L)`` lets
+    us tune to any frequency below the deep-water limit
+    ``sqrt(pi g / L)`` by adjusting the *depth* ``h``. With ``L``
+    fixed at (or near) the beam, this helper iterates ``h`` such that
+    ``omega_n_tank == omega_eff(W, L, h)``. ``W`` is held fixed and
+    chosen by the user from the Faltinsen 1990 §5.4 GM-loss budget.
+
+    Iteration. ``h_0`` from the dispersion at ``omega_bare``, then::
+
+        repeat:  dc44_extra(L, W, h) -> c44_eff -> omega_eff -> h_new
+
+    Converges in ~10-30 iterations for sane inputs.
+
+    Parameters
+    ----------
+    length
+        Along-beam tank length ``L`` (m). Held fixed; should be
+        ``<= beam``.
+    width
+        Along-ship tank width ``W`` (m). Held fixed.
+    z_tank, z_cog
+        Vertical positions (z-up convention).
+    damping_ratio
+        Tank modal damping ratio.
+    vessel_c44
+        Bare-vessel hydrostatic restoring stiffness (N*m/rad).
+    vessel_inertia_total
+        ``I44 + a44`` (kg*m^2).
+    rho, g
+        Fluid density and gravity (defaults: sea water, standard gravity).
+    warn_fill_ratio
+        Forwarded to :class:`FreeSurfaceConfig`.
+    rel_tol, max_iter
+        Convergence tolerance (relative change in h) and iteration cap.
+
+    Returns
+    -------
+    cfg : FreeSurfaceConfig
+        Self-consistently tuned configuration.
+    info : dict
+        Diagnostics: ``fluid_depth, omega_eff, omega_bare, dc44_extra,
+        gm_loss_ratio, iterations, converged``.
+
+    Raises
+    ------
+    RuntimeError
+        If ``dc44_extra`` would exceed ``vessel_c44`` (tank too wide,
+        free-surface effect would capsize the bare hull) or if no real
+        depth satisfies the dispersion at the required frequency.
+    """
+    if vessel_c44 <= 0 or vessel_inertia_total <= 0:
+        raise ValueError("vessel_c44 and vessel_inertia_total must be positive.")
+    if length <= 0 or width <= 0:
+        raise ValueError("length and width must be strictly positive.")
+    omega_bare = float(np.sqrt(vessel_c44 / vessel_inertia_total))
+    omega_eff = omega_bare
+    h = _depth_for_omega(omega_bare, length, g)
+    if not np.isfinite(h):
+        raise RuntimeError(
+            f"No real depth solves the dispersion at omega_bare={omega_bare:.3f} "
+            f"rad/s with L={length:.2f} m (deep-water limit "
+            f"omega_max={np.sqrt(np.pi * g / length):.3f} rad/s). Increase L."
+        )
+    converged = False
+    dc44_extra = 0.0
+    for it in range(1, max_iter + 1):
+        # dc44_dyn = m_eq * g^2 / omega_n^2 simplifies to (8/pi^4) rho g W L^2 h.
+        dc44_dyn = (8.0 / np.pi**4) * rho * g * width * length**2 * h
+        dc44_classical = rho * g * width * length**3 / 12.0
+        dc44_extra = dc44_classical - dc44_dyn
+        c44_eff = vessel_c44 - dc44_extra
+        if c44_eff <= 0:
+            raise RuntimeError(
+                f"Iteration {it}: dc44_extra={dc44_extra:.3e} exceeds vessel "
+                f"c44={vessel_c44:.3e}; tank too wide (free-surface effect "
+                f"would capsize the bare hull). Reduce W."
+            )
+        omega_eff_new = float(np.sqrt(c44_eff / vessel_inertia_total))
+        h_new = _depth_for_omega(omega_eff_new, length, g)
+        if not np.isfinite(h_new) or h_new <= 0:
+            raise RuntimeError(
+                f"Iteration {it}: required omega_eff={omega_eff_new:.3f} rad/s "
+                f"exceeds deep-water limit at L={length:.2f} m. Increase L."
+            )
+        rel = abs(h_new - h) / h
+        h, omega_eff = h_new, omega_eff_new
+        if rel < rel_tol:
+            converged = True
+            break
+    cfg = FreeSurfaceConfig(
+        length=length, width=width, fluid_depth=h,
+        z_tank=z_tank, z_cog=z_cog,
+        damping_ratio=damping_ratio, rho=rho, g=g,
+        warn_fill_ratio=warn_fill_ratio,
+    )
+    info = {
+        "fluid_depth": h,
+        "omega_eff": omega_eff,
+        "omega_bare": omega_bare,
+        "dc44_extra": float(dc44_extra),
+        "gm_loss_ratio": float(dc44_extra / vessel_c44),
+        "iterations": it,
+        "converged": converged,
+    }
+    return cfg, info
