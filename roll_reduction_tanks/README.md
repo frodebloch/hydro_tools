@@ -1183,6 +1183,257 @@ control — a key sizing economy.
 
 This is a planned follow-on; not yet implemented.
 
+### 4.bb DP thrusters as roll actuators (proposal, deployed concept)
+
+The natural extension of sec. 4.aa is to **stop installing dedicated
+roll actuators at all** and instead extract roll authority from the
+DP thruster array that the vessel already carries. This is the
+architecture used in the field on Voith Schneider–propelled offshore
+vessels and on several DP-class platform supply vessels: a
+roll-control loop runs on top of the DP allocator and biases the
+thruster commands at wave frequency to produce a roll-stabilising
+moment, while DP continues to service position and heading
+demands at slow timescale.
+
+Why this is attractive:
+
+- A CSOV typically carries 4-6 azimuthing pods, each 1-2.5 MW. The
+  *total installed thrust authority* is in the multi-MN range —
+  vastly more than any dedicated anti-roll device could justify on
+  its own.
+- Marginal hardware cost is essentially zero: pods, drives, control
+  electronics, and switchboard are already present for DP. Only an
+  allocator software change is required.
+- No new failure modes outside the DP failure-mode catalogue.
+
+#### Two-loop architecture
+
+DP commands act on the slow drift band (~0.001-0.05 Hz, after the
+DP wave filter has stripped wave-frequency content). The roll loop
+acts at wave frequency (~0.1-1 Hz). Because the two demand bands
+are an order of magnitude apart, they are nominally decoupled:
+
+```
+slow loop:  position/heading error  ->  DP controller  ->  (Fx, Fy, Mz)_d,slow
+fast loop:  phi observer (sec. 4.z) ->  roll controller ->  (M_roll)_d,fast
+                                                                 |
+                            allocator finds u (per-thruster command)
+                            producing desired (Fx, Fy, Mz, M_roll)
+                            subject to per-thruster saturation u_i,max
+                            and priority weights w_dp >> w_roll
+```
+
+The roll-band thrust appears to the DP loop as small high-frequency
+dither that its low-pass filter rejects; the DP demands appear to
+the roll loop as a slow bias.
+
+#### Authority budget
+
+Available roll moment depends entirely on the DP reservation
+policy. Reference numbers for two 1 MW symmetrical-nozzle pods in
+twin-couple geometry, arm 8.5 m (per sec. 4.aa):
+
+| reservation policy             | available roll moment | comment |
+|---|---|---|
+| Idle DP, full margin           | ~290 kN × 8.5 m ≈ **2.5 MN·m** | comparable to peak `M_wave` in beam Hs=3 m |
+| 50% DP / 50% roll              | ~145 kN × 8.5 m ≈ **1.2 MN·m** | meaningful but not authoritative |
+| 80% DP / 20% roll              | ~58 kN × 8.5 m ≈ 0.5 MN·m       | trim only |
+
+Even with all pods reserved purely for roll, the available moment
+(2.5 MN·m) is well below the peak wave forcing (8-12 MN·m). But it
+is comfortably in the regime that flattens the **resonance peak**
+of the response, which is the only band that matters in irregular
+seas — the broadband content well away from `omega_n` is heavily
+filtered by `1 / (Is² + bs + c)` regardless.
+
+#### The two hard problems
+
+**(1) Priority arbitration.** DP must retain saturation priority:
+position-keeping is a hard safety constraint (loss of position near
+a turbine is a collision hazard), roll comfort is comfort. The
+standard formulation is a weighted-priority QP in the allocator:
+
+```
+minimize  || P (T u - tau_d) ||² + λ ||u||²    subject to |u_i| ≤ u_i,max
+```
+
+with `tau_d = (Fx_d, Fy_d, Mz_d, M_roll_d)`,
+`P = diag(w_dp, w_dp, w_dp, w_roll)`, and `w_dp >> w_roll`. As DP
+demand grows the residual capacity for roll shrinks; in heavy
+weather the pods may be at their limits just holding station and
+the roll loop ends up with effectively no authority.
+
+This produces a **state-dependent F_max** for the roll loop, which
+is materially harder than the constant F_max in our current
+prototype. The observer is unaffected, but the inverse-dynamics
+controller's saturation pathology (sec. 4.z, the bang-bang
+re-excitation at `omega_n`) gets worse when F_max is itself
+drifting on a wave-comparable timescale. A saturation-aware
+controller variant is required — either a model-predictive
+formulation that anticipates the budget envelope, or a softer
+gain-scheduling on F_max(t).
+
+**(2) Cross-coupling and the DP wave filter.** The DP wave filter
+(a notch at the encounter frequency, the *other* half-life of the
+Sælid resonator) explicitly rejects wave-frequency content from
+position feedback because acting on it would burn fuel chasing
+wave motion. The roll-augmented architecture deliberately injects
+wave-frequency thrust commands. If the allocator is even slightly
+imperfect — i.e. the achieved `(Fx, Fy, Mz)` from the roll thrust
+is not exactly zero — then a wave-frequency surge/sway/yaw force
+leaks into the slow loop. The DP wave filter sees this as
+wave-frequency *motion* (not as commanded thrust) and correctly
+rejects it, so DP stability is not at stake; but the leakage causes
+**uncompensated wave-frequency vessel motion** that costs
+station-keeping accuracy.
+
+The mitigation is **geometric pairing** — the same twin-pod couple
+from sec. 4.aa: forward pod and aft pod with equal-and-opposite
+transverse thrust produces pure roll couple, zero net surge / sway /
+yaw. This is the only allocator solution that keeps the two loops
+genuinely decoupled. Single-pod or asymmetric pod use will always
+leak. For a vessel with 4 pods (two forward, two aft) the natural
+choice is two transverse couples, doubling the available roll
+moment for the same per-pod thrust.
+
+#### Other practical issues
+
+- **Slew rate**: same as 4.aa — pods cannot azimuth at wave
+  frequency, so practical operation is fixed-orientation,
+  magnitude-only modulation.
+- **Generator response**: stepping 1-2 MW of pod load up and down
+  at wave frequency is a serious load swing for the diesel-electric
+  bus. Battery hybridisation (BESS) becomes much more attractive
+  than for DP-only operation where load is slow. This is the same
+  "regenerative drive" argument from sec. 4.z applied to the whole
+  bus.
+- **Thruster wear**: DP pods are designed for slow-timescale duty;
+  wave-rate cycling shortens bearing/seal life and stresses the
+  gearbox. This is **the** reason Voith Schneider is the natural
+  fit: cycloidal blade pitch reverses transverse thrust without
+  shaft direction reversal, so the prime mover sees nearly constant
+  load even when the thrust direction is reversing. Conventional
+  azipods do not have this property. For a CSOV with conventional
+  azipods, a duty-cycle limit (e.g. only enable wave-rate
+  modulation in defined sea states / operations) is probably
+  necessary.
+- **Cavitation duty cycle**: wave-rate cycling between high
+  transverse load and cavitation onset stresses the propeller and
+  shaft. Continuous-duty cavitation analysis is required before
+  claiming a given F_max can be sustained.
+- **Classification / safety case**: any software path that lets a
+  wave-frequency controller command DP thrusters is a high-integrity
+  item under DNV DP-class notation. The approval story is
+  non-trivial and is probably the gating issue for a commercial
+  product even when the engineering stacks up.
+
+#### Parallel operation with passive roll-reduction tanks
+
+The strongest concept of all: the DP-augmented roll loop runs **in
+parallel with a passive free-surface tank**, not as a replacement
+for it. This is effectively the sec. 7.y hybrid architecture but
+with the active actuator being the existing DP thrusters instead of
+a dedicated unit. Specifically:
+
+- **Free-surface tank** handles broadband dissipation across the
+  whole encounter spectrum: ~40-50 % reduction baseline (per the
+  sec. 4.z heading sweep), zero power, zero allocator burden.
+- **DP-augmented roll loop** handles only the **residual resonance
+  peak** that the free-surface tank cannot dissipate (its
+  attenuation is centred on the sloshing frequency, not the
+  vessel's roll natural frequency). After the tank has flattened
+  the response peak, the active loop's required wave-frequency
+  thrust authority is reduced by a large factor — the loop is
+  shaving an already-attenuated peak, not cancelling the full
+  forcing.
+- **Saturation-aware controller** on the active loop knows the
+  current DP reservation budget and gracefully reduces
+  aggressiveness when DP needs the thrust, falling back to
+  passive-only operation when DP is saturated. Because the passive
+  tank carries the bulk of the work, this fallback costs only
+  the resonance-peak shaving — not the entire roll-stabilising
+  function.
+
+The heading-sweep numbers in sec. 4.z make this very compelling:
+free-surface tank already gets 43-48 % reduction, the DP-augmented
+roll loop only needs to convert that to maybe 60-70 %, which
+requires much less sustained wave-frequency thrust than standalone
+roll actuation would need. The combination delivers good
+performance across the whole heading sweep without ever pushing
+the DP system into saturation conflict.
+
+#### Mapping into the prototype
+
+This requires a different abstraction layer than the
+`DirectRollActuator` from sec. 4.aa. Sketched API:
+
+```python
+class Thruster:
+    """Pod / tunnel / RDT, with kinematic constraints."""
+    azimuth_angle: float           # rad, current orientation
+    azimuth_rate_max: float        # rad/s, slew rate limit
+    thrust_max: float              # N, magnitude cap
+    cavitation_envelope: ...       # (azimuth, thrust) -> feasible?
+
+class ThrusterAllocator:
+    """Multi-thruster allocator with priority-weighted (DP, roll) demand.
+
+    Solves the constrained QP each macro step to distribute the
+    requested generalised force across the available thrusters.
+    Reports both the achieved (Fx, Fy, Mz, M_roll) and the
+    per-thruster commands.
+    """
+    thrusters: list[Thruster]
+    weights: dict   # {'dp': w_dp, 'roll': w_roll} with w_dp >> w_roll
+
+    def allocate(self, tau_dp: np.ndarray, M_roll_d: float) -> dict:
+        """Returns {'u': per-thruster cmds, 'tau_achieved': ndarray,
+        'M_roll_achieved': float}."""
+
+class DPRollActuator:
+    """Wraps a ThrusterAllocator. Exposes the same Tank-like
+    forces() / step_rk4() interface as DirectRollActuator and the
+    physical tank classes. The roll controller commands M_roll_d;
+    the allocator decides how much actually gets delivered given
+    DP reservation and per-thruster saturation, and reports back
+    via the existing record_applied_tank_moment() hook so the
+    observer-based controller stays consistent."""
+```
+
+Three new pieces of work compared to the dedicated-actuator case:
+
+1. **Thruster kinematic model** (azimuth, slew rate, thrust limit,
+   cavitation envelope). Conservative starting point: assume
+   fixed-orientation magnitude-only, since that is the practical
+   wave-rate operating mode anyway.
+2. **Priority QP** in the allocator. For the twin-pod-couple
+   geometry the QP is small enough to solve in closed form; for
+   the general 4-6 pod case use `scipy.optimize.minimize` with
+   linear constraints. Cost ~1 ms per macro step.
+3. **Saturation-aware controller variant**. Either MPC-style
+   anticipation of the budget envelope or a softer gain-scheduling
+   on F_max(t). Simplest first cut: the existing observer-based
+   controller with the per-step F_max passed in from the allocator
+   instead of being a constant — this preserves the controller's
+   no-wind-up linear behaviour up to the moving saturation
+   boundary.
+4. **Synthetic DP demand source** for testing. The honest choice is
+   a slowly-varying (Wiener-filtered Gaussian or low-frequency
+   sinusoid) `tau_dp(t)` representing wind / current / drift
+   loading, then study how the roll loop's effective authority and
+   achieved reduction degrade as the DP demand level increases.
+
+This is a substantial piece of work — probably comparable in scope
+to all the existing tank classes combined — and is deferred until
+the simpler `DirectRollActuator` (sec. 4.aa) has been built and
+validated. Together the two will let the prototype answer the
+practical question that drives commercial concept selection on
+DP-class CSOVs: **at what point does the engineering case for a
+dedicated RDT installation beat the case for re-using the existing
+DP thrusters with a software upgrade?** The expected answer, given
+the heading sweep, is "almost never" — but the prototype is the
+right place to verify it before committing to a hull design.
+
 ---
 
 ## 5. Free-surface tank (`free_surface.py`)
