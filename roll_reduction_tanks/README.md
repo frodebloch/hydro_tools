@@ -655,15 +655,21 @@ open-top tank with its geometric resonance still intact).
 elevation in our geometry (~6.5 m below the waterline), ambient
 pressure is ~1.65 bar absolute, well above water vapour pressure;
 peak suction-side pressure drops are within tolerance for moderate
-loading but blade design matters. (ii) Two-phase ingestion: if the
-free surfaces in the reservoirs slosh hard and entrain air, that air
-gets pulled through the RDT and degrades thrust unpredictably; the
-deeply submerged duct geometry (`duct_below_waterline = 6.5 m`)
-helps. (iii) Forward-feed control: the controller needs phase-
-accurate wave-moment prediction to within ~30 deg; a `phi_dot`-only
-scheme will not suffice and a wave-radar or pressure-sensor feed-
-forward path is needed for the headline numbers above. Without
-forward feed, expect 15-25 % loss of the theoretical reduction.
+loading. RDTs are intrinsically free of *tip-vortex* cavitation
+because the blade tips are integral with the driven rim (no tip
+clearance), which is one of the headline reasons they are favoured
+for low-noise / low-cavitation applications -- so the only relevant
+cavitation mode here is sheet/bubble cavitation on the blade
+suction surface, easily handled by conservative blade loading at
+these flow speeds. (ii) Two-phase ingestion: if the free surfaces
+in the reservoirs slosh hard and entrain air, that air gets pulled
+through the RDT and degrades thrust unpredictably; the deeply
+submerged duct geometry (`duct_below_waterline = 6.5 m`) helps.
+(iii) Forward-feed control: the controller needs phase-accurate
+wave-moment prediction to within ~30 deg; a `phi_dot`-only scheme
+will not suffice and a wave-radar or pressure-sensor feed-forward
+path is needed for the headline numbers above. Without forward
+feed, expect 15-25 % loss of the theoretical reduction.
 
 A natural follow-up implementation would be a new `RDTUtubeTank`
 class (or extension of `OpenUtubeTank`) with a
