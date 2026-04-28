@@ -694,13 +694,224 @@ blades (adds mechanical complexity), or simply accepting that the
 active U-tube has no passive fallback and providing actuator
 redundancy at the system level (two parallel RDTs).
 
-A natural follow-up implementation would be a new `RDTUtubeTank`
-class (or extension of `OpenUtubeTank`) with a
-`thrust_command_func: Callable[[VesselKin, TankState, t], float]`
-input mapped onto a duct pressure differential `dp = F / A_duct`,
-plus an `RDTController` that takes a wave-moment estimate and solves
-for the thrust command needed to produce `M_tank = -M_wave_estimate`
-at the current state.
+Implemented as `tanks/utube_rdt.py` (`RDTUtubeTank`) with two
+reference controllers:
+
+  * `InverseDynamicsRDTController` — perfect-`M_wave` inversion (the
+    theoretical ceiling; used as a benchmark only).
+  * `StateFeedbackRDTController` — PD on `(phi, phi_dot)`, the honest
+    signals-only baseline.
+
+Verified at the operating point (Hs=3 m, Tp=8.5 s, beam seas, F_max
+= 200 kN) in `examples/csov_irregular_seakeeping_with_rdt.py`:
+ideal-RDT delivers ~71 % roll reduction (matches the predicted
+70-80 % ceiling), PD-RDT delivers ~58 %.
+
+### 4.z Wave-moment estimation: Luenberger observer with Sælid resonator
+
+The "ideal" `InverseDynamicsRDTController` above assumes perfect
+real-time knowledge of `M_wave(t)`. That is *not* something a real
+ship can provide from rate-gyro signals alone — differentiating roll
+to recover `phi_ddot` and inverting the EOM gives a causal estimate
+that is hopelessly late and contaminated by the very `M_tank` the
+controller is choosing.
+
+There are two ways to close that gap on a real vessel:
+
+1. **Forward-looking wave radar** (X-band, e.g. Miros WaveX). Gives
+   30-90 s preview of the incoming wave field; the only path to the
+   `~70 %` performance ceiling. Expensive and rare outside high-end
+   heave-compensated cranes.
+
+2. **Model-based observer driven by inertial measurements.** The
+   standard tool for DP wave filtering since Sælid (1983), now in
+   Fossen Ch. 8 / Ch. 11. Reconstructs the *dominant-frequency
+   component* of the wave-induced motion from `phi(t)` (and
+   optionally `phi_dot`) by augmenting the plant with a 2nd-order
+   linear oscillator at the encounter frequency `omega_e` and
+   estimating its amplitude/phase from the data.
+
+For the prototype we go with option 2 in its simplest form: a
+**Luenberger observer with pole placement**, no Kalman filter
+machinery. Justification:
+
+- The augmented plant is LTI for fixed `omega_e` (vessel roll EOM is
+  linear around upright; the resonator is by construction linear).
+- We have no well-characterised process / measurement noise
+  covariances. Inventing `Q` and `R` for a Kalman filter buys
+  nothing real on a fundamentally linear system.
+- Pole placement gives transparent tuning ("this pole governs the
+  roll-state error decay; this complex pair governs how aggressively
+  the resonator adapts to amplitude changes") instead of opaque
+  covariance trade-offs.
+- `omega_e` does drift, but slowly (minutes timescale in
+  station-keeping). Handle by **gain-scheduling**: design Luenberger
+  gains at a few `omega_e` operating points and interpolate. Don't
+  augment `omega_e` as a state — that would re-introduce
+  nonlinearity (`omega_e^2` enters the resonator) and force EKF/UKF
+  for nothing.
+
+#### Augmented state
+
+```
+x = [ phi, phi_dot, eta_1, eta_2, M_bias ]^T              (5 states)
+
+phi_dot         = phi_dot
+phi_ddot        = (1/I) * ( -b*phi_dot - c*phi
+                            + eta_1 + M_bias + M_tank_known )
+eta_1_dot       = eta_2
+eta_2_dot       = -2*zeta_w*omega_e*eta_2 - omega_e^2 * eta_1
+M_bias_dot      = 0                                        (random walk)
+```
+
+- `eta_1` is the resonator output: the estimate of the *narrow-band*
+  component of `M_wave` at `omega_e`. The model treats it as a free
+  oscillator that the observer corrections force to track the
+  actual wave-induced roll content.
+- `M_bias` absorbs slow / DC components of the wave moment (heel
+  from steady wind, mean drift, free-surface trim) and any
+  systematic model error in `b, c`. Optional but cheap.
+- The `M_tank_known` term is the controller's *commanded and
+  saturated* `M_tank` (i.e., what the actuator just produced). The
+  observer needs this so it doesn't blame the tank's contribution
+  on `M_wave`. **No algebraic loop**: the controller computed
+  `F_RDT` last step, the observer reads the resulting `M_tank` this
+  step, the controller computes the next `F_RDT` from the updated
+  `M_wave_hat`. ZOH on the actuator command makes this exact at the
+  macro time-step.
+
+Measurement: `y = phi` (rate-gyro integration / MRU output).
+Optionally `y = [phi, phi_dot]^T` if the inertial unit publishes
+both — improves observability of the `eta_2` state.
+
+#### Pole placement recipe
+
+| pole | role | guideline |
+|---|---|---|
+| `p_1, p_2` (real or complex pair) | drive `phi, phi_dot` error to zero | real part `≈ -3 * omega_n_roll`; with `omega_n_roll = 0.55 rad/s` (T_n = 11.4 s) → `≈ -1.6 rad/s` |
+| `p_3, p_4` (complex pair) | resonator state correction | place near `±j*omega_e` with damping `zeta_obs ~ 0.4-0.6` (open-loop resonator has `zeta_w ~ 0.05`); i.e. `-zeta_obs*omega_e ± j*omega_e*sqrt(1-zeta_obs^2)` |
+| `p_5` (real) | bias drift tracking | slow, e.g. `-0.05 rad/s` (≈ 20 s time constant) |
+
+Sweet spot for the resonator poles: damping `zeta_obs ~ 0.5` (10x
+faster decay than the open-loop resonator at `zeta_w = 0.05`), same
+imaginary part. Faster than that and the observer amplifies
+measurement noise into the M_wave estimate; slower and the
+reconstruction undershoots in amplitude (at `zeta_obs = 0.18` the
+steady-state gain is only ~0.7; at `zeta_obs = 0.5` it is ~0.9).
+
+#### Implementation
+
+`controllers/luenberger_wave_observer.py`:
+
+```python
+class LuenbergerWaveObserver:
+    """Augmented [vessel + Sælid resonator + bias] observer.
+
+    Designs the gain L = place(A^T, C^T, poles)^T at construction.
+    """
+    def __init__(self, I, b, c, omega_e, zeta_w=0.05,
+                 observer_poles=None,
+                 measure_phi_dot=False):
+        ...
+
+    def update(self, y, M_tank_known, dt):
+        """One observer time-step (RK4 on the linear augmented plant)."""
+        ...
+
+    @property
+    def M_wave_hat(self) -> float:
+        return self._x[2] + self._x[4]   # eta_1 + M_bias
+
+class ResonatorObserverRDTController(AbstractRDTController):
+    """Inverse-dynamics control on the observer's M_wave estimate."""
+    def __init__(self, observer: LuenbergerWaveObserver):
+        self.obs = observer
+
+    def thrust(self, vessel_kin, t):
+        # Use the same algebraic inversion as InverseDynamicsRDTController
+        # but with M_wave_hat = obs.M_wave_hat instead of M_wave_func(t).
+        ...
+```
+
+#### Choice of `omega_e`: vessel resonance, not wave peak
+
+Subtle but consequential: for an active anti-roll application,
+`omega_e` should be set to the **vessel roll natural frequency**
+`omega_n_roll`, NOT to the wave peak frequency `omega_p = 2*pi/Tp`.
+
+Reasoning:
+
+- The roll signal `phi(t)` is the wave-induced moment filtered through
+  the vessel transfer function `H(s) = 1 / (I s^2 + b s + c)`, which
+  peaks sharply at `omega_n_roll`. So most of the *observable*
+  energy in `phi(t)` lives at `omega_n_roll`, regardless of where
+  the wave spectrum peaks.
+- The resonator achieves zero phase lag and unit gain at exactly its
+  centre frequency. Centring at `omega_n_roll` aligns the
+  observer's strongest response with the strongest signal content.
+- Centring at `omega_p` instead causes the resonator to filter out
+  the resonant roll content (which is what we most need to
+  cancel!) and produces a poor `M_wave_hat` reconstruction. We
+  measured a 28% reduction with `omega_e = omega_p` versus 57%
+  with `omega_e = omega_n_roll` in the standard JONSWAP test case
+  -- a 2x performance loss from this single tuning choice.
+
+The lesson: the resonator centre frequency is *not* "wave
+frequency", it is "frequency at which I best want to estimate the
+wave moment from a roll measurement". For roll stabilisation, that
+is unambiguously `omega_n_roll`.
+
+#### Expected performance
+
+Three regimes, ranked, with measured numbers from
+`examples/csov_irregular_seakeeping_with_rdt.py` (CSOV, GM=3 m,
+T_n=11.4 s, JONSWAP Hs=3 m Tp=8.5 s, F_max=200 kN):
+
+| controller | M_wave knowledge | phi_1/3 (% reduction) | mean net power (kW) |
+|---|---|---|---|
+| Bare vessel | n/a | 4.02° | -- |
+| PD signals only | none | 1.70° (58%) | 573 |
+| **Luenberger + Sælid** | dominant component at `omega_n` | **1.72° (57%)** | **145** |
+| Inverse-dynamics ideal | perfect (radar/preview) | 1.18° (71%) | 291 |
+
+The headline finding: **the observer-based controller delivers
+PD-equivalent roll attenuation at ~1/4 the energy cost** (145 kW
+net vs 573 kW). The net-power reduction comes from the controller
+being mostly *reactive* (cycling fluid kinetic energy in and out)
+rather than *dissipative* (continuously braking against fluid
+momentum). Most of the apparent power swing can be recovered by a
+4-quadrant regenerative drive.
+
+The observer-based controller does not match the perfect-knowledge
+ideal in roll attenuation (57% vs 71%) -- the gap is real and
+reflects the broadband nature of `M_wave` versus the single-
+resonator narrow-band reconstruction. To close it would require
+either (a) parallel resonators at multiple peaks (handles bimodal
+sea spectra) or (b) wave radar preview (handles full broadband
+content). For a unimodal JONSWAP, ~57% is the realistic
+single-observer ceiling.
+
+#### Caveats
+
+- **Vessel-tank coupling complicates `eta_1`.** Our vessel is near
+  resonance with the wave (`T_n = 11.4 s` vs `Tp = 8.5 s`), and the
+  U-tube fluid is tuned to `T_n`. So `phi(t)` contains substantial
+  resonant content driven by the wave through the *coupled
+  (vessel + tank)* transfer function. The observer model above is
+  the *vessel-only* roll EOM; the tank moment enters as
+  `M_tank_known`. This is correct as long as we feed the actual
+  applied `M_tank` (not the commanded one) — the saturation-clipped
+  value is what ends up acting on the hull.
+
+- **Single-resonator narrow-band assumption.** A confused sea
+  (swell + wind sea, two spectral peaks) would want two resonators
+  in parallel at the dominant peaks. JONSWAP gamma=3.3 is narrow
+  enough to be well-served by one.
+
+- **`omega_e` shifts with vessel speed and heading.** Negligible
+  for station-keeping CSOV; substantial in transit. Handle with
+  gain scheduling on a slowly-updated `omega_e` estimate (separate
+  frequency tracker, not augmented into the observer state).
 
 ---
 

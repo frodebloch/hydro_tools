@@ -46,6 +46,10 @@ from roll_reduction_tanks.tanks.utube_open import (
 from roll_reduction_tanks.tanks.utube_rdt import (
     RDTUtubeConfig, RDTUtubeTank,
     InverseDynamicsRDTController, StateFeedbackRDTController,
+    ResonatorObserverRDTController,
+)
+from roll_reduction_tanks.controllers.luenberger_wave_observer import (
+    LuenbergerWaveObserver, LuenbergerWaveObserverConfig,
 )
 from roll_reduction_tanks.vessel import RollVessel, RollVesselConfig
 from roll_reduction_tanks.waves import (
@@ -145,6 +149,24 @@ def _rdt_pd():
     return RDTUtubeTank(cfg, controller=ctrl)
 
 
+def _rdt_observer(I_total, b44, c44, omega_e):
+    """Realistic active controller: Sælid resonator + Luenberger
+    observer reconstructs M_wave from phi(t) and the known applied
+    M_tank, then drives the same algebraic inversion as the ideal
+    controller.
+
+    Parameters are the *vessel-only* effective roll EOM coefficients
+    (I_total = I44 + a44, b44 = linear damping, c44 = restoring stiffness)
+    and the dominant encounter frequency omega_e of the seastate.
+    """
+    cfg = RDTUtubeConfig(F_max=F_MAX, **_UTUBE_GEOM)
+    obs = LuenbergerWaveObserver(LuenbergerWaveObserverConfig(
+        I_total=I_total, b44=b44, c44=c44, omega_e=omega_e,
+    ))
+    ctrl = ResonatorObserverRDTController(observer=obs)
+    return RDTUtubeTank(cfg, controller=ctrl)
+
+
 # -------------------------------------------------------- run
 
 
@@ -191,6 +213,9 @@ def main():
         ("free-surface (self-cons.)",   lambda: _free_surface(c44, I_tot),   "C2", "-"),
         ("TMD (mu=5%, opt)",            lambda: _tmd(I_tot, omega_n),        "C3", "-"),
         ("RDT, PD (signals only)",      _rdt_pd,                             "C5", "-"),
+        ("RDT, observer (Sælid+Luenb)", lambda: _rdt_observer(
+                                            I_tot, pd.b44_assumed, c44,
+                                            omega_e=omega_n),                "C1", "--"),
         ("RDT, ideal (knows M_wave)",   _rdt_ideal,                          "C4", "-"),
     ]
 
@@ -229,6 +254,16 @@ def main():
                         RDTUtubeConfig(F_max=F_MAX, **_UTUBE_GEOM),
                         controller=ctrl_local,
                     )
+                elif "observer" in label:
+                    obs_local = LuenbergerWaveObserver(LuenbergerWaveObserverConfig(
+                        I_total=I_tot, b44=pd.b44_assumed, c44=c44,
+                        omega_e=omega_n,
+                    ))
+                    ctrl_local = ResonatorObserverRDTController(observer=obs_local)
+                    tank2 = RDTUtubeTank(
+                        RDTUtubeConfig(F_max=F_MAX, **_UTUBE_GEOM),
+                        controller=ctrl_local,
+                    )
                 else:
                     ctrl_local = StateFeedbackRDTController(K_phi=0.0, K_phidot=5e7)
                     tank2 = RDTUtubeTank(
@@ -259,20 +294,24 @@ def main():
                 # Saturation fraction (post-warmup)
                 mask_post = t_log > T_WARMUP
                 sat_pct = 100.0 * np.mean(np.abs(F_log[mask_post]) >= F_MAX * 0.999)
-                # Mechanical shaft power demand |F * v_duct|. This is
-                # mostly reactive (KE swap with the fluid each half
-                # period) -- the dissipated component is much smaller.
-                # The number reported is what the RDT drive must
-                # source/sink, i.e. the relevant figure for motor and
-                # battery/cap-buffer sizing.
-                P_inst = np.abs(F_log[mask_post] * v_duct_log[mask_post])
-                p_avg_kw = float(np.mean(P_inst) / 1e3)
+                # Two power figures (post-warmup):
+                #   * Apparent (|F*v|): envelope of reactive swings.
+                #     Sets motor/drive electronics rating.
+                #   * Net dissipated (signed F*v, with positive = drive
+                #     does work on the fluid): mean energy the battery
+                #     actually drains. With a regenerative drive most of
+                #     the apparent power is recovered.
+                P_app_inst = np.abs(F_log[mask_post] * v_duct_log[mask_post])
+                P_net_inst = F_log[mask_post] * v_duct_log[mask_post]
+                p_avg_kw = float(np.mean(P_app_inst) / 1e3)
+                p_net_kw = float(np.mean(P_net_inst) / 1e3)
                 rdt_traces[label] = (t_log, F_log, color, ls)
 
             print(f"    phi_1/3 = {sig_deg:6.3f} deg "
                   f"({reduction:+5.1f} % vs bare)"
-                  + (f"  | actuator sat {sat_pct:5.1f}% of time, "
-                     f"<P>_shaft {p_avg_kw:5.1f} kW"
+                  + (f"  | sat {sat_pct:5.1f}% | "
+                     f"<|P|>={p_avg_kw:5.1f} kW (apparent), "
+                     f"<P>={p_net_kw:5.1f} kW (net)"
                      if sat_pct is not None else ""))
             labels.append(label)
             sigs.append(sig_deg)

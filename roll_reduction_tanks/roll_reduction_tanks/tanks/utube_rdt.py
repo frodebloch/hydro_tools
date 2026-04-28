@@ -74,6 +74,7 @@ from typing import Callable, Optional
 import numpy as np
 
 from .utube_open import OpenUtubeConfig, OpenUtubeTank
+from ..controllers.luenberger_wave_observer import LuenbergerWaveObserver
 
 
 # =====================================================================
@@ -232,6 +233,106 @@ class StateFeedbackRDTController(AbstractRDTController):
         return -self.K_phi * phi - self.K_phidot * phi_dot
 
 
+@dataclass
+class ResonatorObserverRDTController(AbstractRDTController):
+    """Inverse-dynamics RDT control on a Luenberger / Sælid M_wave estimate.
+
+    Realistic shipboard counterpart of the perfect-knowledge
+    :class:`InverseDynamicsRDTController`. The wave-induced roll
+    moment is reconstructed online by a
+    :class:`LuenbergerWaveObserver` (Sælid 2nd-order resonator at
+    `omega_e` augmented with a slow bias) driven by the roll
+    measurement `phi(t)` and the tank's known applied moment
+    `M_tank(t)`. The reconstructed `M_wave_hat` is then fed into the
+    same algebraic inversion as :class:`InverseDynamicsRDTController`
+    to compute `F_RDT`.
+
+    See README sec. 4.z for the design rationale and the expected
+    performance band (typically lands ~halfway between the PD baseline
+    and the perfect-knowledge ideal).
+
+    The observer integrator is driven once per macro step from inside
+    :meth:`thrust`, using the start-of-step `phi` measurement and the
+    *previous* step's applied tank moment. The time-step `dt` is
+    recovered from successive `t` values; on the very first call the
+    observer state is just initialised (no propagation).
+
+    Parameters
+    ----------
+    observer
+        Pre-configured :class:`LuenbergerWaveObserver`. Its `omega_e`
+        should be set to the dominant encounter frequency of the
+        seastate. For a station-keeping vessel a good rule of thumb is
+        `omega_e = 2*pi/Tp` of the dominant wave system.
+    """
+
+    observer: LuenbergerWaveObserver
+
+    # Same back-reference machinery as the inverse-dynamics controller
+    _tank: Optional["RDTUtubeTank"] = None
+    _t_last: Optional[float] = None
+    _M_tank_applied_last: float = 0.0
+
+    def attach_tank(self, tank: "RDTUtubeTank") -> None:
+        self._tank = tank
+
+    def thrust(self, vessel_kin: dict, t: float) -> float:
+        if self._tank is None:
+            raise RuntimeError(
+                "ResonatorObserverRDTController.thrust() called before "
+                "attach_tank(); RDTUtubeTank should call attach_tank() "
+                "in its constructor."
+            )
+        tank = self._tank
+        phi = float(vessel_kin["phi"])
+        phi_ddot = float(vessel_kin.get("phi_ddot", 0.0))
+        v_dot = float(vessel_kin.get("v_dot", 0.0))
+        r_dot = float(vessel_kin.get("r_dot", 0.0))
+
+        # --- 1) Drive the observer one macro step --------------------
+        if self._t_last is not None:
+            dt = t - self._t_last
+            if dt > 0.0:
+                if self.observer.cfg.measure_phi_dot:
+                    y = np.array([phi, float(vessel_kin["phi_dot"])])
+                else:
+                    y = phi
+                self.observer.update(
+                    y, M_tank_known=self._M_tank_applied_last, dt=dt,
+                )
+        self._t_last = t
+
+        # --- 2) Inverse-dynamics with M_wave_hat from observer -------
+        tau, tau_dot = float(tank.state[0]), float(tank.state[1])
+        damping = (tank.b_tau + tank.b_quad * abs(tau_dot)) * tau_dot
+        rhs_passive = (
+            +tank.a_phi * phi_ddot
+            + tank.c_phi * phi
+            - tank.a_y * v_dot
+            - tank.a_psi * r_dot
+        ) - damping - tank.c_tau * tau
+
+        tau_ddot_passive = rhs_passive / tank.a_tau
+        M_tank_passive = tank.a_phi * tau_ddot_passive + tank.c_phi * tau
+
+        gain = tank._rdt_gain
+        dMtank_dFrdt = (tank.a_phi / tank.a_tau) * gain
+        if dMtank_dFrdt == 0.0:
+            return 0.0
+
+        M_wave_hat = self.observer.M_wave_hat
+        F_cmd = -(M_wave_hat + M_tank_passive) / dMtank_dFrdt
+        return F_cmd
+
+    def record_applied_tank_moment(self, M_tank_applied: float) -> None:
+        """Record the tank's actual (post-saturation) moment for next observer step.
+
+        Called by :class:`RDTUtubeTank.step_rk4` after the integration
+        step completes.
+        """
+        self._M_tank_applied_last = float(M_tank_applied)
+
+
 # =====================================================================
 # Tank
 # =====================================================================
@@ -368,6 +469,14 @@ class RDTUtubeTank(OpenUtubeTank):
                 self._cached_F_cmd,
                 -self.config.F_max, +self.config.F_max,
             ))
+            # If the controller wants the post-step applied tank moment
+            # (observer-based controllers do), publish it. We compute
+            # M_tank from the *post-step* tank state by querying the
+            # tank's own forces() with the end-of-step vessel kin.
+            if hasattr(self.controller, "record_applied_tank_moment"):
+                kin1 = vessel_kin_func(t + dt)
+                M_tank_applied = float(self.forces(kin1)["roll"])
+                self.controller.record_applied_tank_moment(M_tank_applied)
 
     # ZOH cache (cleared / overwritten each step_rk4)
     _cached_F_cmd: float = 0.0
