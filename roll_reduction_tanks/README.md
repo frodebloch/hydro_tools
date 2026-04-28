@@ -520,6 +520,59 @@ For genuinely adaptive retuning, the variable-duct-area mechanism (2
 above) is a better physical concept and would warrant a separate tank
 implementation.
 
+### 4.x Dual-purpose anti-heel duty (not modelled)
+
+Crossover U-tube tanks on offshore vessels often share duty as
+*anti-heel* systems for crane operations: by closing the air-crossover
+valve and pressurising one chamber relative to the other (via a
+compressor), the fluid is forced to sit asymmetrically, generating a
+controllable static moment that can offset a crane's heeling moment.
+
+This is **not implemented** in `AirValveUtubeTank`, but the impact on
+roll reduction is straightforward to reason about:
+
+  * Closed valve raises the tank natural period from `T_open` to
+    `T_closed`, which (for our active design endpoints `[8, 14] s` or
+    `[7, 11] s`) moves the absorber notch *off* vessel resonance.
+    During anti-heel duty, peak roll RAO at vessel `T_n` is roughly
+    doubled compared with valve-open operation.
+  * The fluid biased toward one side reduces the available swing
+    toward the unloaded side, lowering the maximum roll amplitude the
+    tank can absorb before nonlinear saturation by roughly the
+    fractional offset (a 70 % static offset roughly halves the
+    saturation-limited absorbing capacity).
+  * Higher operating pressure (`p_atm + Delta p`) increases the
+    closed-valve gas-spring stiffness linearly with mean pressure,
+    pushing `T_closed` even shorter.
+
+**Maximum heel-correction capacity for the CSOV designs**: bounded by
+*reservoir geometry*, not by air pressure. With our reservoir of
+`A_res = 10 m^2` and undisturbed fluid height 2.5 m, a realistic
+operational fluid-swing of 70 % gives:
+
+  * transferred fluid mass ~17.9 t;
+  * static heel moment ~2.82 MN m;
+  * equivalent static heel correction at `GM = 3 m`: ~0.49 deg;
+  * equivalent crane payload at 20 m outreach: ~14.3 t.
+
+This is small compared with heavy-lift wind-turbine installation
+crane moments (a 600 t lift at 25 m outreach is ~150 MN m, ~50x our
+U-tube's capacity), so dual-purpose use is realistic only for *light*
+deck-equipment moments (small davits, supply crane, load shifts);
+heavy-lift vessels typically install dedicated, larger anti-heel
+tanks with pumped transfer in addition to the roll-reduction U-tube.
+
+The choice of `V0` affects only the *speed* and *energy* of fluid
+transfer, not the geometric ceiling: smaller `V0` gives a stronger
+gas spring that can hold the offset against hydrostatic head without
+compressor assistance; larger `V0` requires the compressor to add a
+few tenths of a bar.
+
+A natural follow-up implementation would extend `AirValveUtubeTank`
+with a `chamber_pressure_differential` input (driven by a heel-angle
+controller) and re-linearise the gas-spring stiffness around the
+biased equilibrium `tau_eq != 0`.
+
 ---
 
 ## 5. Free-surface tank (`free_surface.py`)
@@ -670,6 +723,34 @@ For the free-surface and TMD tanks, whose `forces()` depends on the
 *current* `phi_ddot`, we recompute that derivative inside `forces()` from
 the supplied `vessel_kin` rather than caching the previous step's value
 (otherwise the one-step lag destabilises the resonant feedback loop).
+
+### 7.x Multi-tank combinations (not yet exercised)
+
+`CoupledSystem` accepts a `tanks: list[Tank]` argument; nothing in the
+implementation restricts it to a single tank. The tanks' contributions
+to the vessel roll moment are simply summed each step, and each tank
+is advanced independently against the same vessel kinematics.
+
+The `csov_irregular_seakeeping.py` results suggest a non-obvious design
+opportunity:
+
+  * the **free-surface tank** is uniquely able to *boost* roll
+    stiffness (via the `dc44_extra` static-surface-tilt term, sec. 5),
+    which is the only mechanism among the modelled devices that
+    improves response *below* vessel resonance;
+  * the **U-tube** (or TMD) provides the deep absorber notch *near*
+    the (effective) vessel resonance.
+
+A `[free-surface + U-tube]` combination should therefore plausibly
+beat any single-device solution: the free-surface re-tunes the
+vessel's effective period upward and shrinks sub-resonance response,
+while the U-tube — *tuned to the new effective period rather than the
+bare-vessel `T_n`* — kills the residual resonant peak. Real offshore
+vessels often install several tanks, and while the explicit reasons
+are usually redundancy, variable loading, and asymmetric placement,
+the dynamics suggest a genuine performance benefit on top of those
+practical drivers. A worked combination example is a natural
+follow-up; the existing infrastructure supports it directly.
 
 ---
 
