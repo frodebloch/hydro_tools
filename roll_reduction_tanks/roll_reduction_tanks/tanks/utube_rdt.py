@@ -349,8 +349,19 @@ class RDTUtubeConfig(OpenUtubeConfig):
     appears in the Bertram self-coefficients).
     """
 
-    F_max: float = 200_000.0     # actuator amplitude limit, N. Default
-                                 # ~210 kN ~ bow-tunnel-thruster class.
+    F_max: float = 80_000.0      # actuator amplitude limit, N. Default
+                                 # ~80 kN: a 1.0-1.2 MW shaft, 1.8 m
+                                 # diameter rim-driven thruster delivers
+                                 # roughly this much *fluid* thrust in a
+                                 # closed tank duct after rim friction
+                                 # (~30-35% of P_shaft) and propeller
+                                 # losses are subtracted. Vendor "system
+                                 # thrust" figures for hull-installed
+                                 # tunnel thrusters are ~2x larger but
+                                 # include hull-suction reactions absent
+                                 # in our closed-duct application.
+                                 # See README sec. 4.y for full
+                                 # sizing analysis.
 
 
 class RDTUtubeTank(OpenUtubeTank):

@@ -624,32 +624,68 @@ our CSOV geometry (`A_res = 10 m^2`, `A_duct ~ 3 m^2`, `W_duct =
 | required fluid offset tau_a | 1.08 m | 1.75 m |
 | peak duct velocity         | 2.66 m/s | 3.34 m/s |
 | peak flow rate Q           | 8.0 m^3/s | 10.0 m^3/s |
-| **peak thrust required**   | **170 kN** | **210 kN** |
-| peak shaft power           | 460 kW    | 700 kW    |
-| dissipated power (avg)     | 12 kW     | 24 kW     |
+| **peak fluid thrust required**   | **170 kN** | **210 kN** |
+| peak useful hydraulic power | 460 kW    | 700 kW    |
 
-170-210 kN places the actuator in the *bow tunnel thruster* class --
-a 1.6-1.8 m diameter rim-driven thruster (e.g. Brunvoll RDT-160 or
-Rolls-Royce TT class) is a direct off-the-shelf fit and dramatically
-simpler than the equivalent compressor system (which would need
-8-10 m^3/s of low-pressure airflow at 20-35 kPa Δp).
+These are the **fluid-on-fluid** thrust and **useful hydraulic
+power** numbers — what the propeller has to deliver to the working
+fluid in the duct, not what the customer puts on the bus.
 
-**Energy buffering.** The peak shaft power is **reactive**: it
-flows back and forth between fluid kinetic energy and gravitational
-potential energy each half-cycle. The total swing energy per cycle is
-**0.3-0.6 MJ** (~170 Wh = 0.17 kWh). A modest battery or
-supercapacitor bank in the kWh class absorbs all peaks, so the ship
-electrical bus only sees the **24 kW dissipated** -- *less than a
-coffee machine*. For context, the CSOV's installed power is
-~5-10 MW, so even the unbuffered peaks would be ~10 % of installed
-power; with buffering the active-tank load is essentially invisible
-to the power system.
+**RDT hardware sizing for that thrust.** A rim-driven thruster in a
+tank duct delivers roughly **80 kN of fluid thrust per 1000 kW of
+shaft power** for a 1.8 m diameter unit, after lumping all
+inefficiencies into a single ratio (see footnote on loss
+decomposition below). Achieving the **170-210 kN** thrust ceiling
+above therefore demands **~2.1-2.6 MW** of shaft power on a
+~2.0-2.2 m diameter RDT — substantially larger than a routine bow-
+tunnel thruster, and a real cost driver for the customer.
 
-This is the strongest reason to favour an in-duct RDT over an
-air-driven scheme: the ship never sees a power spike, the actuator
-hardware is already standard marine equipment, and the failure mode
-is recoverable provided the RDT is designed to *freewheel* on
-power loss (see caveat (iv) below).
+> *Where the losses go.* A single lumped efficiency hides three
+> distinct loss mechanisms: **rim friction** (viscous shear in the
+> few-mm magnetic-circuit gap between the rotating impeller rim and
+> the stator embedded in the duct wall — typically 30-35 % of shaft
+> power, present *whenever the rotor spins* regardless of useful
+> thrust), **propeller losses** (induced + profile drag on the
+> blades, ~30-40 %), and **duct entry/exit losses** (~5-10 %). The
+> rim contribution is the dominant *standby* loss and the main
+> reason an oversized RDT is wasteful: a 2x larger unit running at
+> 50 % duty cycle still pays the rim tax all the time. Sizing the
+> RDT close to the actual peak thrust requirement (rather than with
+> wide margin) is therefore preferred.
+
+**Vendor "system thrust" caveat.** Manufacturer data sheets for
+tunnel thrusters quote *system* thrust including hull-suction
+contributions of order +35-50 % (which arise from the asymmetric
+low-pressure zone on the suction side of an open hull tunnel). Our
+RDT sits in a *closed* tank duct with no hull-side surface — there
+is no equivalent suction reaction. **A vendor-quoted 200 kN tunnel
+thruster will deliver only ~120-130 kN of fluid thrust in our
+application**, and even that drops to ~80 kN once realistic rim and
+duct losses are subtracted at the unsteady duty cycle of active
+roll control. Sizing must be done from the **propeller momentum-
+theory** thrust at the rated shaft power, not from the catalogue
+system-thrust figure.
+
+**Energy balance.** The peak useful hydraulic power (~460-700 kW)
+is mostly **reactive**: it cycles between fluid kinetic energy and
+gravitational potential energy each half-period. With a 4-quadrant
+regenerative drive the *net* electrical demand from the bus is
+much smaller — perhaps 150-250 kW continuous in our standard
+operating point (see sec. 4.z for measured numbers from the
+observer-based controller). However, **rim friction takes its
+30-35 % cut every cycle and is not recoverable**: of the 1000 kW
+shaft input, ~300-350 kW are continuously dissipated as heat into
+the working fluid even with perfect regeneration on the propeller
+side. The customer-visible electrical load is therefore on the
+order of **300-500 kW continuous** in active operation — small
+compared to a CSOV's installed power (~5-10 MW) but *not* "less
+than a coffee machine".
+
+This is still the strongest reason to favour an in-duct RDT over
+an air-driven scheme: the actuator hardware is standard marine
+equipment, the working fluid is incompressible (fast control
+response), and the failure mode is recoverable provided the RDT is
+designed to *freewheel* on power loss (see caveat (iv) below).
 
 **Caveats specific to in-tank RDTs.** (i) Cavitation: at the duct
 elevation in our geometry (~6.5 m below the waterline), ambient
@@ -693,6 +729,52 @@ bypass duct that opens on fault (doubles hardware cost), feathering
 blades (adds mechanical complexity), or simply accepting that the
 active U-tube has no passive fallback and providing actuator
 redundancy at the system level (two parallel RDTs).
+(v) **Air entrainment** is more dangerous than for the equivalent
+ducted ship thruster: the closed tank traps any air bubble that
+gets sucked through the impeller, so successive cycles
+re-encounter it until it migrates out of the duct path. Aerated
+working fluid degrades the impeller thrust unpredictably and can
+trip cavitation. The deeply submerged duct geometry (`duct_below_
+waterline = 6.5 m` ⇒ ~6 m of fluid head above the duct) suppresses
+free-surface entrainment in normal operation, but rough operation
+or partial fill conditions need explicit consideration.
+
+(vi) **Continuous rim heating of the working fluid.** With ~30-35 %
+of shaft power dissipated continuously by rim friction (see "Where
+the losses go" footnote above), the active RDT pumps **~300-400 kW
+of heat directly into the tank water** during steady active
+operation. For our CSOV tank geometry, the working fluid mass is
+~100 tonnes (50 m³ × 2 reservoirs + ~50 m³ duct fluid), so the
+adiabatic temperature rise is
+
+    dT/dt ≈ P_dissipated / (m * c_p)
+          = 350 kW / (100 t × 4.186 kJ/kg/K)
+          ≈ 0.83 K / minute  =  3.0 K / hour
+
+For a 24/7 station-keeping operation this gives a **20-30 K
+temperature rise after a typical 6-10 h shift** without active
+cooling. The tank-to-bilge wall conduction is small (limited
+contact area and low thermal conductivity of the surrounding ship
+structure), and air convection from an open-top tank's free
+surface dissipates only ~5-10 kW at typical CSOV deck temperatures
+— neither is a real heat sink at this dissipation rate. **An
+active seawater-loop heat exchanger sized for ~300-400 kW is
+therefore essentially mandatory** for any active-RDT installation
+intended for continuous duty. This is a small piece of standard
+marine equipment (similar to a main-engine cooler) but it adds
+piping complexity and a sea-chest connection that the customer
+must plan for. Closed (air-valve) tank variants are even worse
+because they have no free-surface evaporative cooling at all.
+
+(vii) **Hardware sizing margin trade-off.** Because rim friction
+is a *standby* loss (proportional to rotational speed, not
+thrust), oversizing the RDT for thrust margin is doubly
+penalised: not only is the unit more expensive, it also
+dissipates more standby power whenever it spins. The optimal
+sizing puts the rated peak thrust close to the actual M_wave
+cancellation requirement (~210 kN here) without large excess —
+opposite to the conventional naval-architecture instinct of "spec
+30 % above the nominal load".
 
 Implemented as `tanks/utube_rdt.py` (`RDTUtubeTank`) with two
 reference controllers:
@@ -702,10 +784,14 @@ reference controllers:
   * `StateFeedbackRDTController` — PD on `(phi, phi_dot)`, the honest
     signals-only baseline.
 
-Verified at the operating point (Hs=3 m, Tp=8.5 s, beam seas, F_max
-= 200 kN) in `examples/csov_irregular_seakeeping_with_rdt.py`:
-ideal-RDT delivers ~71 % roll reduction (matches the predicted
-70-80 % ceiling), PD-RDT delivers ~58 %.
+Verified at the operating point (Hs=3 m, Tp=8.5 s) in
+`examples/csov_irregular_seakeeping_with_rdt.py`. At the legacy
+F_max = 200 kN well-sized point (see sec. 4.z), ideal-RDT delivers
+~71 % roll reduction in beam seas (matching the predicted
+70-80 % ceiling) and PD-RDT delivers ~58 %. At the realistic
+F_max = 80 kN single-RDT default (per the sizing analysis above),
+the active controllers are authority-starved — see the sec. 4.z
+heading sweep for the corrected picture.
 
 ### 4.z Wave-moment estimation: Luenberger observer with Sælid resonator
 
@@ -863,33 +949,85 @@ is unambiguously `omega_n_roll`.
 
 #### Expected performance
 
-Three regimes, ranked, with measured numbers from
-`examples/csov_irregular_seakeeping_with_rdt.py` (CSOV, GM=3 m,
-T_n=11.4 s, JONSWAP Hs=3 m Tp=8.5 s, F_max=200 kN):
+Two regimes — well-sized actuator (the original 200 kN sketch) vs
+realistic single-RDT (80 kN per the corrected sec. 4.y sizing). All
+numbers from `examples/csov_irregular_seakeeping_with_rdt.py` (CSOV,
+GM=3 m, T_n=11.4 s, JONSWAP Hs=3 m Tp=8.5 s).
+
+**F_max = 200 kN, beam seas (legacy "well-sized" point):**
 
 | controller | M_wave knowledge | phi_1/3 (% reduction) | mean net power (kW) |
 |---|---|---|---|
-| Bare vessel | n/a | 4.02° | -- |
+| Bare vessel | n/a | 4.02° | — |
 | PD signals only | none | 1.70° (58%) | 573 |
 | **Luenberger + Sælid** | dominant component at `omega_n` | **1.72° (57%)** | **145** |
 | Inverse-dynamics ideal | perfect (radar/preview) | 1.18° (71%) | 291 |
 
-The headline finding: **the observer-based controller delivers
-PD-equivalent roll attenuation at ~1/4 the energy cost** (145 kW
-net vs 573 kW). The net-power reduction comes from the controller
-being mostly *reactive* (cycling fluid kinetic energy in and out)
-rather than *dissipative* (continuously braking against fluid
-momentum). Most of the apparent power swing can be recovered by a
-4-quadrant regenerative drive.
+Observer-based controller delivers PD-equivalent attenuation at
+~1/4 the net energy cost. The gap to the ideal (57 % vs 71 %)
+reflects the broadband `M_wave` vs the single-resonator narrow-band
+reconstruction; closing it requires parallel resonators or wave
+radar preview.
 
-The observer-based controller does not match the perfect-knowledge
-ideal in roll attenuation (57% vs 71%) -- the gap is real and
-reflects the broadband nature of `M_wave` versus the single-
-resonator narrow-band reconstruction. To close it would require
-either (a) parallel resonators at multiple peaks (handles bimodal
-sea spectra) or (b) wave radar preview (handles full broadband
-content). For a unimodal JONSWAP, ~57% is the realistic
-single-observer ceiling.
+**F_max = 80 kN (realistic single-RDT), heading sweep:**
+
+| heading | bare | passive U | free-surface | TMD | RDT-PD | RDT-observer | RDT-ideal |
+|---|---|---|---|---|---|---|---|
+| 90° (beam)         | 4.02° | 2.72° (32%) | **2.09° (48%)** | 2.79° (30%) | 3.06° (24%) | 2.72° (32%) | 3.27° (19%) |
+| 120° (30° off bow) | 3.93° | 2.88° (27%) | **2.21° (44%)** | 3.09° (22%) | 3.66° (7%)  | 3.82° (3%)  | 4.08° (-4%) |
+| 150° (60° off bow) | 2.22° | 1.61° (27%) | **1.27° (43%)** | 1.71° (23%) | 2.33° (-5%) | 2.18° (1%)  | 2.91° (-31%) |
+
+Three findings of substance, none of which were visible from the
+single-heading 200 kN cut above:
+
+1. **At F_max = 80 kN the passive free-surface tank dominates at
+   every heading.** Free-surface holds ~43-48 % reduction across
+   the sweep with no power, no controller, no actuator wear, and
+   no thermal load. None of the active controllers come close.
+
+2. **Heavy saturation flips the active-controller ranking.** In
+   beam seas at 80 kN the saturation fraction is 78-87 % across
+   all three RDT controllers. The "ideal" inverse-dynamics
+   controller asks for the largest forces (it actually wants to
+   cancel `M_wave`), saturates hardest, and the resulting
+   bang-bang action at `omega_n` re-excites the lightly-damped
+   resonance — at 150° heading it makes things 31 % *worse* than
+   bare. The observer-based controller is gentler (only chases the
+   narrow-band resonance component, not the full broadband
+   forcing) and degrades to roughly neutral. PD sits in between.
+   Conventional ranking only re-emerges once F_max ≥ ~150-200 kN.
+
+3. **Off-axis headings make the active actuator irrelevant.** At
+   150° the bare vessel already drops to 2.22°. The remaining
+   roll content is broadband residual that no narrow-band
+   resonator can grab; even the well-sized 200 kN ideal controller
+   can only reach ~33 % reduction at 150° (vs 71 % in beam seas).
+   The operational case for spending 1 MW of shaft on active
+   stabilisation in favourable headings is essentially zero.
+
+The engineering verdict from this sweep: **a single 1 MW / 1.8 m
+RDT (~80 kN fluid thrust) is authority-starved by roughly an order
+of magnitude against beam-sea Froude-Krylov roll moments on a
+CSOV-class hull.** Direct counter-moment from F_max alone is
+~80 kN × 8.5 m ≈ 0.7 MN·m, against a peak `M_wave` of 8-12 MN·m.
+The U-tube resonance amplifies this by ~3-5×, but the available
+tank moment is still well short of the forcing. The engineering
+options that make active U-tube stabilisation worthwhile are
+therefore narrower than first appeared:
+
+- **Bigger actuator**: ≥2.5 MW shaft per RDT, putting F_max in the
+  200-300 kN regime where the controllers behave conventionally
+  and beat the passive baseline.
+- **Hybrid passive + active** (sec. 7.y): free-surface handles
+  broadband dissipation, active RDT handles only the resonance
+  peak. Smaller actuator authority requirement because the active
+  loop only needs to bend one peak of an already-attenuated
+  spectrum, not cancel the full forcing.
+- **A different actuator topology entirely**: a hull-mounted
+  azimuth thruster delivers ~1.8× the bollard thrust per kW shaft
+  versus a closed-tank RDT, for the reasons given in sec. 4.aa.
+  Two pods acting as a pure couple recover the well-sized regime
+  from a 2 × 1 MW installation.
 
 #### Caveats
 
@@ -912,6 +1050,138 @@ single-observer ceiling.
   for station-keeping CSOV; substantial in transit. Handle with
   gain scheduling on a slowly-updated `omega_e` estimate (separate
   frequency tracker, not augmented into the observer state).
+
+### 4.aa Hull-mounted azimuth thruster as roll actuator (proposal)
+
+The heading sweep in sec. 4.z makes a clear case that the closed-
+tank RDT is **the wrong actuator topology** for a single-unit
+active anti-roll installation on a CSOV-class hull. Two physical
+penalties of putting the actuator inside a closed tank duct:
+
+1. **Rim friction** in the few-mm magnetic-circuit gap of an RDT
+   eats ~30-35 % of P_shaft as standby heat (sec. 4.y caveat vi).
+2. **No hull-suction reaction.** Vendor "system thrust" figures
+   for hull-installed tunnel and azimuthing thrusters include a
+   Coanda-style suction force on the surrounding hull plating that
+   adds ~20-40 % to fluid thrust alone. A closed tank duct has no
+   such surface — net force on the vessel comes only via fluid
+   acceleration, and the duct walls are internal to the tank.
+
+Both penalties vanish for a **podded azimuthing thruster mounted
+under the hull**:
+
+- Conventional shaft / Z-drive losses (~5-10 %), no rim.
+- Open-water propeller in a *symmetrical* nozzle (must thrust to
+  port and starboard with comparable authority, so asymmetric
+  Kort-style optimisation is unavailable). Useful efficiency ≈ 0.50.
+- Real hull-suction reaction at the underside of the hull above the
+  pod, ~1.15-1.25× depending on standoff distance.
+
+#### Sizing
+
+Bollard thrust for a propeller of disc area `A`, useful shaft
+fraction `eta`, and hull-suction multiplier `k_s`:
+
+```
+T = (2 * rho * A * (eta * P_shaft)^2)^(1/3) * k_s
+```
+
+For `D = 1.8 m`, `P_shaft = 1.0 MW`, `eta = 0.50`, `k_s = 1.20`:
+`T ≈ 145 kN`. Sizing comparison with the closed-duct RDT at the
+same shaft power and diameter:
+
+| Configuration                        | useful eff. | suction mult. | bollard thrust | direct moment (arm 8.5 m) |
+|---|---|---|---|---|
+| Closed-duct RDT                       | 0.35 | 1.00 | ~80 kN  | ~0.7 MN·m |
+| **Symmetrical-nozzle azimuth pod**    | 0.50 | 1.20 | ~145 kN | ~1.2 MN·m |
+| Asymmetric Kort, single-direction     | 0.65 | 1.40 | ~210 kN | ~1.8 MN·m |
+
+So per MW of installed shaft power, a symmetrical-nozzle azimuth
+pod buys roughly **1.8× the roll moment** of an in-tank RDT —
+short of the 200 kN "well-sized" sweet spot identified in sec. 4.z
+for a single unit, but well above the 80 kN regime where active
+control loses to the passive free-surface tank.
+
+#### Twin-pod couple architecture
+
+CSOVs typically already carry 2-4 azimuthing pods for DP. Operating
+**a forward and an aft pod in opposition** (transverse thrust in
+opposite directions) produces:
+
+- **Pure roll couple**: net surge and sway forces cancel.
+- **No yaw moment**: the equal-and-opposite transverse forces at
+  fore-aft offsets cancel about CG.
+- **2× the effective force** for the same per-pod sizing: a 2 ×
+  1 MW twin-pod arrangement delivers ~290 kN of effective roll
+  authority, comfortably back into the well-sized regime where
+  active control beats passive at every heading.
+- **Existing actuator reuse**: the pods may already be installed
+  for DP, so the marginal cost of adding a roll-control loop is a
+  software layer, not new hardware. Power budget contention with
+  DP is the real cost.
+
+#### Operational caveats
+
+- **Azimuth slew rate**: a wave half-period at `T_n = 11.4 s` is
+  ~5.7 s. Modern azipods slew at 5-8 °/s, so a full 0° → ±90° swing
+  in 5.7 s is at the edge of feasibility. Practical operating mode
+  is to **hold a fixed transverse orientation and modulate thrust
+  magnitude/sign**, identical to a tunnel thruster — the
+  azimuthing capability is then used only for slow-timescale
+  reconfiguration (e.g. heading change), not wave-cycle control.
+
+- **Cavitation** at high transverse loading and shallow immersion
+  limits sustained authority in a seaway. Needs a dedicated
+  hydrodynamic check before claiming a given F_max can be held
+  through a full Hs = 3 m realisation; we have not done this.
+
+- **Roll-DP coupling**. Single-pod operation generates yaw moment
+  and a net sway force that DP must compensate, costing power and
+  fighting the roll loop. Twin-pod couple operation eliminates
+  both. Single-pod is therefore probably non-viable for continuous
+  duty; twin-pod is the only architecture worth implementing.
+
+- **Power-supply contention**. The pods are usually sized for DP
+  thrust, which is occasional and slow-timescale. Sustained roll
+  modulation at wave frequency draws from the same bus and may
+  saturate the generators on a smaller vessel. The energy
+  bookkeeping here matters more than for the in-tank RDT case.
+
+#### Mapping into the prototype
+
+The loose-coupling architecture handles this naturally. The
+azimuth pod does **not** need a `Tank` subclass — it has no fluid
+state, no internal dynamics worth resolving at wave timescales.
+The right abstraction is:
+
+```python
+class DirectRollActuator:
+    """Force actuator that imposes a roll moment directly on the
+    vessel. No internal state beyond the saturated command.
+
+    forces() returns {"roll": F_command_clipped * z_arm}.
+    step_rk4() updates the cached command (ZOH like the RDT).
+    """
+    def __init__(self, config: DirectRollActuatorConfig,
+                 controller: AbstractRDTController): ...
+```
+
+All existing RDT controllers (`StateFeedbackRDTController`,
+`ResonatorObserverRDTController`, `InverseDynamicsRDTController`)
+**drop in unchanged**: their thrust is a force command in Newtons
+and they make no assumption about the actuator topology. The only
+adjustment is that the inverse-dynamics controller's algebraic
+inversion becomes one-line trivial (no fluid intermediate; just
+`F = -M_wave / z_arm`) and saturation is the only nonlinearity.
+
+The hybrid architecture from sec. 7.y becomes natural: a
+`FreeSurfaceTank` for broadband dissipation in parallel with a
+`DirectRollActuator` for resonance-peak shaving. The active loop
+sees the *attenuated* roll spectrum from the free-surface tank, so
+its authority requirement is much lower than for standalone active
+control — a key sizing economy.
+
+This is a planned follow-on; not yet implemented.
 
 ---
 
