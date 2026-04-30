@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cqa"
+version = "0.1.0"
+description = "Combined quasi-static capability and excursion analysis for DP + walk-to-work gangway operability"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "blofro" }]
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "matplotlib>=3.7",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "pytest-cov"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["cqa*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

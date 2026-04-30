@@ -1,0 +1,7 @@
+# Generated demo outputs (re-run scripts/run_*_demo.py to regenerate).
+scripts/*.png
+
+# pytest / coverage caches
+.pytest_cache/
+.coverage
+htmlcov/
