@@ -180,6 +180,100 @@ def zero_upcrossing_rate(
     return float(np.sqrt(lam2 / lam0) / (2.0 * np.pi))
 
 
+def variance_decorrelation_time_from_psd(
+    S_X: np.ndarray,
+    omega: np.ndarray,
+) -> float:
+    """Bartlett decorrelation time appropriate for VARIANCE estimation.
+
+    For a zero-mean stationary Gaussian process X(t) with one-sided PSD
+    S_X(omega), the sufficient statistic for the variance is
+
+        Q = (1/T) * integral_0^T X(t)^2 dt.
+
+    By Isserlis (Gaussian 4th-order moment factorisation):
+
+        Var(Q) ~ (2/T) * integral_0^infty R_X(tau)^2 dtau    as T -> infty,
+
+    where R_X(tau) is the autocovariance. This identifies the
+    *variance-estimator* decorrelation time as
+
+        T_var = (2 / sigma^4) * integral_0^infty R_X(tau)^2 dtau.
+
+    By Plancherel applied to the autocovariance / one-sided spectrum
+    (R_X is even, R_X(tau) = integral_0^infty S_X(omega) cos(omega tau)
+    domega for our convention):
+
+        integral_{-infty}^{infty} R_X(tau)^2 dtau
+            = integral_0^infty integral_0^infty S(o1) S(o2) *
+                [pi (delta(o1-o2) + delta(o1+o2))] do1 do2
+            = pi * integral_0^infty S_X(omega)^2 domega   (only o1=o2
+                                                            survives for
+                                                            o1, o2 >= 0).
+
+    Hence
+
+        T_var = (2 / sigma^4) * (1/2) * integral_{-infty}^{infty} R^2 dtau
+              = pi * integral_0^infty S_X(omega)^2 domega / m0^2.
+
+    *Units:* S_X has [unit_X^2 * s / rad], so S_X^2 d omega has units
+    [unit_X^4 * s^2 / rad^2 * rad/s] = [unit_X^4 * s] (rad is
+    dimensionless). Divide by m0^2 [unit_X^4]: result is in seconds. Good.
+
+    Limit checks
+    ------------
+    * White noise on a finite band [0, omega_c]: S = sigma^2 / omega_c
+      on the band, zero outside. m0 = sigma^2; int S^2 domega
+      = sigma^4 / omega_c. T_var = pi sigma^4 / (omega_c sigma^4)
+      = pi / omega_c. Cross-check via the time-domain identity:
+      R(tau) = (sigma^2/omega_c) sin(omega_c tau)/tau, int R^2 dtau
+      = pi sigma^4 / omega_c, so T_var = (2/sigma^4)(1/2)(pi sigma^4/
+      omega_c) = pi/omega_c. Consistent.
+
+    * Wave-spectrum-style closed-loop output: bandwidth ~zeta * omega_n,
+      so T_var ~ pi / (zeta * omega_n). With zeta=0.9, omega_n=0.06,
+      this gives ~58 s -- about 3x the historical 1/(zeta * omega_n)
+      = 18.5 s heuristic. The historical heuristic was therefore
+      systematically OPTIMISTIC about how much information a window
+      contains; the posterior CI was correspondingly too narrow.
+
+    * Pure tone S = sigma^2 delta(omega - omega_0): X(t) = A cos(omega_0
+      t + phi) is degenerate and squared values fluctuate at 2 omega_0.
+      The formula gives T_var = 0 in the delta limit (S^2 has support
+      on a single point and integrates to 0); the right scale is then
+      1 / (2 omega_0). Useful warning for very narrowband physical
+      systems; in practice every realistic spectrum has finite width.
+
+    Bartlett correction in n_eff
+    ----------------------------
+    For a sliding window of length T_window holding N_raw samples at
+    spacing dt, the effective sample size for sigma^2 inference is
+
+        N_eff = T_window / max(dt, T_var).
+
+    Use this scale (not 1/(zeta omega_n)) in `BayesianSigmaEstimator`
+    when the disturbance spectrum is narrowband relative to the
+    closed loop, OR when the closed loop's per-axis bandwidth has
+    drifted (re-tune, observer mismatch, sea-state misclassification).
+
+    Returns
+    -------
+    T_var [s]. Returns 0.0 if m0 == 0 (degenerate spectrum).
+    """
+    S_X = np.asarray(S_X, dtype=float)
+    omega = np.asarray(omega, dtype=float)
+    if S_X.shape != omega.shape:
+        raise ValueError(
+            f"S_X and omega must have the same shape, got "
+            f"{S_X.shape} vs {omega.shape}"
+        )
+    m0 = float(np.trapezoid(S_X, omega))
+    if m0 <= 0.0:
+        return 0.0
+    int_S2 = float(np.trapezoid(S_X * S_X, omega))
+    return float(np.pi) * int_S2 / (m0 * m0)
+
+
 def vanmarcke_bandwidth_q(
     S_X: np.ndarray,
     omega: np.ndarray,
@@ -721,6 +815,7 @@ __all__ = [
     "RiceExceedanceResult",
     "spectral_moments",
     "zero_upcrossing_rate",
+    "variance_decorrelation_time_from_psd",
     "vanmarcke_bandwidth_q",
     "clh_epsilon",
     "p_exceed_rice",

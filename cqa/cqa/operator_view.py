@@ -556,6 +556,13 @@ class IntactPriorSummary:
       pos_sigma_m   : sqrt(sigma_x^2+sigma_y^2) of (dp_base_x, dp_base_y) [m].
       pos_nu0_max   : max(nu_0+) across the two horizontal axes [Hz].
       pos_q         : max(q) across axes (Vanmarcke spectral bandwidth).
+      pos_T_decorr_var_s : variance-estimator decorrelation time for the
+                      radial-position channel [s]. Used by
+                      `BayesianSigmaEstimator` to set the Bartlett ESS;
+                      derived from the prior PSD via
+                      `variance_decorrelation_time_from_psd`. Reported
+                      as max(T_var_x, T_var_y) -- the conservative
+                      (slowest-decorrelating) of the two horizontal axes.
       pos_a_p50, pos_a_p90 : P50 / P90 peak |dp_base| over T_op [m].
       pos_p_breach  : P(footprint > pos_warning_radius_m) over T_op
                       (kept as diagnostic).
@@ -564,6 +571,9 @@ class IntactPriorSummary:
 
     Gangway-capability axis (telescope length):
       gw_sigma_slow_m, gw_nu0_slow, gw_q_slow : DP slow band.
+      gw_T_decorr_var_s : variance-estimator decorrelation time for
+                      the slow band of the telescope channel [s].
+                      Used by `BayesianSigmaEstimator`.
       gw_sigma_wave_m, gw_nu0_wave, gw_q_wave : 1st-order wave band.
       gw_threshold_to_lower_m, gw_threshold_to_upper_m : per-side strokes.
       gw_threshold_used_m : worst-side stroke (min of the two).
@@ -586,6 +596,7 @@ class IntactPriorSummary:
     pos_sigma_m: float
     pos_nu0_max: float
     pos_q: float
+    pos_T_decorr_var_s: float
     pos_a_p50: float
     pos_a_p90: float
     pos_p_breach: float
@@ -597,6 +608,7 @@ class IntactPriorSummary:
     gw_sigma_slow_m: float
     gw_nu0_slow: float
     gw_q_slow: float
+    gw_T_decorr_var_s: float
     gw_sigma_wave_m: float
     gw_nu0_wave: float
     gw_q_wave: float
@@ -710,6 +722,7 @@ def summarise_intact_prior(
     from .extreme_value import (
         spectral_moments,
         zero_upcrossing_rate,
+        variance_decorrelation_time_from_psd,
         vanmarcke_bandwidth_q,
         p_exceed_rice,
         p_exceed_rice_multiband,
@@ -744,6 +757,16 @@ def summarise_intact_prior(
     sigma_radial = float(np.sqrt(sigma_x ** 2 + sigma_y ** 2))
     nu0_pos = float(max(nu0_x, nu0_y))
     q_pos = float(max(q_x, q_y))
+
+    # Variance-estimator decorrelation time: the right Bartlett scale
+    # for an InvGamma posterior on sigma^2. See
+    # `variance_decorrelation_time_from_psd` for the derivation. We
+    # take the maximum across surge / sway -- the radial-position
+    # variance estimator's ESS is governed by the slowest-decorrelating
+    # contributor.
+    T_var_x = variance_decorrelation_time_from_psd(S_base_x, omega_grid)
+    T_var_y = variance_decorrelation_time_from_psd(S_base_y, omega_grid)
+    pos_T_decorr_var_s = float(max(T_var_x, T_var_y))
 
     # Posterior override: keep nu_0+ and q from the model spectrum
     # ("shape"), substitute the data-conditioned variance ("level").
@@ -791,6 +814,9 @@ def summarise_intact_prior(
     sigma_slow = float(np.sqrt(spectral_moments(S_dL_slow, omega_grid, [0])[0]))
     nu0_slow = zero_upcrossing_rate(S_dL_slow, omega_grid)
     q_slow = vanmarcke_bandwidth_q(S_dL_slow, omega_grid)
+    gw_T_decorr_var_s = float(
+        variance_decorrelation_time_from_psd(S_dL_slow, omega_grid)
+    )
 
     sigma_slow_prior = sigma_slow
     if posterior_sigma_telescope_slow_m is not None:
@@ -852,6 +878,7 @@ def summarise_intact_prior(
         pos_sigma_m=sigma_radial,
         pos_nu0_max=nu0_pos,
         pos_q=q_pos,
+        pos_T_decorr_var_s=pos_T_decorr_var_s,
         pos_a_p50=float(pos_a_p50),
         pos_a_p90=float(pos_a_p90),
         pos_p_breach=float(res_pos_warn.p_breach),
@@ -862,6 +889,7 @@ def summarise_intact_prior(
         gw_sigma_slow_m=sigma_slow,
         gw_nu0_slow=nu0_slow,
         gw_q_slow=q_slow,
+        gw_T_decorr_var_s=gw_T_decorr_var_s,
         gw_sigma_wave_m=sigma_wave,
         gw_nu0_wave=nu0_wave,
         gw_q_wave=q_wave if (sigma_wave > 0.0 and nu0_wave > 0.0) else 1.0,

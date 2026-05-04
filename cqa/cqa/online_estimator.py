@@ -77,17 +77,25 @@ trusted (e.g. dock trials).
 
 Decorrelation time T_decorr
 ---------------------------
-For a 2nd-order closed loop with natural frequency omega_n and
-damping zeta, the dominant pole real part is ``zeta * omega_n``.
-The exponential autocovariance scale is therefore
+The Bartlett effective-sample-size correction needs the
+*variance-estimator* decorrelation time, defined as
 
-    T_decorr = 1 / (zeta * omega_n).
+    T_var = pi * integral_0^infty S_X(omega)^2 d omega / m0^2
 
-For the radial gangway-base position channel, surge and sway
-contribute via the linear combination
-``c_base_x = [1, 0, -base_y]``, ``c_base_y = [0, 1, base_x]``.
-We take the slowest (max) decorrelation time across the two
-horizontal axes as the conservative scale.
+(see `cqa.extreme_value.variance_decorrelation_time_from_psd` for the
+derivation, which uses the Isserlis identity for Gaussian 4th moments
+and Plancherel on the autocovariance). For broadband forcing this
+recovers ``~1/(zeta*omega_n)``; for narrowband disturbance forcing it
+can be 3-5x larger -- the realistic case for DP-class operations
+(slow-drift + current variability with multi-minute time scales).
+
+The legacy fallback
+
+    T_decorr = 1 / (zeta * omega_n),
+
+implemented in ``closed_loop_decorrelation_time``, ignores the
+disturbance shape and is preserved only for diagnostics. Production
+should pass ``T_var`` from the prior summary.
 
 Production / prototype boundary
 -------------------------------
@@ -175,13 +183,36 @@ def closed_loop_decorrelation_time(
     controller: ControllerParams,
     axis: str,
 ) -> float:
-    """Decorrelation time of one closed-loop axis.
+    """Coarse decorrelation-time fallback from the controller bandwidth.
+
+    .. warning::
+       This is a *fallback* heuristic for use when the closed-loop
+       output PSD is not available. For the production pipeline,
+       prefer the per-channel ``pos_T_decorr_var_s`` and
+       ``gw_T_decorr_var_s`` fields exposed by
+       ``IntactPriorSummary`` (computed via
+       ``cqa.extreme_value.variance_decorrelation_time_from_psd``):
+       these are the right Bartlett scale for variance estimation,
+       integrating the *actual* output spectral shape including any
+       narrowband disturbance content (slow-drift, current variability
+       with long memory).
+
+       For the canonical CSOV operating point the PSD-derived
+       ``T_var`` is ~94 s, vs ~18.5 s from this heuristic -- a 5x
+       factor that propagates directly into the posterior credible
+       interval on sigma. The heuristic systematically OVER-states
+       n_eff for narrowband-driven channels.
 
     For a critically/over-damped 2nd-order closed loop ``s^2 + 2 zeta
     omega_n s + omega_n^2 = 0`` the dominant pole real part is
     ``zeta * omega_n``, giving an exponential autocovariance scale
 
         T_decorr = 1 / (zeta * omega_n).
+
+    This is exact only when the closed-loop output PSD is dominated by
+    its own broadband response to white-noise input -- not the case in
+    DP applications where the disturbance forcing is itself narrowband
+    (slow-drift, current variability).
 
     For the radial position channel, pass ``axis="position"`` to get
     the conservative (largest) of the surge / sway decorrelation
@@ -228,9 +259,19 @@ class BayesianSigmaEstimator:
     prior_sigma2 : float. Prior mean of sigma^2 (typically the model-based
         variance from the closed-loop spectrum). [m^2 if X is a position;
         any consistent unit^2 otherwise.]
-    T_decorr_s : float. Closed-loop decorrelation time [s]. Use
-        `closed_loop_decorrelation_time(cfg.controller, axis)` to derive
-        from the controller tuning.
+    T_decorr_s : float. Variance-estimator decorrelation time [s] of
+        the channel being observed. The Bartlett ESS uses
+        ``n_eff = n_raw * dt / max(dt, T_decorr_s)``.
+        Recommended source:
+        ``IntactPriorSummary.pos_T_decorr_var_s`` (or
+        ``gw_T_decorr_var_s``) computed via
+        ``variance_decorrelation_time_from_psd`` from the same
+        closed-loop output PSD that built the prior.
+        ``closed_loop_decorrelation_time(cfg.controller, axis)`` is a
+        *coarse fallback* (the bandwidth-only proxy
+        ``1/(zeta*omega_n)``) that significantly under-estimates
+        T_decorr when the disturbance spectrum is narrowband relative
+        to the closed loop.
     dt_s : float. Sample period of the observed channel [s]. The sliding
         window will hold ``floor(window_s / dt_s)`` raw samples.
     prior_strength_n0 : float, default 2.0. "Effective prior sample

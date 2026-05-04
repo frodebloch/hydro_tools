@@ -9,6 +9,7 @@ from cqa.extreme_value import (
     RiceExceedanceResult,
     spectral_moments,
     zero_upcrossing_rate,
+    variance_decorrelation_time_from_psd,
     vanmarcke_bandwidth_q,
     clh_epsilon,
     p_exceed_rice,
@@ -564,3 +565,112 @@ def test_predictive_quantile_mixed_bands_fixed_and_posterior():
     assert a_pred == pytest.approx(a_ref, rel=0.01), (
         f"mixed bands tight-posterior: a_pred={a_pred:.4f} vs a_ref={a_ref:.4f}"
     )
+
+
+# ---------------------------------------------------------------------------
+# variance_decorrelation_time_from_psd
+# ---------------------------------------------------------------------------
+
+
+def test_T_var_white_noise_band_matches_pi_over_omega_c():
+    """Analytical: S = sigma^2 / omega_c on [0, omega_c] gives
+    T_var = pi / omega_c.
+
+    Use a fine, dense grid concentrated on the support to avoid
+    trapezoidal-rule edge bias.
+    """
+    omega_c = 0.5
+    sigma2 = 1.7
+    # Dense grid strictly inside [eps, omega_c], then tail of zeros to
+    # well past omega_c so the trapezoid sees the band edge.
+    omega = np.concatenate([
+        np.linspace(1e-6, omega_c, 4000),
+        np.linspace(omega_c + 1e-6, 4.0 * omega_c, 200),
+    ])
+    S = np.where(omega <= omega_c, sigma2 / omega_c, 0.0)
+    T_var = variance_decorrelation_time_from_psd(S, omega)
+    expected = np.pi / omega_c
+    assert T_var == pytest.approx(expected, rel=2e-3), (
+        f"white-band T_var={T_var:.4f} vs expected={expected:.4f}"
+    )
+
+
+def test_T_var_matches_empirical_autocorrelation():
+    """Cross-check the spectral formula
+
+        T_var = pi * int S(omega)^2 d omega / m0^2
+
+    against the time-domain definition
+
+        T_var = (2 / sigma^4) * int_0^infty R(tau)^2 dtau
+
+    using a long realisation of a known process. Use a Gaussian bump
+    PSD (narrowband-ish) so the autocovariance has a clear, well-
+    sampled main lobe.
+    """
+    rng = np.random.default_rng(7)
+    omega = np.linspace(1e-5, 1.0, 4000)
+    omega_n = 0.25
+    bw = 0.07
+    sigma2 = 0.8
+    bump = np.exp(-0.5 * ((omega - omega_n) / bw) ** 2)
+    norm = float(np.trapezoid(bump, omega))
+    S = (sigma2 / norm) * bump   # one-sided, normalised so m0 = sigma2
+
+    # Spectral T_var.
+    T_var_spec = variance_decorrelation_time_from_psd(S, omega)
+
+    # Time-domain check: realise X(t) by Shinozuka, compute empirical
+    # R(tau) by FFT, integrate R^2 numerically. Average over an
+    # ensemble of realisations so the autocovariance estimate is
+    # converged enough for a 10% check.
+    T_total = 4000.0
+    dt = 0.5
+    t = np.arange(0.0, T_total, dt)
+    N = t.size
+    domega = omega[1] - omega[0]
+    amps = np.sqrt(2.0 * S * domega)
+    n_real = 12
+    n_lag = N // 4   # unbiased autocovariance is reliable for lag < N/4
+    R_avg = np.zeros(n_lag)
+    sigma2_emp_acc = 0.0
+    for r_idx in range(n_real):
+        phases = rng.uniform(0.0, 2.0 * np.pi, omega.size)
+        X = np.zeros_like(t)
+        chunk = 200
+        for i in range(0, omega.size, chunk):
+            oms = omega[i : i + chunk]
+            a = amps[i : i + chunk]
+            p = phases[i : i + chunk]
+            X += (a[:, None] * np.cos(oms[:, None] * t[None, :]
+                                      + p[:, None])).sum(axis=0)
+        Xc = X - X.mean()
+        # Unbiased autocovariance: R_hat[lag] = (1/(N-lag)) * sum
+        # X[t] X[t+lag]. Compute via FFT then divide by counts.
+        Fx = np.fft.rfft(Xc, n=2 * N)
+        R_full = np.fft.irfft(Fx * np.conj(Fx))[:N]
+        counts = N - np.arange(N)
+        R_unbiased = R_full / counts
+        R_avg += R_unbiased[:n_lag]
+        sigma2_emp_acc += float(R_unbiased[0])
+    R_avg /= n_real
+    sigma2_emp = sigma2_emp_acc / n_real
+
+    tau = np.arange(n_lag) * dt
+    int_R2 = float(np.trapezoid(R_avg * R_avg, tau))
+    T_var_emp = 2.0 * int_R2 / (sigma2_emp ** 2)
+
+    # Loose tolerance (15%): a finite-realisation Monte Carlo check.
+    # The point is to confirm the spectral formula's prefactor is right
+    # (pi vs 1/(2pi) would be a factor of 2pi^2 ~ 20).
+    assert T_var_emp == pytest.approx(T_var_spec, rel=0.15), (
+        f"Empirical T_var={T_var_emp:.3f} s vs spectral={T_var_spec:.3f} s; "
+        f"ratio = {T_var_emp/T_var_spec:.3f} (expected ~1.0 +/- 15%)"
+    )
+
+
+def test_T_var_degenerate_zero_spectrum_returns_zero():
+    omega = np.linspace(1e-3, 1.0, 100)
+    S = np.zeros_like(omega)
+    assert variance_decorrelation_time_from_psd(S, omega) == 0.0
+

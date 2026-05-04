@@ -195,10 +195,18 @@ def main() -> None:
     dt_obs = dt_s * obs_stride
     obs_idx = np.arange(0, N_t, obs_stride)
 
-    T_decorr_pos = closed_loop_decorrelation_time(cfg.controller, "position")
-    T_decorr_gw  = closed_loop_decorrelation_time(cfg.controller, "sway")
-    print(f"\nT_decorr (position) = {T_decorr_pos:.1f} s, "
-          f"T_decorr (gangway slow) = {T_decorr_gw:.1f} s")
+    T_decorr_pos = float(prior.pos_T_decorr_var_s)
+    T_decorr_gw  = float(prior.gw_T_decorr_var_s)
+    T_decorr_pos_legacy = closed_loop_decorrelation_time(cfg.controller, "position")
+    T_decorr_gw_legacy  = closed_loop_decorrelation_time(cfg.controller, "sway")
+    print(f"\nT_decorr (position, variance-estimator from PSD) = "
+          f"{T_decorr_pos:.1f} s   "
+          f"[legacy 1/(zeta*omega_n) = {T_decorr_pos_legacy:.1f} s, "
+          f"ratio {T_decorr_pos/T_decorr_pos_legacy:.2f}x]")
+    print(f"T_decorr (gangway slow, variance-estimator from PSD) = "
+          f"{T_decorr_gw:.1f} s   "
+          f"[legacy 1/(zeta*omega_n) = {T_decorr_gw_legacy:.1f} s, "
+          f"ratio {T_decorr_gw/T_decorr_gw_legacy:.2f}x]")
 
     est_pos = BayesianSigmaEstimator(
         prior_sigma2=prior.pos_sigma_m ** 2,
