@@ -137,7 +137,10 @@ def main() -> None:
         rao, Hs=Hs, Tp=Tp, theta_wave_rel=theta, t=t, rng=rng,
     )
     dL = telescope_length_deviation_time_series(x_lf, xi_wf, joint, cfg)
-    dL_lf, _ = bandsplit_lowpass(dL, dt, 0.05)  # 0.05 Hz cutoff = below WF band
+    dL_lf, _ = bandsplit_lowpass(dL, fs_hz=1.0/dt, omega_split_rad_s=0.3)
+    # 0.3 rad/s ~ 0.048 Hz, between the LF closed-loop band (<~0.15 rad/s)
+    # and the WF band (peak ~0.7 rad/s for Tp=9 s). Same split used in
+    # the prior-vs-posterior demo.
 
     burn = int(300.0 / dt)
     dL_lf = dL_lf[burn:]

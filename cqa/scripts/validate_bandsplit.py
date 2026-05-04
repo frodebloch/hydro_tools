@@ -120,7 +120,7 @@ def main() -> None:
     dt = 0.5
     t = np.arange(0.0, T_total, dt)
     fs_hz = 1.0 / dt
-    omega_grid_lf = np.linspace(1.0e-4, 0.6, 1024)
+    omega_grid_lf = np.geomspace(1.0e-4, 0.6, 256)
 
     print(f"\nRealising T_total={T_total/60:.0f} min, dt={dt} s "
           f"(fs={fs_hz} Hz, N={t.size})")
