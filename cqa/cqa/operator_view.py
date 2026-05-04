@@ -575,6 +575,10 @@ class IntactPriorSummary:
                       the slow band of the telescope channel [s].
                       Used by `BayesianSigmaEstimator`.
       gw_sigma_wave_m, gw_nu0_wave, gw_q_wave : 1st-order wave band.
+      gw_T_decorr_var_wf_s : variance-estimator decorrelation time for
+                      the wave-frequency telescope band [s]. Computed
+                      either from the WF PSD (caller-supplied) or
+                      from the narrowband proxy ``Tp/(2 pi q_wave)``.
       gw_threshold_to_lower_m, gw_threshold_to_upper_m : per-side strokes.
       gw_threshold_used_m : worst-side stroke (min of the two).
       gw_warn_frac, gw_alarm_frac : fractions of stroke for warn/alarm.
@@ -612,6 +616,7 @@ class IntactPriorSummary:
     gw_sigma_wave_m: float
     gw_nu0_wave: float
     gw_q_wave: float
+    gw_T_decorr_var_wf_s: float
     gw_threshold_to_lower_m: float
     gw_threshold_to_upper_m: float
     gw_threshold_used_m: float
@@ -662,6 +667,8 @@ def summarise_intact_prior(
     omega_grid: Optional[np.ndarray] = None,
     posterior_sigma_radial_m: Optional[float] = None,
     posterior_sigma_telescope_slow_m: Optional[float] = None,
+    posterior_sigma_telescope_wave_m: Optional[float] = None,
+    T_decorr_var_telescope_wave_s: Optional[float] = None,
 ) -> IntactPriorSummary:
     """Build the intact-condition extreme-value summary for one operation.
 
@@ -710,9 +717,24 @@ def summarise_intact_prior(
         The spectral SHAPE (nu_0+, Vanmarcke q) is kept from the
         prior closed-loop spectrum: only the LEVEL is updated.
     posterior_sigma_telescope_slow_m : optional float. Same idea for
-        the slow-drift telescope band. The wave-frequency band stays
-        as prescribed by ``sigma_L_wave`` (driven by the wave RAO,
-        not the DP closed loop).
+        the slow-drift telescope band.
+    posterior_sigma_telescope_wave_m : optional float. Data-conditioned
+        sigma for the wave-frequency telescope band, replacing the
+        deterministic ``sigma_L_wave`` input. Use this to flag
+        sea-state misclassification: if the operator-supplied
+        ``(Hs, Tp, theta_wave_rel)`` is wrong, the prior
+        ``sigma_L_wave`` is biased and the WF posterior will pull it
+        towards the data-consistent value.
+        The narrowband spectral shape (``nu_0_wave = 1/Tp``,
+        ``q_wave = 0.3``) is kept from the model.
+    T_decorr_var_telescope_wave_s : optional float. Variance-estimator
+        decorrelation time of the WF telescope channel [s], reported
+        in the summary as ``gw_T_decorr_var_wf_s``. Compute via
+        ``variance_decorrelation_time_from_psd(wave.integrand,
+        wave.omega)`` from the same ``sigma_L_wave`` calculation
+        the caller used to derive ``sigma_L_wave``. If ``None``,
+        falls back to the narrowband proxy ``Tp / (4 q_wave)`` which
+        for q=0.3 gives ~Tp/1.2; documented as a coarse fallback.
 
     Returns
     -------
@@ -831,6 +853,27 @@ def summarise_intact_prior(
     nu0_wave = float(1.0 / Tp_wave_s) if (Tp_wave_s > 0 and sigma_wave > 0) else 0.0
     q_wave = 0.3  # JONSWAP-typical narrowband bandwidth proxy
 
+    sigma_wave_prior = sigma_wave
+    if posterior_sigma_telescope_wave_m is not None:
+        if posterior_sigma_telescope_wave_m <= 0.0:
+            raise ValueError(
+                f"posterior_sigma_telescope_wave_m must be > 0, "
+                f"got {posterior_sigma_telescope_wave_m}"
+            )
+        sigma_wave = float(posterior_sigma_telescope_wave_m)
+
+    # WF variance-estimator decorrelation time. Caller-provided is the
+    # right path (computed from the actual JONSWAP*RAO product PSD).
+    # Fallback proxy: a narrowband process with q ~ 0.3 has bandwidth
+    # ~q * omega_p so the variance autocorrelation length is ~1/(q *
+    # omega_p) = Tp/(2 pi q) ~ Tp / 1.9. Documented as coarse.
+    if T_decorr_var_telescope_wave_s is not None:
+        gw_T_decorr_var_wf_s = float(T_decorr_var_telescope_wave_s)
+    elif sigma_wave > 0.0 and nu0_wave > 0.0 and Tp_wave_s > 0:
+        gw_T_decorr_var_wf_s = float(Tp_wave_s / (2.0 * np.pi * q_wave))
+    else:
+        gw_T_decorr_var_wf_s = 0.0
+
     L0 = float(joint.L)
     L_min = float(cfg.gangway.telescope_min)
     L_max = float(cfg.gangway.telescope_max)
@@ -893,6 +936,7 @@ def summarise_intact_prior(
         gw_sigma_wave_m=sigma_wave,
         gw_nu0_wave=nu0_wave,
         gw_q_wave=q_wave if (sigma_wave > 0.0 and nu0_wave > 0.0) else 1.0,
+        gw_T_decorr_var_wf_s=gw_T_decorr_var_wf_s,
         gw_threshold_to_lower_m=stroke_lo,
         gw_threshold_to_upper_m=stroke_hi,
         gw_threshold_used_m=float(stroke),

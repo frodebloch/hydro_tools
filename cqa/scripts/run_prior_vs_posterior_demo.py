@@ -72,6 +72,8 @@ from cqa import (
     radial_position_time_series,
     telescope_length_deviation_time_series,
     predictive_running_max_quantile,
+    bandsplit_lowpass,
+    variance_decorrelation_time_from_psd,
 )
 from cqa.vessel import LinearVesselModel, CurrentForceModel
 from cqa.controller import LinearDpController
@@ -172,10 +174,35 @@ def main() -> None:
     r = radial_position_time_series(x_lf, xi_wf, cfg)             # (N_t,)
     dL = telescope_length_deviation_time_series(x_lf, xi_wf, joint, cfg)
 
-    print(f"  empirical sigma(r) [sqrt E[r^2]]   = {np.sqrt(np.mean(r*r)):.3f} m")
-    print(f"  empirical sigma(dL) [sqrt E[dL^2]] = {np.sqrt(np.mean(dL*dL)):.3f} m")
-    print(f"  (these match the Bayesian-estimator sufficient statistic; "
-          f"NB: r(t) is Rayleigh-distributed so np.std(r) != sigma_radial)")
+    # Band-split the telescope channel into low-frequency (closed-loop
+    # response to wind/drift/current) and wave-frequency (1st-order RAO
+    # response to waves). The two physical bands are separated by more
+    # than 2 octaves; a 4th-order zero-phase Butterworth at 0.3 rad/s
+    # gives clean separation (validated by scripts/validate_bandsplit.py).
+    fs_dt_hz = 1.0 / dt_s   # 2 Hz from dt=0.5 s integration
+    omega_split_rad_s = 0.3
+    dL_lf, dL_wf = bandsplit_lowpass(
+        dL, fs_hz=fs_dt_hz, omega_split_rad_s=omega_split_rad_s,
+    )
+
+    # WF variance-estimator decorrelation time from the wave PSD itself.
+    # The wave PSD `wave.integrand = |c6 . H_xi(omega)|^2 * S_eta` is
+    # the proper one-sided PSD of the WF telescope channel, so T_var
+    # follows directly. For Tp=9, q~0.3 narrowband, T_var_wf ~ 10 s.
+    T_decorr_wave_var_s = float(
+        variance_decorrelation_time_from_psd(wave.integrand, wave.omega)
+    )
+
+    print(f"  empirical sigma(r)     [sqrt E[r^2]]    = "
+          f"{np.sqrt(np.mean(r*r)):.3f} m")
+    print(f"  empirical sigma(dL)    [sqrt E[dL^2]]   = "
+          f"{np.sqrt(np.mean(dL*dL)):.3f} m   (full-band)")
+    print(f"  empirical sigma(dL_lf) [sqrt E[dL_lf^2]] = "
+          f"{np.sqrt(np.mean(dL_lf*dL_lf)):.3f} m  (slow band)")
+    print(f"  empirical sigma(dL_wf) [sqrt E[dL_wf^2]] = "
+          f"{np.sqrt(np.mean(dL_wf*dL_wf)):.3f} m  (wave band)")
+    print(f"  T_var_wf (from wave PSD) = {T_decorr_wave_var_s:.1f} s")
+    print(f"  (NB: r(t) is Rayleigh-distributed so np.std(r) != sigma_radial)")
 
     # --- Build the prior summary first to read off model sigmas --------
     prior = summarise_intact_prior(
@@ -220,24 +247,41 @@ def main() -> None:
         dt_s=dt_obs,
         window_s=T_op_s,
     )
+    # WF telescope estimator: data-conditions sigma_L_wave from dL_wf(t).
+    # Acts as a sea-state consistency check on the operator-supplied
+    # (Hs, Tp, theta_w). Uses T_var_wf from the wave PSD itself.
+    est_gw_wf = BayesianSigmaEstimator(
+        prior_sigma2=sigma_L_wave_m ** 2,
+        T_decorr_s=T_decorr_wave_var_s,
+        dt_s=dt_obs,
+        window_s=T_op_s,
+    )
     for k in obs_idx:
         est_pos.update(float(r[k]))
-        est_gw.update(float(dL[k]))
+        est_gw.update(float(dL_lf[k]))
+        est_gw_wf.update(float(dL_wf[k]))
 
-    sig_pos_post_p = est_pos.posterior(credible=0.90)
-    sig_gw_post_p  = est_gw.posterior(credible=0.90)
-    sig_pos_post = sig_pos_post_p.sigma_median
-    sig_gw_post  = sig_gw_post_p.sigma_median
-    n_eff_pos = est_pos.n_eff
-    n_eff_gw  = est_gw.n_eff
+    sig_pos_post_p   = est_pos.posterior(credible=0.90)
+    sig_gw_post_p    = est_gw.posterior(credible=0.90)
+    sig_gw_wf_post_p = est_gw_wf.posterior(credible=0.90)
+    sig_pos_post   = sig_pos_post_p.sigma_median
+    sig_gw_post    = sig_gw_post_p.sigma_median
+    sig_gw_wf_post = sig_gw_wf_post_p.sigma_median
+    n_eff_pos   = est_pos.n_eff
+    n_eff_gw    = est_gw.n_eff
+    n_eff_gw_wf = est_gw_wf.n_eff
     print(f"\nPosterior sigma_radial = {sig_pos_post:.3f} m  "
           f"(90% CI [{sig_pos_post_p.sigma_lo:.3f}, {sig_pos_post_p.sigma_hi:.3f}], "
           f"n_eff={n_eff_pos:.1f}, warm={est_pos.is_warm()})")
     print(f"Posterior sigma_slow   = {sig_gw_post:.3f} m  "
           f"(90% CI [{sig_gw_post_p.sigma_lo:.3f}, {sig_gw_post_p.sigma_hi:.3f}], "
           f"n_eff={n_eff_gw:.1f}, warm={est_gw.is_warm()})")
+    print(f"Posterior sigma_wave   = {sig_gw_wf_post:.3f} m  "
+          f"(90% CI [{sig_gw_wf_post_p.sigma_lo:.3f}, {sig_gw_wf_post_p.sigma_hi:.3f}], "
+          f"n_eff={n_eff_gw_wf:.1f}, warm={est_gw_wf.is_warm()})")
     print(f"Ratios: radial post/prior = {sig_pos_post/prior.pos_sigma_m:.3f}, "
-          f"slow post/prior = {sig_gw_post/prior.gw_sigma_slow_m:.3f}")
+          f"slow post/prior = {sig_gw_post/prior.gw_sigma_slow_m:.3f}, "
+          f"wave post/prior = {sig_gw_wf_post/sigma_L_wave_m:.3f}")
 
     # --- Posterior summary (same shapes, data-conditioned median sigma) ---
     posterior = summarise_intact_prior(
@@ -246,6 +290,8 @@ def main() -> None:
         quantiles=(0.50, 0.90),
         posterior_sigma_radial_m=sig_pos_post,
         posterior_sigma_telescope_slow_m=sig_gw_post,
+        posterior_sigma_telescope_wave_m=sig_gw_wf_post,
+        T_decorr_var_telescope_wave_s=T_decorr_wave_var_s,
     )
 
     # --- Marginalised predictive P90: integrates over the posterior
@@ -262,8 +308,8 @@ def main() -> None:
     gw_bands = [((sig_gw_post_p.alpha, sig_gw_post_p.beta),
                  posterior.gw_nu0_slow, posterior.gw_q_slow)]
     if sigma_L_wave_m > 0.0 and posterior.gw_nu0_wave > 0.0:
-        gw_bands.append((sigma_L_wave_m, posterior.gw_nu0_wave,
-                         posterior.gw_q_wave))
+        gw_bands.append(((sig_gw_wf_post_p.alpha, sig_gw_wf_post_p.beta),
+                         posterior.gw_nu0_wave, posterior.gw_q_wave))
     a_pred_gw = predictive_running_max_quantile(
         p=p_target, bands=gw_bands, T=T_op_s,
         bilateral=True, clustering="vanmarcke", n_quad=64,
@@ -305,7 +351,8 @@ def main() -> None:
     )
     subfigs[1].suptitle(
         f"POSTERIOR  (after {T_op_s/60:.0f} min observation, "
-        f"n_eff_pos={n_eff_pos:.1f}, n_eff_gw={n_eff_gw:.1f}; "
+        f"n_eff_pos={n_eff_pos:.1f}, n_eff_gw_lf={n_eff_gw:.1f}, "
+        f"n_eff_gw_wf={n_eff_gw_wf:.1f}; "
         f"hollow black diamond = predictive P90 marginalised over \u03c3 posterior)",
         fontsize=13, fontweight="bold", y=0.92, color="#1f6f1f",
     )

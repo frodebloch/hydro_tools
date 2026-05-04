@@ -114,6 +114,7 @@ from .time_series_realisation import (
     radial_position_time_series,
     telescope_length_deviation_time_series,
 )
+from .signal_processing import bandsplit_lowpass
 
 __all__ = [
     "CqaConfig",
@@ -198,4 +199,5 @@ __all__ = [
     "realise_wave_motion_6dof",
     "radial_position_time_series",
     "telescope_length_deviation_time_series",
+    "bandsplit_lowpass",
 ]
