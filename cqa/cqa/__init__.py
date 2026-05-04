@@ -105,6 +105,13 @@ from .operability_polar import (
     operability_polar,
     plot_operability_polar,
 )
+from .time_series_realisation import (
+    realise_vector_force_time_series,
+    integrate_closed_loop_response,
+    realise_wave_motion_6dof,
+    radial_position_time_series,
+    telescope_length_deviation_time_series,
+)
 
 __all__ = [
     "CqaConfig",
@@ -182,4 +189,9 @@ __all__ = [
     "OperabilityPolar",
     "operability_polar",
     "plot_operability_polar",
+    "realise_vector_force_time_series",
+    "integrate_closed_loop_response",
+    "realise_wave_motion_6dof",
+    "radial_position_time_series",
+    "telescope_length_deviation_time_series",
 ]

@@ -1,0 +1,317 @@
+"""Prior vs data-conditioned posterior intact-prior panel.
+
+Question 4 of the operator framework: "after observing the actual
+position / telescope channels for a few minutes, how does the predicted
+operability shift?"
+
+Pipeline
+--------
+1. Fix the canonical CSOV operating point (bow quartering 30 deg, Vw=14,
+   Hs=2.8, Tp=9, Vc=0.5).
+
+2. Build the closed loop and the wind / drift / current force PSDs in
+   the usual cqa way.
+
+3. Realise the disturbances in the time domain (Shinozuka harmonic
+   superposition) and integrate the closed-loop ODE to get the
+   low-frequency state x_lf(t). In parallel, realise the 6-DOF wave-
+   frequency body motion xi_wf(t) from the pdstrip RAOs.
+
+4. Project both onto the two operator channels:
+       r(t)    -- radial gangway-base position deviation [m]
+       dL(t)   -- telescope-length deviation [m]
+   These are the SAME channels the bridge sensors would expose.
+
+5. Feed r(t) and dL(t) into two BayesianSigmaEstimator instances at the
+   operator-facing rate (1 Hz) for the operator-facing window (5 min).
+   The estimators carry their cqa-derived priors (sigma from the
+   closed-loop spectrum) and decorrelation times from the controller.
+
+6. Build TWO IntactPriorSummary panels:
+       - "prior"     = pure model (no posterior override).
+       - "posterior" = same model SHAPE (nu_0+, q) but LEVEL replaced
+                       by the data-conditioned sigma_median from each
+                       estimator.
+
+7. Render side-by-side as a 2x2 figure (top row = prior, bottom row =
+   posterior) and save to scripts/csov_prior_vs_posterior.png.
+
+Run:
+    python scripts/run_prior_vs_posterior_demo.py
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
+from cqa import (
+    csov_default_config,
+    GangwayJointState,
+    summarise_intact_prior,
+    plot_intact_prior,
+    load_pdstrip_rao,
+    sigma_L_wave,
+    npd_wind_gust_force_psd,
+    current_variability_force_psd,
+    slow_drift_force_psd_newman_pdstrip,
+    BayesianSigmaEstimator,
+    closed_loop_decorrelation_time,
+    realise_vector_force_time_series,
+    integrate_closed_loop_response,
+    realise_wave_motion_6dof,
+    radial_position_time_series,
+    telescope_length_deviation_time_series,
+)
+from cqa.vessel import LinearVesselModel, CurrentForceModel
+from cqa.controller import LinearDpController
+from cqa.closed_loop import ClosedLoop
+from cqa.psd import WindForceModel
+
+PDSTRIP_PATH = Path.home() / "src/brucon/build/bin/vessel_simulator_config/csov_pdstrip.dat"
+
+
+def main() -> None:
+    cfg = csov_default_config()
+
+    # --- Canonical CSOV operating point --------------------------------
+    Vw_mean = 14.0
+    Hs = 2.8
+    Tp = 9.0
+    Vc = 0.5
+    theta_rel = np.radians(30.0)  # bow quartering, port
+
+    gw = cfg.gangway
+    L0 = 0.5 * (gw.telescope_min + gw.telescope_max)
+    joint = GangwayJointState(
+        h=gw.rotation_centre_height_above_base,
+        alpha_g=-np.pi / 2.0,
+        beta_g=0.0,
+        L=L0,
+    )
+
+    # --- pdstrip RAO + sigma_L_wave ------------------------------------
+    if not PDSTRIP_PATH.exists():
+        raise SystemExit(
+            f"pdstrip data not found at {PDSTRIP_PATH}; this demo requires it."
+        )
+    rao_table = load_pdstrip_rao(PDSTRIP_PATH)
+    wave = sigma_L_wave(joint, cfg, rao_table, Hs=Hs, Tp=Tp,
+                        theta_wave_rel=theta_rel)
+    sigma_L_wave_m = float(wave.sigma_L_wave)
+    print(f"sigma_L_wave (1st-order) = {sigma_L_wave_m*100:.1f} cm")
+
+    # --- Build closed loop + LF force PSDs -----------------------------
+    vp = cfg.vessel
+    wp = cfg.wind
+    cp = cfg.current
+
+    vessel = LinearVesselModel.from_config(vp)
+    controller = LinearDpController.from_bandwidth(
+        vessel.M, vessel.D,
+        omega_n=cfg.controller.omega_n,
+        zeta=cfg.controller.zeta,
+    )
+    cl = ClosedLoop.build(vessel, controller)
+
+    wind_model = WindForceModel(wp=wp, loa=vp.loa)
+    S_wind = npd_wind_gust_force_psd(wind_model, Vw_mean, theta_rel)
+    S_drift = slow_drift_force_psd_newman_pdstrip(
+        rao_table=rao_table, Hs=Hs, Tp=Tp, theta_wave_rel=theta_rel,
+    )
+    current_model = CurrentForceModel(
+        cp=cp,
+        lateral_area_underwater=vp.lpp * vp.draft,
+        frontal_area_underwater=vp.beam * vp.draft,
+        loa=vp.loa,
+    )
+    if Vc > 1e-9:
+        F0 = current_model.force(Vc, theta_rel)
+        dFdVc = 2.0 * F0 / Vc
+    else:
+        dFdVc = np.zeros(3)
+    S_curr = current_variability_force_psd(dFdVc, sigma_Vc=0.1, tau=600.0)
+
+    S_F_funcs = [S_wind, S_drift, S_curr]
+
+    # --- T_op + uniform integration grid -------------------------------
+    T_op_s = 5.0 * 60.0   # operator window: 5 min
+    dt_s = 0.5            # 2 Hz LF integration; supersamples WF too
+    t = np.arange(0.0, T_op_s, dt_s)
+    N_t = t.size
+
+    # LF realisation grid: 256 freqs across the closed-loop band.
+    omega_grid_lf = np.linspace(1.0e-3, 0.6, 256)
+
+    rng = np.random.default_rng(3)  # seed chosen so empirical sigma is
+    # within ~5% of the model prior at T_op=5 min (typical draw, not a
+    # lucky calm window). See scripts/sigma_convergence_sweep.py for the
+    # run-to-run sigma distribution at this operating point.
+
+    print(f"\nRealising {T_op_s/60:.0f} min of disturbances + motion at dt={dt_s}s ...")
+    F_lf = realise_vector_force_time_series(S_F_funcs, omega_grid_lf, t, rng)
+    x_lf = integrate_closed_loop_response(cl, F_lf, t)
+
+    # WF realisation on the same time grid.
+    xi_wf = realise_wave_motion_6dof(
+        rao_table, Hs=Hs, Tp=Tp, theta_wave_rel=theta_rel,
+        t=t, rng=rng,
+    )
+
+    # --- Channel projections -------------------------------------------
+    r = radial_position_time_series(x_lf, xi_wf, cfg)             # (N_t,)
+    dL = telescope_length_deviation_time_series(x_lf, xi_wf, joint, cfg)
+
+    print(f"  empirical sigma(r) [sqrt E[r^2]]   = {np.sqrt(np.mean(r*r)):.3f} m")
+    print(f"  empirical sigma(dL) [sqrt E[dL^2]] = {np.sqrt(np.mean(dL*dL)):.3f} m")
+    print(f"  (these match the Bayesian-estimator sufficient statistic; "
+          f"NB: r(t) is Rayleigh-distributed so np.std(r) != sigma_radial)")
+
+    # --- Build the prior summary first to read off model sigmas --------
+    prior = summarise_intact_prior(
+        cl, S_F_funcs, cfg, joint,
+        T_op_s=T_op_s, sigma_L_wave=sigma_L_wave_m, Tp_wave_s=Tp,
+        quantiles=(0.50, 0.90),
+    )
+    print(f"\nModel-prior sigma_radial = {prior.pos_sigma_m:.3f} m")
+    print(f"Model-prior sigma_slow   = {prior.gw_sigma_slow_m:.3f} m")
+    print(f"Model-prior sigma_wave   = {prior.gw_sigma_wave_m:.3f} m  (RAO, fixed)")
+
+    # --- Online estimators ---------------------------------------------
+    # Operator sensors at 1 Hz; estimator window = T_op so it sees the
+    # whole observation interval.
+    fs_obs_hz = 1.0
+    obs_stride = int(round(1.0 / (fs_obs_hz * dt_s)))  # = 2 with dt=0.5s
+    dt_obs = dt_s * obs_stride
+    obs_idx = np.arange(0, N_t, obs_stride)
+
+    T_decorr_pos = closed_loop_decorrelation_time(cfg.controller, "position")
+    T_decorr_gw  = closed_loop_decorrelation_time(cfg.controller, "sway")
+    print(f"\nT_decorr (position) = {T_decorr_pos:.1f} s, "
+          f"T_decorr (gangway slow) = {T_decorr_gw:.1f} s")
+
+    est_pos = BayesianSigmaEstimator(
+        prior_sigma2=prior.pos_sigma_m ** 2,
+        T_decorr_s=T_decorr_pos,
+        dt_s=dt_obs,
+        window_s=T_op_s,
+    )
+    est_gw = BayesianSigmaEstimator(
+        prior_sigma2=prior.gw_sigma_slow_m ** 2,
+        T_decorr_s=T_decorr_gw,
+        dt_s=dt_obs,
+        window_s=T_op_s,
+    )
+    for k in obs_idx:
+        est_pos.update(float(r[k]))
+        est_gw.update(float(dL[k]))
+
+    sig_pos_post_p = est_pos.posterior(credible=0.90)
+    sig_gw_post_p  = est_gw.posterior(credible=0.90)
+    sig_pos_post = sig_pos_post_p.sigma_median
+    sig_gw_post  = sig_gw_post_p.sigma_median
+    n_eff_pos = est_pos.n_eff
+    n_eff_gw  = est_gw.n_eff
+    print(f"\nPosterior sigma_radial = {sig_pos_post:.3f} m  "
+          f"(90% CI [{sig_pos_post_p.sigma_lo:.3f}, {sig_pos_post_p.sigma_hi:.3f}], "
+          f"n_eff={n_eff_pos:.1f}, warm={est_pos.is_warm()})")
+    print(f"Posterior sigma_slow   = {sig_gw_post:.3f} m  "
+          f"(90% CI [{sig_gw_post_p.sigma_lo:.3f}, {sig_gw_post_p.sigma_hi:.3f}], "
+          f"n_eff={n_eff_gw:.1f}, warm={est_gw.is_warm()})")
+    print(f"Ratios: radial post/prior = {sig_pos_post/prior.pos_sigma_m:.3f}, "
+          f"slow post/prior = {sig_gw_post/prior.gw_sigma_slow_m:.3f}")
+
+    # --- Posterior summary (same shapes, data-conditioned levels) ------
+    posterior = summarise_intact_prior(
+        cl, S_F_funcs, cfg, joint,
+        T_op_s=T_op_s, sigma_L_wave=sigma_L_wave_m, Tp_wave_s=Tp,
+        quantiles=(0.50, 0.90),
+        posterior_sigma_radial_m=sig_pos_post,
+        posterior_sigma_telescope_slow_m=sig_gw_post,
+    )
+
+    # Credible-interval bracket: same summarise_intact_prior call at the
+    # 5th and 95th percentile sigmas. Used below to paint the band of
+    # plausible P90 values.
+    posterior_lo = summarise_intact_prior(
+        cl, S_F_funcs, cfg, joint,
+        T_op_s=T_op_s, sigma_L_wave=sigma_L_wave_m, Tp_wave_s=Tp,
+        quantiles=(0.50, 0.90),
+        posterior_sigma_radial_m=sig_pos_post_p.sigma_lo,
+        posterior_sigma_telescope_slow_m=sig_gw_post_p.sigma_lo,
+    )
+    posterior_hi = summarise_intact_prior(
+        cl, S_F_funcs, cfg, joint,
+        T_op_s=T_op_s, sigma_L_wave=sigma_L_wave_m, Tp_wave_s=Tp,
+        quantiles=(0.50, 0.90),
+        posterior_sigma_radial_m=sig_pos_post_p.sigma_hi,
+        posterior_sigma_telescope_slow_m=sig_gw_post_p.sigma_hi,
+    )
+
+    # --- 2x2 figure: prior (top) + posterior (bottom) ------------------
+    fig = plt.figure(figsize=(13.5, 9.0))
+    subfigs = fig.subfigures(2, 1, hspace=0.08)
+    plot_intact_prior(prior, fig=subfigs[0])
+    plot_intact_prior(posterior, fig=subfigs[1])
+
+    # Overlay 90% credible-interval brackets on the posterior bars: a
+    # horizontal line at y=0 from P90(sigma_lo) to P90(sigma_hi),
+    # capped with whiskers. Communicates how much sigma uncertainty
+    # remains after the observation window.
+    post_axes = subfigs[1].axes
+    bracket_pairs = [
+        (post_axes[0], posterior_lo.pos_a_p90, posterior_hi.pos_a_p90),
+        (post_axes[1], posterior_lo.gw_a_p90,  posterior_hi.gw_a_p90),
+    ]
+    for ax, x_lo, x_hi in bracket_pairs:
+        ax.plot([x_lo, x_hi], [-0.18, -0.18],
+                color="#222222", lw=2.0, solid_capstyle="butt", zorder=3,
+                label=f"90% CI on P90: [{x_lo:.2f}, {x_hi:.2f}] m")
+        ax.plot([x_lo, x_lo], [-0.23, -0.13], color="#222222", lw=2.0, zorder=3)
+        ax.plot([x_hi, x_hi], [-0.23, -0.13], color="#222222", lw=2.0, zorder=3)
+        ax.legend(loc="upper right", fontsize=8, framealpha=0.95, ncol=1)
+
+    # plot_intact_prior unconditionally sets a suptitle on the figure
+    # passed to it; override here so the row label is clean.
+    subfigs[0].suptitle(
+        f"PRIOR  (model only, T_op = {T_op_s/60:.0f} min)",
+        fontsize=13, fontweight="bold", y=0.92, color="#444444",
+    )
+    subfigs[1].suptitle(
+        f"POSTERIOR  (after {T_op_s/60:.0f} min observation, "
+        f"n_eff_pos={n_eff_pos:.1f}, n_eff_gw={n_eff_gw:.1f}; "
+        f"black bracket = 90% CI on P90 from posterior \u03c3 uncertainty)",
+        fontsize=13, fontweight="bold", y=0.92, color="#1f6f1f",
+    )
+    fig.suptitle(
+        "CSOV intact-prior length-scale panel: prior vs data-conditioned posterior",
+        fontsize=14, y=0.995,
+    )
+
+    out = os.path.join(HERE, "csov_prior_vs_posterior.png")
+    fig.savefig(out, dpi=120, bbox_inches="tight")
+    print(f"\nSaved {out}")
+
+    # --- Compact comparison table --------------------------------------
+    print("\n=== Quantile comparison (P50 / P90 of running max over T_op) ===")
+    print(f"  Vessel footprint  prior:     P50={prior.pos_a_p50:.2f} m, "
+          f"P90={prior.pos_a_p90:.2f} m  [{prior.pos_traffic_prior.upper()}]")
+    print(f"  Vessel footprint  posterior: P50={posterior.pos_a_p50:.2f} m, "
+          f"P90={posterior.pos_a_p90:.2f} m  [{posterior.pos_traffic_prior.upper()}]")
+    print(f"  Telescope dL      prior:     P50={prior.gw_a_p50:.2f} m, "
+          f"P90={prior.gw_a_p90:.2f} m  [{prior.gw_traffic_prior.upper()}]")
+    print(f"  Telescope dL      posterior: P50={posterior.gw_a_p50:.2f} m, "
+          f"P90={posterior.gw_a_p90:.2f} m  [{posterior.gw_traffic_prior.upper()}]")
+
+
+if __name__ == "__main__":
+    main()
