@@ -669,6 +669,7 @@ def summarise_intact_prior(
     posterior_sigma_telescope_slow_m: Optional[float] = None,
     posterior_sigma_telescope_wave_m: Optional[float] = None,
     T_decorr_var_telescope_wave_s: Optional[float] = None,
+    q_wave: Optional[float] = None,
 ) -> IntactPriorSummary:
     """Build the intact-condition extreme-value summary for one operation.
 
@@ -726,15 +727,21 @@ def summarise_intact_prior(
         ``sigma_L_wave`` is biased and the WF posterior will pull it
         towards the data-consistent value.
         The narrowband spectral shape (``nu_0_wave = 1/Tp``,
-        ``q_wave = 0.3``) is kept from the model.
+        ``q_wave``) is kept from the model.
     T_decorr_var_telescope_wave_s : optional float. Variance-estimator
         decorrelation time of the WF telescope channel [s], reported
         in the summary as ``gw_T_decorr_var_wf_s``. Compute via
         ``variance_decorrelation_time_from_psd(wave.integrand,
         wave.omega)`` from the same ``sigma_L_wave`` calculation
         the caller used to derive ``sigma_L_wave``. If ``None``,
-        falls back to the narrowband proxy ``Tp / (4 q_wave)`` which
-        for q=0.3 gives ~Tp/1.2; documented as a coarse fallback.
+        falls back to the narrowband proxy ``Tp / (2 pi q_wave)``.
+    q_wave : optional float. Vanmarcke bandwidth parameter for the
+        wave-frequency telescope band. If supplied, should come from
+        ``vanmarcke_bandwidth_q(wave.integrand, wave.omega)`` for the
+        same JONSWAP*RAO product PSD used to compute ``sigma_L_wave``
+        (typical CSOV value ~0.16). If ``None``, falls back to a
+        coarse 0.30 narrowband proxy that biases towards Poisson
+        clustering (i.e. slightly conservative for amber/red).
 
     Returns
     -------
@@ -851,7 +858,16 @@ def summarise_intact_prior(
 
     sigma_wave = float(sigma_L_wave)
     nu0_wave = float(1.0 / Tp_wave_s) if (Tp_wave_s > 0 and sigma_wave > 0) else 0.0
-    q_wave = 0.3  # JONSWAP-typical narrowband bandwidth proxy
+    if q_wave is None:
+        # JONSWAP-typical narrowband bandwidth proxy. Used only when
+        # the caller cannot supply the spectrum-derived value (e.g.
+        # legacy callers that pass sigma_L_wave as a scalar). Empirical
+        # WF q for the canonical CSOV operating point is ~0.16 (see
+        # diagnose_dL_running_max_bias.py); 0.30 is a conservative
+        # over-estimate that biases towards Poisson clustering.
+        q_wave_used = 0.30
+    else:
+        q_wave_used = float(q_wave)
 
     sigma_wave_prior = sigma_wave
     if posterior_sigma_telescope_wave_m is not None:
@@ -870,7 +886,7 @@ def summarise_intact_prior(
     if T_decorr_var_telescope_wave_s is not None:
         gw_T_decorr_var_wf_s = float(T_decorr_var_telescope_wave_s)
     elif sigma_wave > 0.0 and nu0_wave > 0.0 and Tp_wave_s > 0:
-        gw_T_decorr_var_wf_s = float(Tp_wave_s / (2.0 * np.pi * q_wave))
+        gw_T_decorr_var_wf_s = float(Tp_wave_s / (2.0 * np.pi * q_wave_used))
     else:
         gw_T_decorr_var_wf_s = 0.0
 
@@ -887,7 +903,7 @@ def summarise_intact_prior(
     # gangway thresholds (diagnostic).
     bands = [(sigma_slow, nu0_slow, q_slow)]
     if sigma_wave > 0.0 and nu0_wave > 0.0:
-        bands.append((sigma_wave, nu0_wave, q_wave))
+        bands.append((sigma_wave, nu0_wave, q_wave_used))
     mb_warn = p_exceed_rice_multiband(
         bands=bands, threshold=gw_warn_m, T=T_op_s, bilateral=True,
         clustering="vanmarcke",
@@ -935,7 +951,7 @@ def summarise_intact_prior(
         gw_T_decorr_var_s=gw_T_decorr_var_s,
         gw_sigma_wave_m=sigma_wave,
         gw_nu0_wave=nu0_wave,
-        gw_q_wave=q_wave if (sigma_wave > 0.0 and nu0_wave > 0.0) else 1.0,
+        gw_q_wave=q_wave_used if (sigma_wave > 0.0 and nu0_wave > 0.0) else 1.0,
         gw_T_decorr_var_wf_s=gw_T_decorr_var_wf_s,
         gw_threshold_to_lower_m=stroke_lo,
         gw_threshold_to_upper_m=stroke_hi,

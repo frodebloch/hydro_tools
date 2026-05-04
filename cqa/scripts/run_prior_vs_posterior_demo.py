@@ -74,6 +74,7 @@ from cqa import (
     predictive_running_max_quantile,
     bandsplit_lowpass,
     variance_decorrelation_time_from_psd,
+    vanmarcke_bandwidth_q,
 )
 from cqa.vessel import LinearVesselModel, CurrentForceModel
 from cqa.controller import LinearDpController
@@ -208,11 +209,16 @@ def main() -> None:
     print(f"  T_var_wf (from wave PSD) = {T_decorr_wave_var_s:.1f} s")
     print(f"  (NB: r(t) is Rayleigh-distributed so np.std(r) != sigma_radial)")
 
+    # WF Vanmarcke bandwidth from the actual JONSWAP*RAO product PSD
+    # (typical CSOV value ~0.16, vs the 0.30 narrowband proxy fallback).
+    q_wave_spec = float(vanmarcke_bandwidth_q(wave.integrand, wave.omega))
+
     # --- Build the prior summary first to read off model sigmas --------
     prior = summarise_intact_prior(
         cl, S_F_funcs, cfg, joint,
         T_op_s=T_op_s, sigma_L_wave=sigma_L_wave_m, Tp_wave_s=Tp,
         quantiles=(0.50, 0.90),
+        q_wave=q_wave_spec,
     )
     print(f"\nModel-prior sigma_radial = {prior.pos_sigma_m:.3f} m")
     print(f"Model-prior sigma_slow   = {prior.gw_sigma_slow_m:.3f} m")
@@ -296,6 +302,7 @@ def main() -> None:
         posterior_sigma_telescope_slow_m=sig_gw_post,
         posterior_sigma_telescope_wave_m=sig_gw_wf_post,
         T_decorr_var_telescope_wave_s=T_decorr_wave_var_s,
+        q_wave=q_wave_spec,
     )
 
     # --- Marginalised predictive P90: integrates over the posterior
