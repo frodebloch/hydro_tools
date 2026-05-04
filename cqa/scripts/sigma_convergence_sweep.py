@@ -108,7 +108,7 @@ def main() -> None:
     T_decorr_gw  = closed_loop_decorrelation_time(cfg.controller, "sway")
 
     dt_s = 0.5
-    omega_grid_lf = np.linspace(1.0e-3, 0.6, 256)
+    omega_grid_lf = np.geomspace(1.0e-4, 0.6, 256)
 
     T_ops_min = [5, 15, 30, 60]
     n_seeds = 8

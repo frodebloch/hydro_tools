@@ -103,8 +103,11 @@ def realise_vector_force_time_series(
     S_F_funcs : list of callables omega -> 3x3 PSD [N^2 / (rad/s)].
         Each callable is summed (independent additive sources, e.g.
         wind gust + slow drift + current variability).
-    omega_grid : (N_omega,) UNIFORMLY-spaced angular frequencies [rad/s]
-        bracketing the closed-loop band. d_omega is the spacing.
+    omega_grid : (N_omega,) strictly-increasing angular frequencies
+        [rad/s] bracketing the closed-loop band. May be non-uniform
+        (e.g. ``np.geomspace``); per-bin widths are computed from
+        midpoint differences so the closed-loop response is captured
+        across decades with far fewer points than a linear grid.
     t : (N_t,) time samples [s]. Should satisfy
         T_total = t[-1] - t[0] >> 2*pi/omega_grid[0]
         so the realisation is long enough to look stationary.
@@ -120,6 +123,9 @@ def realise_vector_force_time_series(
       semi-definite. Tiny eigenvalues are clipped to zero (jitter
       protection). The output is real because the PSD callables are
       real-symmetric (no Coriolis-style cross-spectra in our use case).
+    * Per-bin width Delta_omega_k = 0.5 (omega_{k+1} - omega_{k-1})
+      with one-sided differences at the endpoints. This is the trapezoid
+      cell width and recovers exactly d_omega for a uniform grid.
     * Memory: builds a (3, N_omega, N_t) intermediate; for the demo
       defaults (N_omega ~ 256, N_t ~ 30000) that is ~90 MB of floats.
     """
@@ -127,9 +133,13 @@ def realise_vector_force_time_series(
     t = np.asarray(t, dtype=float)
     if omega_grid.ndim != 1 or omega_grid.size < 2:
         raise ValueError("omega_grid must be a 1-D array with size >= 2")
-    if not np.allclose(np.diff(omega_grid), omega_grid[1] - omega_grid[0]):
-        raise ValueError("omega_grid must be uniformly spaced")
-    d_omega = float(omega_grid[1] - omega_grid[0])
+    if np.any(np.diff(omega_grid) <= 0.0):
+        raise ValueError("omega_grid must be strictly increasing")
+    # Per-bin width from midpoint differences (trapezoid cells).
+    d_omega_k = np.empty_like(omega_grid)
+    d_omega_k[1:-1] = 0.5 * (omega_grid[2:] - omega_grid[:-2])
+    d_omega_k[0] = omega_grid[1] - omega_grid[0]
+    d_omega_k[-1] = omega_grid[-1] - omega_grid[-2]
     N_om = omega_grid.size
     N_t = t.size
 
@@ -153,14 +163,14 @@ def realise_vector_force_time_series(
     # mixing -- which is exactly what we want.
     phases = rng.uniform(0.0, 2.0 * np.pi, size=(N_om, 3))
 
-    # Per-frequency factor: L_k L_k^T = 2 S(omega_k) d_omega.
+    # Per-frequency factor: L_k L_k^T = 2 S(omega_k) d_omega_k.
     # Use eigendecomposition (more robust to near-singular PSD than
     # Cholesky since wind PSD has zero off-diagonal entries).
     F_t = np.zeros((3, N_t))
     cos_args = np.outer(omega_grid, t) + phases[:, 0:1]  # placeholder shape
     # Loop over frequencies -- N_om is small (~256), keeps memory low.
     for k in range(N_om):
-        S_k = 2.0 * S_total[k] * d_omega
+        S_k = 2.0 * S_total[k] * d_omega_k[k]
         eigvals, eigvecs = np.linalg.eigh(S_k)
         eigvals = np.clip(eigvals, 0.0, None)
         # Amplitude per "factor" channel: sqrt(eigval) along eigvec.
@@ -270,8 +280,9 @@ def realise_wave_motion_6dof(
         (0 = head, +pi/2 = from port).
     t : (N_t,) uniformly-spaced time samples [s].
     rng : numpy random Generator.
-    omega_grid : optional (N_om,) uniformly-spaced [rad/s]. Default:
-        128 points across the RAO range.
+    omega_grid : optional (N_om,) strictly-increasing [rad/s]. May be
+        non-uniform; per-bin widths are computed from midpoint
+        differences. Default: 128 linear points across the RAO range.
     spreading : SeaSpreading. Default cos-2s s=15 (DNV-RP-C205).
     gamma : JONSWAP peakedness. Default 3.3.
 
@@ -287,9 +298,12 @@ def realise_wave_motion_6dof(
         om_hi = float(rao_table.omega[-1])
         omega_grid = np.linspace(om_lo, om_hi, 128)
     omega_grid = np.asarray(omega_grid, dtype=float)
-    if not np.allclose(np.diff(omega_grid), omega_grid[1] - omega_grid[0]):
-        raise ValueError("omega_grid must be uniformly spaced")
-    d_omega = float(omega_grid[1] - omega_grid[0])
+    if np.any(np.diff(omega_grid) <= 0.0):
+        raise ValueError("omega_grid must be strictly increasing")
+    d_omega_k = np.empty_like(omega_grid)
+    d_omega_k[1:-1] = 0.5 * (omega_grid[2:] - omega_grid[:-2])
+    d_omega_k[0] = omega_grid[1] - omega_grid[0]
+    d_omega_k[-1] = omega_grid[-1] - omega_grid[-2]
 
     if spreading is None:
         spreading = SeaSpreading()
@@ -308,7 +322,7 @@ def realise_wave_motion_6dof(
         # Spectral amplitude per (omega) bin within this directional bin.
         # Note: spreading_quadrature returns weights that already
         # absorb d_phi (sum_j w_j == 1 implies w_j = D(phi_j) d_phi).
-        A_om = np.sqrt(2.0 * S_eta * d_omega * w_dir[j])  # (N_om,)
+        A_om = np.sqrt(2.0 * S_eta * d_omega_k * w_dir[j])  # (N_om,)
         # Independent random phases per (omega, this directional bin)
         # shared across the 6 DOFs (rigid body excited coherently).
         psi = rng.uniform(0.0, 2.0 * np.pi, size=omega_grid.size)  # (N_om,)

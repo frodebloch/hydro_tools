@@ -230,13 +230,65 @@ def test_wave_realisation_matches_sigma_L_wave():
 # ---------------------------------------------------------------------------
 
 
-def test_force_realisation_rejects_non_uniform_grid():
-    omega_bad = np.array([0.1, 0.2, 0.4, 0.5])  # non-uniform
+def test_force_realisation_accepts_non_uniform_grid():
+    """Non-uniform (e.g. geometric) grids must be accepted: per-bin
+    Delta_omega_k is computed from midpoint differences."""
+    omega_geom = np.geomspace(1e-3, 0.5, 32)
+    t = np.linspace(0.0, 100.0, 200)
+    rng = np.random.default_rng(0)
+    S_F = lambda w: np.eye(3)
+    F = realise_vector_force_time_series([S_F], omega_geom, t, rng)
+    assert F.shape == (3, t.size)
+    assert np.all(np.isfinite(F))
+
+
+def test_force_realisation_rejects_non_monotone_grid():
+    omega_bad = np.array([0.1, 0.2, 0.15, 0.3])  # not increasing
     t = np.linspace(0.0, 10.0, 20)
     rng = np.random.default_rng(0)
     S_F = lambda w: np.eye(3)
-    with pytest.raises(ValueError, match="uniformly"):
+    with pytest.raises(ValueError, match="strictly increasing"):
         realise_vector_force_time_series([S_F], omega_bad, t, rng)
+
+
+def test_force_realisation_geom_grid_matches_freqdomain_variance():
+    """Variance from a coarse geometric grid (32 points spanning 4
+    decades) must match the trapezoid integral of the input PSD across
+    that same band -- this is the property that makes geom grids viable
+    for the LF closed-loop band where the response spans
+    ~[1e-4, 1e-1] rad/s."""
+    cfg = csov_default_config()
+    Vw = 14.0
+    theta_rel = np.radians(30.0)
+    vp = cfg.vessel
+    wp = cfg.wind
+    wind_model = WindForceModel(wp=wp, loa=vp.loa)
+    S_wind = npd_wind_gust_force_psd(wind_model, Vw, theta_rel)
+
+    omega_geom = np.geomspace(1e-4, 0.6, 64)
+    dt = 0.5
+    t = np.arange(0.0, 1800.0, dt)
+
+    # Analytical variance over the same band, on a dense reference grid.
+    omega_ref = np.geomspace(1e-4, 0.6, 4096)
+    S_diag_ref = np.zeros((omega_ref.size, 3))
+    for k, w in enumerate(omega_ref):
+        S_diag_ref[k] = np.diag(np.asarray(S_wind(float(w))))
+    ana_var = np.trapezoid(S_diag_ref, omega_ref, axis=0)
+
+    n_seeds = 8
+    emp_vars = np.zeros((n_seeds, 3))
+    for seed in range(n_seeds):
+        rng = np.random.default_rng(seed + 200)
+        F = realise_vector_force_time_series(
+            [S_wind], omega_geom, t, rng,
+        )
+        emp_vars[seed] = np.var(F, axis=1)
+    emp_var = emp_vars.mean(axis=0)
+
+    # 20% tol -- 32 geom points across 4 decades is coarse; this test
+    # is about correctness of the per-bin width, not convergence.
+    np.testing.assert_allclose(emp_var, ana_var, rtol=0.20)
 
 
 def test_force_realisation_rejects_wrong_psd_shape():

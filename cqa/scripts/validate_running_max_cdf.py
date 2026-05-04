@@ -237,7 +237,7 @@ def main() -> None:
     print(f"Realising {T_realisation_s/3600:.1f} h at dt={dt_s}s "
           f"({N_t} samples) ...")
 
-    omega_grid_lf = np.linspace(1.0e-3, 0.6, 256)
+    omega_grid_lf = np.geomspace(1.0e-4, 0.6, 256)
     rng = np.random.default_rng(7)
 
     F_lf = realise_vector_force_time_series(S_F_funcs, omega_grid_lf, t, rng)
