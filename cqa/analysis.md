@@ -438,3 +438,205 @@ cqa/
 5. **GUI**: the demonstrator output is to be presented in `~/src/brucon/dp_gui`.
    The Python prototype will mirror the data layout that the dp_gui will consume
    (so a later DDS topic + view can be added without redesign).
+
+---
+
+## 12. Findings and methodology refinements (2026 implementation)
+
+This section documents the engineering refinements and validation findings
+accumulated during the Python prototype work. Each subsection records the
+problem encountered, the resolution, and the residual uncertainty so the
+C++ port (P7) can carry the same conclusions forward.
+
+### 12.1 Operator decision view (IMCA M254 Rev.1 Fig. 8)
+
+`cqa.operator_view.summarise_intact_prior(...)` produces the operator-facing
+two-axis decision summary:
+
+* **Position axis**: radial distance from setpoint at the gangway base, with
+  green/amber/red traffic lights against the IMCA position warning and
+  alarm radii (`cfg.operational_limits.position_warning_radius_m` /
+  `position_alarm_radius_m`, defaults 2 m / 4 m).
+* **Telescope axis**: combined low-frequency + wave-frequency telescope
+  length deviation `|ΔL|`, with traffic lights against operator-set
+  fractions of the worst-side stroke (defaults 60 % / 80 %, IMCA M254
+  utilisation thresholds).
+
+The summary returns two quantiles (default P50, P90) of the running maximum
+of `|X(t)|` over the planned operation duration `T_op`, inverted from the
+Rice formula with Vanmarcke clustering correction (`extreme_value.inverse_rice`,
+`inverse_rice_multiband`). Both axes share the same green/amber/red logic so the
+operator reads them with identical semantics.
+
+### 12.2 Closed-loop covariance via frequency-domain integration
+
+The Lyapunov solution sketched in §4.2 is replaced by a direct frequency-domain
+integral (`closed_loop.state_covariance_freqdomain`) over a logspace grid
+`np.logspace(-4, 0, 1024)` rad/s. This avoids the matrix-Lyapunov solver and
+keeps the per-cycle compute well below the budget; more importantly it makes
+the "axis PSD" (telescope-length deviation PSD, radial-position PSD) directly
+available as a 1-D function of `omega`, which is needed downstream for
+spectral moments and Vanmarcke bandwidth.
+
+**Realisation grid policy.** Time-domain realisations
+(`time_series_realisation.realise_vector_force_time_series`,
+`realise_wave_motion_6dof`) accept non-uniform grids. The LF demos use
+`np.geomspace(1e-4, 0.6, 256)`: this captures the closed-loop response across
+decades with 16× fewer points than a uniform grid that reaches `1e-4`.
+A uniform `linspace(1e-3, 0.6, 256)` was previously dropping ~6 % of the LF
+variance (the response has substantial energy below `omega = 1e-3` rad/s,
+period > 100 min). After the geom-grid switch, the empirical realisation
+sigma matches the freq-domain prediction within sampling noise (~1 % on
+24 h realisations, see `tests/test_time_series_realisation.py`).
+
+### 12.3 Wave-frequency telescope channel
+
+The original §4.4 plan treated the wave-frequency telescope contribution
+through a tip-displacement RAO. The implemented path is more direct:
+`wave_response.sigma_L_wave(joint, cfg, rao, Hs, Tp, theta_wave_rel)` projects
+the 6-DOF rigid-body motion at the body origin onto the gangway telescope
+sensitivity vector `c6 = telescope_sensitivity_6dof(joint, cfg.gangway)`,
+giving
+
+```
+sigma_L_wave^2 = ∫ |c6 · H_6dof(omega, beta)|^2 · S_eta(omega) · D(phi) dphi domega
+```
+
+with directional spreading (default cos-2s, s=15) integrated by Gauss
+quadrature.
+
+**Bandwidth caveat.** The Vanmarcke `q_wave` parameter for this band is
+spectrum-dependent: the canonical CSOV operating point gives `q ≈ 0.16`,
+not the 0.30 narrowband proxy that was hardcoded earlier. Callers should
+pass `q_wave=vanmarcke_bandwidth_q(wave.integrand, wave.omega)` to
+`summarise_intact_prior` (the prior-vs-posterior demo does so). The
+fallback 0.30 biases towards Poisson clustering (slightly conservative
+for amber/red triggers).
+
+Because the slow band typically dominates `dL` variance, the WF `q`
+choice does not materially change the multiband `P_breach`. It does
+affect WF-isolation diagnostics and matters for sea states where the
+wave channel becomes the dominant telescope driver.
+
+### 12.4 Bayesian sigma estimator + posterior length scales
+
+`bayesian.BayesianSigmaEstimator` runs online on the bandsplit residuals
+(see §12.5) and produces a posterior over the per-axis sigma. Three estimators
+operate in parallel:
+
+* radial position (LF closed-loop band),
+* telescope slow channel (LF closed-loop band),
+* telescope wave channel (WF, RAO-driven).
+
+The slow estimators data-condition the model `sigma` (level update) but
+keep the spectral SHAPE (`nu_0+`, Vanmarcke `q`) from the prior closed-loop
+spectrum. The wave estimator data-conditions `sigma_L_wave` directly: this
+is the diagnostic that flags **sea-state misclassification**. If the
+operator-supplied `(Hs, Tp, theta_wave_rel)` is wrong, the model
+`sigma_L_wave` is biased and the WF posterior pulls toward the
+data-consistent value. About 30 effective samples accumulate per 5 min
+on the WF channel (~6 % half-width on `sigma_L_wave`), see
+`scripts/run_prior_vs_posterior_demo.py`.
+
+**Variance-decorrelation time `T_var`.** The Bayesian estimator's effective
+sample size is `T_window / T_var`, where `T_var` is the variance estimator's
+correlation time, NOT the state correlation time. The correct expression is
+
+```
+T_var = π · ∫ S²(omega) domega / m₀²
+```
+
+(`extreme_value.variance_decorrelation_time_from_psd`), about 5× larger than
+`1/(zeta · omega_n)` for the CSOV closed-loop response. Earlier code used
+the latter and over-counted independent samples by a factor of 5; fixed in
+commit `ed604f7`.
+
+### 12.5 Band-split utility
+
+`signal_processing.bandsplit_lowpass(x, dt, fc_Hz)` zero-phase Butterworth
+splits the observed deviation into LF and WF bands at a cutoff (default
+0.05 Hz) below the wave-frequency floor and above the closed-loop bandwidth.
+The two bands are uncorrelated by construction (see §12.7) so the LF and WF
+posteriors update independently. Validated to <1 % LF / <10 % WF reproduction
+on 60 min CSOV realisations (`scripts/validate_bandsplit.py`).
+
+### 12.6 Running-maximum CDF and the Rice/Vanmarcke validity envelope
+
+The operator-facing P50/P90 quantiles of `M_T = max|X(t)|` over `T_op` rest on
+the assumption that level up-crossings of a Gaussian process are independent
+events:
+
+```
+P(M_T > a) ≈ 1 − exp(−2 · nu_a+ · T_op),     nu_a+ = nu_0+ · exp(−a²/(2σ²))
+```
+
+with the Vanmarcke clustering correction applied per band before combining.
+A bootstrap M_T validation (`scripts/validate_running_max_cdf.py`,
+`scripts/diagnose_dL_running_max_bias.py`,
+`scripts/diagnose_rice_validity.py`) on a 24 h closed-loop realisation
+shows:
+
+| diagnostic | result |
+|---|---|
+| sigma vs Lyapunov | <1 % bias ✓ |
+| nu_a+ vs Rice (a/sigma ∈ [1, 2.5]) | within sampling noise ✓ |
+| Vanmarcke vs Poisson at q=0.78 (slow band) | nearly identical (q is broadband) |
+| **P(M_T > a) at a/sigma = 1.0** | emp 0.83 vs Rice 0.63 → **+31 % Rice under-prediction** |
+| P(M_T > a) at a/sigma = 1.5 | +18 % |
+| P(M_T > a) at a/sigma = 2.0 | +10 % |
+| P(M_T > a) at a/sigma ≥ 2.5 | within sampling noise (Rice valid) |
+
+The Rice **level-crossing rate** `nu_a+` is essentially correct. The bias
+comes from the **Poisson-of-rare-events** approximation: at moderate rarity
+(`a/sigma < 2.5`) crossings are not independent, and the windowed maximum
+distribution shifts higher than Poisson predicts. The
+`RiceExceedanceResult.valid` flag (default `rarity_min=2`) correctly marks
+this regime.
+
+**Direction is conservative for safety.** Under-predicted exceedance
+probability means the predicted "safe" quantile `a_p` such that
+`F_M(a_p) = p` is LOWER than empirical, so the operator sees a tighter
+limit than reality. The amber/red triggers fail SAFE.
+
+**Operator panel recommendation.** P95 (`a/sigma ≈ 2.7` for the canonical
+operating point) is in the Rice-valid regime; P50 is not (`a/sigma ≈ 1.8`).
+The C++ port (P7) should anchor amber/red on P95 by default and badge
+sub-P95 quantiles with a "low-rarity, conservative" annotation rather than
+display them as the primary operator number.
+
+### 12.7 LF / WF independence verification
+
+The decision view treats the LF and WF telescope contributions as
+statistically independent (`p_exceed_rice_multiband` adds Poisson counts
+across bands). This is a non-trivial assumption: the same vessel rigid-body
+displaces both ways. Empirical validation
+(`scripts/diagnose_dL_running_max_bias.py`) on 12 h CSOV realisations gives:
+
+* direct LF vs WF correlation: `rho = 0.003`
+* envelope LF vs envelope WF correlation: `rho = -0.006`
+
+i.e. perfectly uncorrelated within sampling noise. The two channels live in
+disjoint frequency bands and are excited by independent disturbance
+mechanisms (wind-gust + slow-drift + current-variability LF; first-order
+wave RAO WF), so this is expected.
+
+### 12.8 Updated roadmap status
+
+Phases P0-P3 of §8 are complete as marked. Implementation progress beyond
+that table:
+
+| Workstream | Status | Notes |
+|---|---|---|
+| Operator decision view (IMCA M254 Fig. 8) | DONE | `operator_view.summarise_intact_prior` + `plot_intact_prior` |
+| Frequency-domain closed-loop covariance | DONE | `closed_loop.state_covariance_freqdomain` (replaces the original Lyapunov plan, faster and exposes axis-PSD) |
+| Wave-frequency telescope channel | DONE | `wave_response.sigma_L_wave` |
+| Time-domain realisations (LF + WF) | DONE | non-uniform-grid acceptance, geom-grid policy |
+| Bayesian sigma estimator (3 channels in parallel) | DONE | `bayesian.BayesianSigmaEstimator`, with the `T_var` fix |
+| Band-split + posterior pipeline | DONE | `signal_processing.bandsplit_lowpass`, validated |
+| Running-max CDF validation | DONE | Rice valid above `a/sigma ≈ 2.5`, conservative below |
+| P4 MC validation against `vessel_simulator` | TODO | grid sweep needed |
+| Sigma²-validity residual alarm | TODO | flag when posterior-vs-prior diverges |
+| WCFDI overlay on operability polar | TODO | overlay post-failure transient envelope |
+| `sigma_L_wave` batch evaluation optimisation | TODO | for the offline polar case |
+| Tier 2 sigma-inconsistency fix (12-state augmented system) | TODO | open from P2 |
+| P7 C++ demonstrator | TODO | feeds `dp_gui` |
