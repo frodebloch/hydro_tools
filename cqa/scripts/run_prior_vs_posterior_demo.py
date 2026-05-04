@@ -71,6 +71,7 @@ from cqa import (
     realise_wave_motion_6dof,
     radial_position_time_series,
     telescope_length_deviation_time_series,
+    predictive_running_max_quantile,
 )
 from cqa.vessel import LinearVesselModel, CurrentForceModel
 from cqa.controller import LinearDpController
@@ -230,7 +231,7 @@ def main() -> None:
     print(f"Ratios: radial post/prior = {sig_pos_post/prior.pos_sigma_m:.3f}, "
           f"slow post/prior = {sig_gw_post/prior.gw_sigma_slow_m:.3f}")
 
-    # --- Posterior summary (same shapes, data-conditioned levels) ------
+    # --- Posterior summary (same shapes, data-conditioned median sigma) ---
     posterior = summarise_intact_prior(
         cl, S_F_funcs, cfg, joint,
         T_op_s=T_op_s, sigma_L_wave=sigma_L_wave_m, Tp_wave_s=Tp,
@@ -239,23 +240,33 @@ def main() -> None:
         posterior_sigma_telescope_slow_m=sig_gw_post,
     )
 
-    # Credible-interval bracket: same summarise_intact_prior call at the
-    # 5th and 95th percentile sigmas. Used below to paint the band of
-    # plausible P90 values.
-    posterior_lo = summarise_intact_prior(
-        cl, S_F_funcs, cfg, joint,
-        T_op_s=T_op_s, sigma_L_wave=sigma_L_wave_m, Tp_wave_s=Tp,
-        quantiles=(0.50, 0.90),
-        posterior_sigma_radial_m=sig_pos_post_p.sigma_lo,
-        posterior_sigma_telescope_slow_m=sig_gw_post_p.sigma_lo,
+    # --- Marginalised predictive P90: integrates over the posterior
+    # uncertainty in sigma. ONE number per channel that the operator
+    # can act on directly: "with 90% confidence the running max stays
+    # below this value over the next T_op."
+    p_target = 1.0 - 0.90  # P(M > a) <= 0.10  <=>  P90 of the running max
+    a_pred_pos = predictive_running_max_quantile(
+        p=p_target,
+        bands=[((sig_pos_post_p.alpha, sig_pos_post_p.beta),
+                posterior.pos_nu0_max, posterior.pos_q)],
+        T=T_op_s, bilateral=True, clustering="vanmarcke", n_quad=64,
     )
-    posterior_hi = summarise_intact_prior(
-        cl, S_F_funcs, cfg, joint,
-        T_op_s=T_op_s, sigma_L_wave=sigma_L_wave_m, Tp_wave_s=Tp,
-        quantiles=(0.50, 0.90),
-        posterior_sigma_radial_m=sig_pos_post_p.sigma_hi,
-        posterior_sigma_telescope_slow_m=sig_gw_post_p.sigma_hi,
+    gw_bands = [((sig_gw_post_p.alpha, sig_gw_post_p.beta),
+                 posterior.gw_nu0_slow, posterior.gw_q_slow)]
+    if sigma_L_wave_m > 0.0 and posterior.gw_nu0_wave > 0.0:
+        gw_bands.append((sigma_L_wave_m, posterior.gw_nu0_wave,
+                         posterior.gw_q_wave))
+    a_pred_gw = predictive_running_max_quantile(
+        p=p_target, bands=gw_bands, T=T_op_s,
+        bilateral=True, clustering="vanmarcke", n_quad=64,
     )
+    print(f"\nPredictive P90 (sigma marginalised over posterior):")
+    print(f"  vessel footprint = {a_pred_pos:.2f} m  "
+          f"(plug-in median P90 = {posterior.pos_a_p90:.2f} m, "
+          f"inflation +{(a_pred_pos - posterior.pos_a_p90)*100:.0f} cm)")
+    print(f"  telescope dL     = {a_pred_gw:.2f} m  "
+          f"(plug-in median P90 = {posterior.gw_a_p90:.2f} m, "
+          f"inflation +{(a_pred_gw - posterior.gw_a_p90)*100:.0f} cm)")
 
     # --- 2x2 figure: prior (top) + posterior (bottom) ------------------
     fig = plt.figure(figsize=(13.5, 9.0))
@@ -263,21 +274,19 @@ def main() -> None:
     plot_intact_prior(prior, fig=subfigs[0])
     plot_intact_prior(posterior, fig=subfigs[1])
 
-    # Overlay 90% credible-interval brackets on the posterior bars: a
-    # horizontal line at y=0 from P90(sigma_lo) to P90(sigma_hi),
-    # capped with whiskers. Communicates how much sigma uncertainty
-    # remains after the observation window.
+    # Overlay the marginalised predictive P90 on the posterior bars
+    # as a heavy black diamond marker. This is the operator-actionable
+    # number: "with 90% confidence the running max stays below this."
     post_axes = subfigs[1].axes
-    bracket_pairs = [
-        (post_axes[0], posterior_lo.pos_a_p90, posterior_hi.pos_a_p90),
-        (post_axes[1], posterior_lo.gw_a_p90,  posterior_hi.gw_a_p90),
+    pred_pairs = [
+        (post_axes[0], a_pred_pos, "vessel footprint"),
+        (post_axes[1], a_pred_gw,  "telescope dL"),
     ]
-    for ax, x_lo, x_hi in bracket_pairs:
-        ax.plot([x_lo, x_hi], [-0.18, -0.18],
-                color="#222222", lw=2.0, solid_capstyle="butt", zorder=3,
-                label=f"90% CI on P90: [{x_lo:.2f}, {x_hi:.2f}] m")
-        ax.plot([x_lo, x_lo], [-0.23, -0.13], color="#222222", lw=2.0, zorder=3)
-        ax.plot([x_hi, x_hi], [-0.23, -0.13], color="#222222", lw=2.0, zorder=3)
+    for ax, a_pred, label in pred_pairs:
+        ax.plot([a_pred], [0.0], marker="D", markersize=15,
+                markeredgecolor="black", markerfacecolor="none",
+                markeredgewidth=2.2, zorder=5,
+                label=f"Predictive P90 ({label}) = {a_pred:.2f} m")
         ax.legend(loc="upper right", fontsize=8, framealpha=0.95, ncol=1)
 
     # plot_intact_prior unconditionally sets a suptitle on the figure
@@ -289,7 +298,7 @@ def main() -> None:
     subfigs[1].suptitle(
         f"POSTERIOR  (after {T_op_s/60:.0f} min observation, "
         f"n_eff_pos={n_eff_pos:.1f}, n_eff_gw={n_eff_gw:.1f}; "
-        f"black bracket = 90% CI on P90 from posterior \u03c3 uncertainty)",
+        f"hollow black diamond = predictive P90 marginalised over \u03c3 posterior)",
         fontsize=13, fontweight="bold", y=0.92, color="#1f6f1f",
     )
     fig.suptitle(

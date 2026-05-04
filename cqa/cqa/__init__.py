@@ -88,6 +88,7 @@ from .extreme_value import (
     p_exceed_from_psd,
     inverse_rice,
     inverse_rice_multiband,
+    predictive_running_max_quantile,
 )
 from .online_estimator import (
     SigmaPosterior,
@@ -179,6 +180,7 @@ __all__ = [
     "p_exceed_from_psd",
     "inverse_rice",
     "inverse_rice_multiband",
+    "predictive_running_max_quantile",
     "SigmaPosterior",
     "BayesianSigmaEstimator",
     "closed_loop_decorrelation_time",

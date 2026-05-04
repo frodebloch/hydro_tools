@@ -14,6 +14,9 @@ from cqa.extreme_value import (
     p_exceed_rice,
     p_exceed_rice_multiband,
     p_exceed_from_psd,
+    inverse_rice,
+    inverse_rice_multiband,
+    predictive_running_max_quantile,
 )
 
 
@@ -457,3 +460,107 @@ def test_inverse_rice_multiband_round_trip():
         assert r["p_breach"] == pytest.approx(p, abs=1e-6), (
             f"multiband round-trip p={p}: a={a}, P_breach={r['p_breach']}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Marginal-over-sigma predictive quantile
+# ---------------------------------------------------------------------------
+
+
+def test_predictive_quantile_delta_limit_matches_inverse_rice():
+    """Very tight InvGamma posterior on sigma^2 (large alpha) collapses
+    to a delta at the prior mean; the predictive quantile must equal
+    inverse_rice at that sigma."""
+    sigma_true = 0.4
+    nu_0_plus = 0.05
+    q = 0.4
+    T = 1200.0
+    p = 0.10
+
+    # Strong posterior: alpha large, sigma2_mean = beta/(alpha-1) = sigma_true^2.
+    alpha = 5000.0
+    beta = sigma_true ** 2 * (alpha - 1.0)
+
+    a_pred = predictive_running_max_quantile(
+        p=p, bands=[((alpha, beta), nu_0_plus, q)], T=T,
+        bilateral=True, clustering="vanmarcke", n_quad=64,
+    )
+    a_ref = inverse_rice(
+        p=p, sigma=sigma_true, nu_0_plus=nu_0_plus, T=T,
+        bilateral=True, clustering="vanmarcke", q=q,
+    )
+    # 1% relative tolerance: 64 quadrature nodes plus residual prior
+    # variance from the not-quite-delta posterior.
+    assert a_pred == pytest.approx(a_ref, rel=0.01), (
+        f"a_pred={a_pred:.4f} vs a_ref={a_ref:.4f}"
+    )
+
+
+def test_predictive_quantile_inflates_with_posterior_uncertainty():
+    """A weak posterior (small alpha) keeps the same E[sigma^2] but adds
+    epistemic variance. The predictive p-quantile must exceed the
+    corresponding inverse_rice at the posterior median sigma, because
+    the right tail of the sigma posterior contributes disproportionately
+    to the breach probability."""
+    from scipy.stats import invgamma
+
+    sigma_mean = 0.4
+    nu_0_plus = 0.05
+    q = 0.4
+    T = 1200.0
+    p = 0.10
+
+    # Weak posterior: small alpha -> wide spread in sigma^2.
+    alpha = 5.0
+    beta = sigma_mean ** 2 * (alpha - 1.0)
+    sigma_median = float(np.sqrt(invgamma(a=alpha, scale=beta).median()))
+
+    a_pred = predictive_running_max_quantile(
+        p=p, bands=[((alpha, beta), nu_0_plus, q)], T=T,
+        bilateral=True, clustering="vanmarcke", n_quad=128,
+    )
+    a_med = inverse_rice(
+        p=p, sigma=sigma_median, nu_0_plus=nu_0_plus, T=T,
+        bilateral=True, clustering="vanmarcke", q=q,
+    )
+    # Marginalised quantile should be strictly larger than the
+    # plug-in-median quantile (epistemic uncertainty inflates the
+    # tail).
+    assert a_pred > a_med, (
+        f"epistemic inflation expected: a_pred={a_pred:.3f} <= a_med={a_med:.3f}"
+    )
+    # And by a meaningful margin (>5%) for this width:
+    assert (a_pred - a_med) / a_med > 0.05, (
+        f"inflation too small: a_pred={a_pred:.3f}, a_med={a_med:.3f}"
+    )
+
+
+def test_predictive_quantile_mixed_bands_fixed_and_posterior():
+    """Two bands: one fixed sigma (e.g. wave-RAO), one with InvGamma
+    posterior (e.g. slow-drift LF). The result must lie between the
+    fixed-only and double-posterior cases and must reduce to
+    inverse_rice_multiband when the posterior is delta-tight."""
+    sigma_slow = 0.5
+    sigma_wave = 0.2
+    nu_slow, q_slow = 0.01, 0.4
+    nu_wave, q_wave = 0.125, 0.3
+    T = 1200.0
+    p = 0.10
+
+    # Tight posterior on the slow band centred at sigma_slow.
+    alpha = 5000.0
+    beta = sigma_slow ** 2 * (alpha - 1.0)
+
+    a_pred = predictive_running_max_quantile(
+        p=p,
+        bands=[((alpha, beta), nu_slow, q_slow), (sigma_wave, nu_wave, q_wave)],
+        T=T, bilateral=True, clustering="vanmarcke", n_quad=64,
+    )
+    a_ref = inverse_rice_multiband(
+        p=p,
+        bands=[(sigma_slow, nu_slow, q_slow), (sigma_wave, nu_wave, q_wave)],
+        T=T, bilateral=True, clustering="vanmarcke",
+    )
+    assert a_pred == pytest.approx(a_ref, rel=0.01), (
+        f"mixed bands tight-posterior: a_pred={a_pred:.4f} vs a_ref={a_ref:.4f}"
+    )

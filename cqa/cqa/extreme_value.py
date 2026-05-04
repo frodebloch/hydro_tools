@@ -728,4 +728,197 @@ __all__ = [
     "p_exceed_from_psd",
     "inverse_rice",
     "inverse_rice_multiband",
+    "predictive_running_max_quantile",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Marginal-over-sigma predictive quantile
+# ---------------------------------------------------------------------------
+
+
+def predictive_running_max_quantile(
+    p: float,
+    bands: Sequence[tuple],
+    T: float,
+    bilateral: bool = True,
+    clustering: str = "vanmarcke",
+    n_quad: int = 64,
+    a_max_sigma: float = 8.0,
+    tol: float = 1e-9,
+    max_iter: int = 80,
+) -> float:
+    """Marginal predictive p-quantile of the running max of |X(t)| over [0, T].
+
+    Operator question this answers: "what is the value `a` below which
+    the bilateral running maximum will sit with probability >= 1 - p,
+    accounting for BOTH the within-window aleatoric variability AND
+    the parametric (epistemic) uncertainty in sigma carried by the
+    posterior?"
+
+    Each band entry is of the form `(sigma_spec, nu_0_plus, q)` where
+    `sigma_spec` is either:
+      * a float           -- the band's sigma is a deterministic point
+                             value (e.g. the wave-RAO sigma, which is
+                             fixed by the sea-state, not estimated).
+      * an `(alpha, beta)` 2-tuple -- the band's sigma^2 follows an
+                             inverse-gamma posterior with shape alpha
+                             and scale beta (the usual conjugate output
+                             of `BayesianSigmaEstimator.posterior`).
+
+    The marginalised breach probability at a candidate level `a` is
+
+        P_breach(a) = E_{sigma^2 ~ posterior}[ P_breach_multiband(a | sigmas) ]
+
+    and we solve `P_breach(a) = p` by monotone bisection on `a`.
+
+    The expectation is evaluated by Gauss-Laguerre quadrature on each
+    posterior band's sigma^2 axis. Bands with deterministic sigma are
+    held fixed; the inner integrals factor (the bands are statistically
+    independent under our model: the position posterior is independent
+    of the gangway-slow posterior).
+
+    For the operator panel we typically have AT MOST ONE band with an
+    InvGamma posterior (the LF channel), so the integral collapses to
+    a 1-D quadrature -- O(n_quad) Rice evaluations per bisection step.
+
+    Parameters
+    ----------
+    p : float in (0, 1). Upper p-quantile is reported (so for the
+        operator-facing "P90 of the running max", pass p = 0.10, the
+        breach probability associated with the 90th percentile).
+    bands : sequence of `(sigma_spec, nu_0_plus, q)`.
+    T : exposure duration [s].
+    bilateral : count both upward and downward excursions of |X|.
+    clustering : "vanmarcke" or "poisson".
+    n_quad : Gauss-Legendre nodes per posterior band on the
+        sigma^2 percentile axis (default 64). 64 is overkill for one
+        band; reduce to 16-32 if multiple bands ever get posteriors.
+    a_max_sigma : initial upper bracket as a multiple of the largest
+        sigma in the bands (using the 99th percentile for posterior
+        bands).
+    tol, max_iter : bisection control.
+
+    Returns
+    -------
+    a : float, predictive p-quantile of the bilateral running max.
+
+    Notes
+    -----
+    * Limit of delta-function posterior: equals `inverse_rice_multiband`
+      with the point sigma. (Test in tests/test_extreme_value.py.)
+    * Bands without a posterior are kept at their point sigma in every
+      quadrature evaluation, so the deterministic component (e.g. the
+      wave-RAO sigma_L_wave) contributes its full expected count without
+      any spurious smearing.
+    """
+    from scipy.stats import invgamma
+
+    p = float(p)
+    if not (0.0 < p < 1.0):
+        raise ValueError(f"p must be in (0, 1), got {p}")
+    if T < 0.0:
+        raise ValueError(f"T must be >= 0, got {T}")
+    if not bands:
+        raise ValueError("bands must not be empty")
+
+    # Parse bands. For each band, either a fixed sigma or (alpha, beta).
+    parsed: list[tuple] = []  # each: ("fixed", sigma, nu, q) or ("post", alpha, beta, nu, q)
+    sigma_max = 0.0
+    for band in bands:
+        if len(band) != 3:
+            raise ValueError(
+                f"each band must be (sigma_spec, nu_0_plus, q); got {band}"
+            )
+        sigma_spec, nu, q = band
+        nu = float(nu); q = float(q)
+        if isinstance(sigma_spec, tuple):
+            if len(sigma_spec) != 2:
+                raise ValueError(
+                    f"posterior sigma_spec must be (alpha, beta); got {sigma_spec}"
+                )
+            alpha, beta = float(sigma_spec[0]), float(sigma_spec[1])
+            if alpha <= 0.0 or beta <= 0.0:
+                raise ValueError(
+                    f"posterior (alpha, beta) must be > 0; got ({alpha}, {beta})"
+                )
+            # 99.9% upper of sigma for bracket sizing.
+            s99 = float(np.sqrt(invgamma(a=alpha, scale=beta).ppf(0.999)))
+            sigma_max = max(sigma_max, s99)
+            parsed.append(("post", alpha, beta, nu, q))
+        else:
+            sigma = float(sigma_spec)
+            if sigma < 0.0:
+                raise ValueError(f"fixed sigma must be >= 0; got {sigma}")
+            sigma_max = max(sigma_max, sigma)
+            parsed.append(("fixed", sigma, nu, q))
+
+    if sigma_max == 0.0 or T == 0.0:
+        return 0.0
+
+    # Pre-compute quadrature: for each posterior band, build (sigma_grid,
+    # weight_grid) where weights are the InvGamma probability mass at each
+    # quantile node (uniform-in-percentile -> probability weight 1/n_quad).
+    quad_post: list[tuple] = []  # (sigma_grid, weights, idx_in_parsed)
+    fixed_bands: list[tuple] = []  # (sigma, nu, q) for the static bands
+    for idx, b in enumerate(parsed):
+        if b[0] == "post":
+            _, alpha, beta, nu, q = b
+            # Uniform percentiles in (0, 1) -- midpoints of n_quad equal
+            # bins is the simplest unbiased rule on the CDF axis.
+            u = (np.arange(n_quad) + 0.5) / n_quad
+            sigma2_grid = invgamma(a=alpha, scale=beta).ppf(u)
+            sigma_grid = np.sqrt(np.maximum(sigma2_grid, 0.0))
+            weights = np.full(n_quad, 1.0 / n_quad)
+            quad_post.append((sigma_grid, weights, nu, q))
+        else:
+            _, sigma, nu, q = b
+            fixed_bands.append((sigma, nu, q))
+
+    def p_breach_marginal(a: float) -> float:
+        # If no posterior bands, this is just the deterministic multiband.
+        if not quad_post:
+            return float(p_exceed_rice_multiband(
+                bands=fixed_bands, threshold=a, T=T,
+                bilateral=bilateral, clustering=clustering,
+            )["p_breach"])
+        # Multi-D quadrature (typically 1-D for our use case).
+        # Build the cartesian product of sigma values.
+        ranges = [np.arange(len(g[0])) for g in quad_post]
+        total = 0.0
+        for index_tuple in np.ndindex(*[len(g[0]) for g in quad_post]):
+            w_prod = 1.0
+            assembled = list(fixed_bands)
+            for j, idx in enumerate(index_tuple):
+                sg, wg, nu, q = quad_post[j]
+                w_prod *= wg[idx]
+                assembled.append((float(sg[idx]), nu, q))
+            d = p_exceed_rice_multiband(
+                bands=assembled, threshold=a, T=T,
+                bilateral=bilateral, clustering=clustering,
+            )
+            total += w_prod * float(d["p_breach"])
+        return total
+
+    # Monotone bisection on a (P_breach is monotone decreasing in a).
+    a_lo = 0.0
+    a_hi = float(a_max_sigma * sigma_max)
+    f_hi = p_breach_marginal(a_hi) - p
+    grow_iter = 0
+    while f_hi > 0.0 and grow_iter < 6:
+        a_hi *= 2.0
+        f_hi = p_breach_marginal(a_hi) - p
+        grow_iter += 1
+    if f_hi > 0.0:
+        return float(a_hi)
+
+    for _ in range(max_iter):
+        a_mid = 0.5 * (a_lo + a_hi)
+        f_mid = p_breach_marginal(a_mid) - p
+        if f_mid > 0.0:
+            a_lo = a_mid
+        else:
+            a_hi = a_mid
+        if (a_hi - a_lo) < tol * max(1.0, a_hi):
+            break
+    return float(0.5 * (a_lo + a_hi))
