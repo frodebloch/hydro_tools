@@ -1,7 +1,12 @@
 # Generated demo outputs (re-run scripts/run_*_demo.py to regenerate).
 scripts/*.png
 
+# P7 brucon vessel_simulator validation: per-run lua scripts, simulator
+# outputs, logs (re-run scripts/p7_brucon_validation/*.py to regenerate).
+scripts/p7_brucon_validation/work/
+
 # pytest / coverage caches
 .pytest_cache/
 .coverage
 htmlcov/
+__pycache__/
