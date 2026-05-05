@@ -137,7 +137,7 @@ def main() -> None:
     )
 
     fig.tight_layout(rect=(0, 0, 1, 0.96))
-    out = Path(__file__).resolve().parent.parent / "csov_wcfdi_decision_matrix.png"
+    out = Path(__file__).resolve().parent / "csov_wcfdi_decision_matrix.png"
     fig.savefig(out, dpi=130)
     print(f"  wrote {out}")
 
@@ -159,6 +159,116 @@ def main() -> None:
         f"{n_green_overall} green, {n_amber_overall} amber, "
         f"{n_red_overall} red (out of {n_s * n_h} cells)"
     )
+
+    # ---- Per-slot polars at chosen transition hours ----
+    print()
+    print("Rendering per-slot polars at hours 04, 09, 12, 15 ...")
+    for hour in (4, 9, 12, 15):
+        render_slot_polar(cfg, joint, slots[hour], hour)
+
+
+def render_slot_polar(cfg, joint, slot, hour: int) -> None:
+    """Two-panel polar (intact P90 footprint | post-WCFDI peak) for one slot.
+
+    The two panels are deliberately rendered side-by-side rather than
+    overlaid: the underlying metrics measure conceptually different
+    quantities (the intact P90 is a quantile of the running-max of a
+    stationary process over T_op; the WCFDI peak is the maximum of a
+    single transient mean-plus-envelope after a one-shot failure) and
+    overlaying them on the same ring would suggest they are directly
+    comparable. The shared radial scale and shared IMCA reference
+    rings are still useful for "is this number bigger than the alarm
+    radius" reading per panel.
+    """
+    headings_deg = np.arange(0.0, 360.0, 10.0)  # 36 headings
+    headings = np.radians(headings_deg)
+
+    print(f"  hour {hour:02d}: evaluating 36 headings")
+    mx = wcfdi_decision_matrix(
+        cfg, joint, [slot], headings,
+    )
+
+    intact_r = np.array([mx.cell(0, h).intact_pos_a_p90_m
+                         for h in range(headings.size)])
+    wcfdi_r = np.array([mx.cell(0, h).wcfdi_pos_peak_m
+                        for h in range(headings.size)])
+    wcfdi_traffic = np.array([mx.cell(0, h).wcfdi_traffic
+                              for h in range(headings.size)])
+
+    pos_warn = mx.pos_warn_radius_m
+    pos_alarm = mx.pos_alarm_radius_m
+
+    # Cap WCFDI radii for plotting (they can be huge in red sectors).
+    # The classification (red ring) carries the information; the visual
+    # only needs to show "well past the alarm circle".
+    r_max = max(pos_alarm * 1.6, np.percentile(intact_r, 95) * 1.4)
+    wcfdi_r_plot = np.minimum(wcfdi_r, r_max * 1.2)
+
+    fig, (ax_l, ax_r) = plt.subplots(
+        1, 2, figsize=(13, 6.5), subplot_kw={"projection": "polar"},
+    )
+
+    for ax, r, traffic_per_h, title in [
+        (ax_l, intact_r, None,
+         "Intact P90 footprint\nP90 of running-max |position| over T_op (no failure)"),
+        (ax_r, wcfdi_r_plot, wcfdi_traffic,
+         "Post-WCFDI peak excursion\nmax_t |eta_mean(t)| + 0.674 sigma(t) "
+         "(single thruster group lost)"),
+    ]:
+        # Convert "compass-from" to standard polar (vessel-frame relative
+        # heading): we plot per *vessel heading* with N up. theta_zero =
+        # north-up, clockwise.
+        ax.set_theta_zero_location("N")
+        ax.set_theta_direction(-1)
+
+        # IMCA reference rings (warn + alarm). Drawn first so they sit
+        # behind the data line.
+        theta_full = np.linspace(0, 2 * np.pi, 360)
+        ax.plot(theta_full, np.full_like(theta_full, pos_warn),
+                color="#dba32a", lw=1.5, ls="--",
+                label=f"warn = {pos_warn:.1f} m")
+        ax.plot(theta_full, np.full_like(theta_full, pos_alarm),
+                color="#cc3333", lw=1.5, ls="--",
+                label=f"alarm = {pos_alarm:.1f} m")
+
+        # Close the ring by repeating the first sample.
+        h_closed = np.append(headings, headings[0])
+        r_closed = np.append(r, r[0])
+        ax.plot(h_closed, r_closed, color="black", lw=2.0, marker="o",
+                markersize=3.5, label="cell value")
+
+        # Colour-code the markers by per-cell traffic if supplied.
+        if traffic_per_h is not None:
+            colours = []
+            for s in traffic_per_h:
+                colours.append({"green": "#2a8a2a",
+                                "amber": "#dba32a",
+                                "red": "#cc3333"}[s])
+            colours_closed = colours + [colours[0]]
+            ax.scatter(h_closed, r_closed, c=colours_closed, s=42,
+                       zorder=5, edgecolor="black", linewidth=0.5)
+
+        ax.set_rmax(r_max)
+        ax.set_title(title, fontsize=10, pad=15)
+        ax.legend(loc="upper right", bbox_to_anchor=(1.20, 1.10),
+                  fontsize=8)
+        ax.grid(True, alpha=0.4)
+
+    fig.suptitle(
+        f"CSOV decision-matrix polar -- {slot.label} "
+        f"(V_w={slot.Vw:.1f} m/s, Hs={slot.Hs:.2f} m, Tp={slot.Tp:.2f} s, "
+        f"theta_env={np.degrees(slot.theta_env_compass):.0f} deg)\n"
+        f"radial axis: vessel base displacement [m]; "
+        f"polar angle: vessel heading (compass, N up)",
+        fontsize=11,
+    )
+    fig.tight_layout(rect=(0, 0, 1, 0.93))
+
+    out = (Path(__file__).resolve().parent
+           / f"csov_wcfdi_decision_polar_h{hour:02d}.png")
+    fig.savefig(out, dpi=130)
+    plt.close(fig)
+    print(f"    wrote {out}")
 
 
 if __name__ == "__main__":

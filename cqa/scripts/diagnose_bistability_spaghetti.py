@@ -162,7 +162,7 @@ def main() -> None:
     )
     fig.tight_layout()
 
-    out = Path(__file__).resolve().parent.parent / "csov_wcfdi_bistability_spaghetti.png"
+    out = Path(__file__).resolve().parent / "csov_wcfdi_bistability_spaghetti.png"
     fig.savefig(out, dpi=130)
     print(f"  wrote {out}")
 
