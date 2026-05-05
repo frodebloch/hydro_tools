@@ -925,6 +925,99 @@ bridge.
   validation matrix) to bound the linearisation error against the
   nonlinear truth before the operator can trust the live number.
 
+**Relationship to DNV-ST-0111 Level 3.** The "Level-3-light" framing
+above is shorthand and worth unpacking, because the comparison to
+ST-0111 Level 3 as written is not "we do the same thing cheaper" --
+it is "we answer different questions, with better statistics, from
+the same underlying physics".
+
+ST-0111 Level 3 as written has three structural weaknesses that the
+linearised closed-loop machinery (intact polar, WCFDI overlay,
+forecast decision matrix, transient peak envelope, bistability gate)
+each address independently:
+
+1. **Wrong question.** Level 3 configures the vessel *already in the
+   post-failure state* and runs station-keeping in a synthetic
+   sea-state. It tests the *steady-state post-fault footprint*, not
+   the *transient recovery from the failure event* -- which is the
+   operationally dangerous moment. Transient behaviour appears in
+   ST-0111 only as guidance-note "results which may be included",
+   not as part of the procedural test. The cqa equivalents:
+   ``cqa.transient.wcfdi_transient`` (peak excursion envelope of the
+   transient itself), ``info["bistability_risk_score"]`` and the
+   gate (the meta-stable saturated regime where deterministic mean
+   recovers but a non-trivial fraction of stochastic realisations
+   diverges -- Level 3 is silent on this band entirely). The
+   steady-state question Level 3 *does* answer is reflected by
+   ``info["cqa_precondition_violated"]``.
+2. **Wrong statistic.** Level 3 collapses 9 hours (3 seeds x 3 hours)
+   of simulation to a single binary "did the worst sample exceed the
+   limit?" outcome. The empirical max over a finite window is the
+   noisiest possible statistic of the whole simulation: a single
+   freak realisation flips green to red, the typical behaviour is
+   invisible, and the answer changes meaningfully if you re-run with
+   different seeds. The cqa equivalents are explicit quantiles of
+   the running maximum over a chosen operation duration ``T_op``
+   (P50, P90, P95 ... selectable), via the inverse-Rice /
+   Cartwright-Longuet-Higgins / Vanmarcke machinery in
+   ``extreme_value.py``. Operator-meaningful: "P90 of the largest
+   excursion you will see in the next 20 minutes is 1.8 m" carries
+   information; "the largest sample in 9 hours of one seed was
+   3.7 m" mostly carries seed.
+3. **Wrong sample utilisation.** A 9-hour Level 3 run at 10 Hz is
+   ~3.5 million samples per direction, collapsed to one boolean.
+   Almost none of the simulation's actual statistical content is
+   used. The textbook fix is to estimate the closed-loop *spectrum*
+   from one short realisation (~ 1 hour suffices for a few-percent
+   spectral estimate), then read any quantile of the running maximum
+   off the parametric inverse-Rice curve. Same simulator effort, all
+   quantiles for free, confidence intervals out of the spectral
+   estimate's uncertainty, different operation durations T_op
+   without re-running. cqa goes one step further and skips the
+   simulator entirely on the spectrum-estimation side: the linearised
+   closed-loop covariance gives the spectrum directly. The full
+   "Level-3-equivalent" polar (36 headings, all quantiles of the
+   running max) then costs ~ 1 s in the linearised pipeline; the
+   simulator (whether ``vessel_simulator`` C++ or anything else) is
+   needed only for *cross-validation* of the linearisation (P7), not
+   for the answer itself.
+
+The honest comparison table:
+
+| Question | ST-0111 Level 3 | cqa equivalent | Statistical fidelity |
+| --- | --- | --- | --- |
+| Steady-state post-fault feasible? | 9-hour binary check | ``cqa_precondition_violated`` flag | both deterministic |
+| Steady-state post-fault footprint quantile? | empirical max of 9 hr (binary vs limit) | linearised covariance + inverse-Rice | cqa: full quantile curve; Level 3: one noisy max |
+| Transient recovery from failure event? | not addressed | ``wcfdi_transient`` peak envelope + bistability gate | cqa: full quantile + bistability flag; Level 3: silent |
+
+Net framing: cqa is **complementary to**, not a replacement for,
+ST-0111 Level 3. The standard's steady-state question we answer with
+``cqa_precondition_violated``; the same answer, reported as a flag
+instead of a binary outcome of a long simulation. The standard's
+sample utilisation we improve via the inverse-Rice curve. The
+transient-recovery question -- arguably the operationally more
+important of the two and the one operators most lack a fast
+quantitative answer to ("if this thruster group dies right now,
+where will I end up before the system recovers?") -- is genuinely
+absent from Level 3 and is addressed only by the cqa transient
+machinery (``wcfdi_transient`` + bistability gate). The cost
+collapse (``~ 1 s`` linearised polar vs ``~ 324 simulator-hours``
+per Level 3 polar) is what makes the transient question tractable
+to ask at all, and what makes the forecast-case decision matrix
+(\u00a712.15) and the live operation-case what-if (item 4c) feasible
+as runtime tools rather than design-time exercises.
+
+What the boundary in the WCFDI overlay does **not** claim, to
+preempt mis-reading: it does not say the vessel could not
+station-keep in the post-WCFDI configuration at higher V_w starting
+from rest. The transient and the steady state are distinct failure
+modes; the overlay's boundary is the *transient-recoverability*
+boundary. A separate "post-WCFDI steady-state capability polar"
+(the operability polar evaluated with ``cap_intact -> alpha *
+cap_intact``) would address the steady-state question and would
+extend further out in V_w. Both are useful; they answer different
+questions.
+
 **Metric definitions.** Per heading, with the linearised post-failure
 state-space evaluated by `wcfdi_transient`:
 
