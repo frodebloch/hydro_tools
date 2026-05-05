@@ -799,3 +799,41 @@ spectral assumptions enter. Suggested operator thresholds:
 The thresholds are exposed as primitives, not enforced inside
 `BayesianSigmaEstimator`, so the C++ panel layer can tune them per
 site / per channel without modifying the estimator.
+
+### 12.11 Radial composite A2 indicator (2D vector-mean magnitude)
+
+The per-axis A2 primitive is `|sample_mean| / σ_median` on each axis
+independently. Composing these into a single radial badge by
+worst-of-x,y is operationally fine but not principled: it is *not*
+rotation-invariant in the body frame (a heading change re-shuffles
+the offset between cardinal axes and can flip the badge), and it can
+double-count the same physical drift when it projects onto both axes.
+
+The principled alternative is the magnitude of the 2D sample-mean
+vector divided by the radial scale:
+
+    radial_mean_offset_over_sigma = |(mean_x, mean_y)| / σ_R_median
+
+exposed on `RadialPosterior` (and `combine_radial_posterior` accepts
+optional `sample_mean_x`, `sample_mean_y` kwargs to compute it). Two
+properties:
+
+* **Rotation-invariant** in the body frame. Vessel drifting 0.5 m to
+  the north-east at heading 0° gives the same value as drifting 0.5 m
+  to the east at heading 45°.
+* **Strictly ≤ worst-of-x,y per-axis ratio** when only one axis carries
+  the drift. Geometrically: a 0.5 m offset on body-x with σ_x = σ_y = 1
+  has per-axis worst ratio 0.5 but radial ratio 0.5/√2 ≈ 0.354. The
+  radial scale dilutes the per-axis drift correctly.
+
+The same threshold bands are reused (< 0.1 settled, < 0.3 warming,
+< 1.0 UNSETTLED, ≥ 1.0 INVALID). The physical meaning is identical:
+inflation of the radial variance estimate by `µ²` contamination of
+the per-axis sufficient statistics.
+
+CSOV demo readout (5-min window, 30° quartering): per-axis ratios
+(0.56, 1.00) → worst-of-x,y badge UNSETTLED; radial 2D ratio 0.76 →
+also UNSETTLED but for the right reason. The signs of the
+contributions are not coincidental cancellation here; both axes carry
+genuine slow drift and the 2D magnitude correctly reflects ~80 cm of
+mean offset over the 5-min window.

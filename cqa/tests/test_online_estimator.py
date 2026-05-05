@@ -720,3 +720,137 @@ def test_combine_radial_mc_reproducibility_with_seeded_rng():
     assert rad_a.sigma_R_lo == rad_b.sigma_R_lo
     assert rad_a.sigma_R_hi == rad_b.sigma_R_hi
     assert rad_a.expected_R_median == rad_b.expected_R_median
+
+
+def test_combine_radial_mean_offset_default_is_nan():
+    """When sample_mean_x / sample_mean_y are not supplied, both
+    radial_mean_offset_* fields default to NaN. Backward compatible
+    with code that ignores the new metric."""
+    est_x = _build_warm_estimator(sigma_true=1.0, seed=33)
+    est_y = _build_warm_estimator(sigma_true=1.0, seed=44)
+    rad = combine_radial_posterior(
+        est_x.posterior(), est_y.posterior(),
+        rng=np.random.default_rng(0),
+    )
+    assert np.isnan(rad.radial_mean_offset_m)
+    assert np.isnan(rad.radial_mean_offset_over_sigma)
+
+
+def test_combine_radial_mean_offset_2d_magnitude():
+    """|(mean_x, mean_y)| = sqrt(mean_x^2 + mean_y^2) and the ratio
+    divides by sigma_R_median. Pure arithmetic check on a known input.
+    """
+    est_x = _build_warm_estimator(sigma_true=1.0, seed=51)
+    est_y = _build_warm_estimator(sigma_true=1.0, seed=52)
+    post_x = est_x.posterior()
+    post_y = est_y.posterior()
+
+    mean_x, mean_y = 0.3, 0.4   # 3-4-5 triangle: magnitude = 0.5
+    rad = combine_radial_posterior(
+        post_x, post_y,
+        rng=np.random.default_rng(0),
+        sample_mean_x=mean_x, sample_mean_y=mean_y,
+    )
+    assert rad.radial_mean_offset_m == pytest.approx(0.5, abs=1e-12)
+    assert rad.radial_mean_offset_over_sigma == pytest.approx(
+        0.5 / rad.sigma_R_median, rel=1e-12,
+    )
+
+
+def test_combine_radial_mean_offset_rotation_invariant():
+    """The 2D vector magnitude is invariant under rotation of the
+    sample-mean vector. Worst-of-x,y on per-axis ratios is NOT
+    rotation-invariant -- this is the principled improvement.
+
+    Construction: same posteriors (sigma_x=sigma_y=1 to make the
+    radial scale trivially rotation-invariant too); rotate the mean
+    vector by 30 degrees and confirm the magnitude / ratio do not
+    change.
+    """
+    est_x = _build_warm_estimator(sigma_true=1.0, seed=61)
+    est_y = _build_warm_estimator(sigma_true=1.0, seed=62)
+    post_x = est_x.posterior()
+    post_y = est_y.posterior()
+
+    # Original (mean_x, mean_y) = (0.5, 0.0).
+    rad_a = combine_radial_posterior(
+        post_x, post_y,
+        rng=np.random.default_rng(0),
+        sample_mean_x=0.5, sample_mean_y=0.0,
+    )
+    # Rotated by 30 degrees: same magnitude, redistributed across axes.
+    theta = np.radians(30.0)
+    mean_x_rot = 0.5 * np.cos(theta)
+    mean_y_rot = 0.5 * np.sin(theta)
+    rad_b = combine_radial_posterior(
+        post_x, post_y,
+        rng=np.random.default_rng(0),  # same MC seed -> identical posterior
+        sample_mean_x=mean_x_rot, sample_mean_y=mean_y_rot,
+    )
+    assert rad_a.radial_mean_offset_m == pytest.approx(
+        rad_b.radial_mean_offset_m, abs=1e-12,
+    )
+    assert rad_a.radial_mean_offset_over_sigma == pytest.approx(
+        rad_b.radial_mean_offset_over_sigma, abs=1e-12,
+    )
+    # And both equal 0.5 (the input magnitude).
+    assert rad_a.radial_mean_offset_m == pytest.approx(0.5, abs=1e-12)
+
+
+def test_combine_radial_mean_offset_smaller_than_worst_of_axes():
+    """For asymmetric per-axis offsets the 2D magnitude divided by
+    sigma_R is *strictly smaller* than the worst per-axis ratio
+    |mean_i|/sigma_i. This is the geometric reason the 2D metric is
+    less alarming than worst-of-x,y when one axis carries most of the
+    drift. Demonstrates the qualitative improvement.
+
+    sigma_x = sigma_y = 1 so per-axis sigma_i = sigma_median ~ 1.
+    Per-axis ratios = |mean_i|. sigma_R_median ~ sqrt(2). 2D ratio =
+    sqrt(mean_x^2+mean_y^2)/sqrt(2) <= sqrt(2)*max(|mean|)/sqrt(2)
+    = max(|mean|) only when both axes drift equally; strictly less
+    when only one axis drifts.
+    """
+    est_x = _build_warm_estimator(sigma_true=1.0, seed=71)
+    est_y = _build_warm_estimator(sigma_true=1.0, seed=72)
+    post_x = est_x.posterior()
+    post_y = est_y.posterior()
+
+    # All drift on x axis: worst per-axis ratio = 0.5; 2D ratio =
+    # 0.5 / sqrt(2) ~ 0.354. Strictly less.
+    rad = combine_radial_posterior(
+        post_x, post_y,
+        rng=np.random.default_rng(0),
+        sample_mean_x=0.5, sample_mean_y=0.0,
+    )
+    worst_per_axis_ratio = max(
+        abs(0.5) / post_x.sigma_median,
+        abs(0.0) / post_y.sigma_median,
+    )
+    assert rad.radial_mean_offset_over_sigma < worst_per_axis_ratio
+    # And specifically, expect ~ 0.5 / sqrt(2) up to posterior noise:
+    assert rad.radial_mean_offset_over_sigma == pytest.approx(
+        0.5 / rad.sigma_R_median, rel=1e-12,
+    )
+
+
+def test_combine_radial_mean_offset_partial_input_yields_nan():
+    """Either-or-both: if only one of sample_mean_x / sample_mean_y is
+    supplied the metric is undefined and both fields are NaN. Avoids
+    silent half-computation."""
+    est_x = _build_warm_estimator(sigma_true=1.0, seed=81)
+    est_y = _build_warm_estimator(sigma_true=1.0, seed=82)
+    post_x = est_x.posterior()
+    post_y = est_y.posterior()
+
+    rad_only_x = combine_radial_posterior(
+        post_x, post_y, rng=np.random.default_rng(0),
+        sample_mean_x=0.3,
+    )
+    rad_only_y = combine_radial_posterior(
+        post_x, post_y, rng=np.random.default_rng(0),
+        sample_mean_y=0.3,
+    )
+    assert np.isnan(rad_only_x.radial_mean_offset_m)
+    assert np.isnan(rad_only_x.radial_mean_offset_over_sigma)
+    assert np.isnan(rad_only_y.radial_mean_offset_m)
+    assert np.isnan(rad_only_y.radial_mean_offset_over_sigma)

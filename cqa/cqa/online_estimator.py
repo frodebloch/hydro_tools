@@ -322,6 +322,23 @@ class RadialPosterior:
     n_eff_x, n_eff_y : per-axis effective sample counts.
     is_warm : True iff both per-axis estimators are warm.
     credible : credible level used for the CIs.
+    radial_mean_offset_m : float. Magnitude of the 2D sample-mean vector
+        ``|(mean(dx), mean(dy))|`` in metres. Physically: the
+        time-averaged vessel offset from setpoint inside the window.
+        ``nan`` if ``sample_mean_x`` / ``sample_mean_y`` were not
+        supplied to ``combine_radial_posterior``.
+    radial_mean_offset_over_sigma : float. The dimensionless ratio
+        ``radial_mean_offset_m / sigma_R_median``. **Principled radial
+        analogue of the per-axis A2 indicator** ``sample_mean_over_sigma``:
+        catches systematic 2D drift off-station regardless of which
+        cardinal axis it acts along. Same threshold semantics as the
+        per-axis primitive (``< 0.1`` settled, ``< 0.3`` warming,
+        ``< 1.0`` UNSETTLED, ``>= 1.0`` INVALID — variance estimate
+        inflated by ``mu^2`` contamination of the sufficient statistic
+        on each axis). Strictly cleaner than worst-of-x,y on the
+        per-axis ratios because it is rotation-invariant in the body
+        frame: a 30 degree heading change does not flip the badge.
+        ``nan`` if sample means were not supplied.
     """
 
     sigma_R_median: float
@@ -337,6 +354,8 @@ class RadialPosterior:
     n_eff_y: float
     is_warm: bool
     credible: float
+    radial_mean_offset_m: float
+    radial_mean_offset_over_sigma: float
 
 
 def combine_radial_posterior(
@@ -346,6 +365,8 @@ def combine_radial_posterior(
     credible: float = 0.90,
     n_mc: int = 2000,
     rng: Optional[np.random.Generator] = None,
+    sample_mean_x: Optional[float] = None,
+    sample_mean_y: Optional[float] = None,
 ) -> RadialPosterior:
     """Combine two per-axis InvGamma posteriors into a radial summary.
 
@@ -367,6 +388,14 @@ def combine_radial_posterior(
         ``default_rng()`` seeded from the OS each call (so successive
         calls give jittered but consistent estimates). Pass an explicit
         Generator to make demos / tests reproducible.
+    sample_mean_x, sample_mean_y : optional float, default None.
+        Windowed sample means of dx, dy in metres. When both are
+        supplied, the radial composite A2 indicator
+        ``radial_mean_offset_over_sigma`` is computed and exposed on
+        the returned ``RadialPosterior``. Pass them as
+        ``estimator_x.health(...).sample_mean`` (and similarly for y),
+        which is the same source the per-axis A2 primitive uses.
+        When either is None, both fields are set to ``nan``.
 
     Returns
     -------
@@ -442,6 +471,24 @@ def combine_radial_posterior(
     n_eff_min = float(min(n_eff_x, n_eff_y))
     is_warm = (n_eff_x >= 1.0) and (n_eff_y >= 1.0)
 
+    # Radial 2D mean-offset metric. Rotation-invariant in the body
+    # frame: a heading change rotates (mean_x, mean_y) but preserves
+    # its magnitude. Strictly cleaner A2 indicator on the radial
+    # channel than worst-of-x,y on the per-axis ratios. Denominator is
+    # the radial *median* sigma so the metric is comparable to the
+    # per-axis sample_mean_over_sigma (which uses the same per-axis
+    # sigma_median).
+    if sample_mean_x is not None and sample_mean_y is not None:
+        mean_offset_m = float(np.hypot(float(sample_mean_x),
+                                       float(sample_mean_y)))
+        if sigma_R_median > 0.0 and np.isfinite(sigma_R_median):
+            mean_offset_over_sigma = float(mean_offset_m / sigma_R_median)
+        else:
+            mean_offset_over_sigma = float("nan")
+    else:
+        mean_offset_m = float("nan")
+        mean_offset_over_sigma = float("nan")
+
     return RadialPosterior(
         sigma_R_median=sigma_R_median,
         sigma_R_mean=sigma_R_mean,
@@ -456,6 +503,8 @@ def combine_radial_posterior(
         n_eff_y=n_eff_y,
         is_warm=bool(is_warm),
         credible=float(credible),
+        radial_mean_offset_m=mean_offset_m,
+        radial_mean_offset_over_sigma=mean_offset_over_sigma,
     )
 
 

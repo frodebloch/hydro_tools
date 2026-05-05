@@ -356,10 +356,9 @@ def main() -> None:
     # persistent low-frequency disturbance, setpoint drift. Operator
     # band thresholds: <0.1 settled, 0.1-0.3 warming, 0.3-1.0 unsettled,
     # >=1.0 invalid (variance estimate inflated by 2x or more).
-    def _badge(h) -> str:
-        if not h.is_warm:
+    def _badge_from_ratio(r_ratio: float, is_warm: bool) -> str:
+        if not is_warm:
             return "WARMING"
-        r_ratio = h.sample_mean_over_sigma
         if not np.isfinite(r_ratio):
             return "?"
         if r_ratio >= 1.0:
@@ -370,9 +369,8 @@ def main() -> None:
             return "warming"
         return "ok"
 
-    def _worst(b1: str, b2: str) -> str:
-        rank = {"ok": 0, "warming": 1, "WARMING": 2, "UNSETTLED": 3, "INVALID": 4, "?": 5}
-        return b1 if rank.get(b1, -1) >= rank.get(b2, -1) else b2
+    def _badge(h) -> str:
+        return _badge_from_ratio(h.sample_mean_over_sigma, h.is_warm)
 
     print(f"\nPosterior health (assumption diagnostics):")
     for label, h in [
@@ -388,24 +386,42 @@ def main() -> None:
             f"halves_ratio={h.halves_sigma_ratio:.2f}  "
             f"[{_badge(h)}]"
         )
-    radial_badge = _worst(_badge(health_pos_x), _badge(health_pos_y))
-    print(f"  radial   : composite badge (worst of x, y) = [{radial_badge}]")
 
     # --- Operator-facing radial posterior ------------------------------
     # combine_radial_posterior produces a single sigma_R = sqrt(sigma_x^2
     # + sigma_y^2) summary (the natural Rice-formula radial scale) and
     # an MC-marginalised E[R] = expected typical radial deviation.
     # This is the "front-page" radial number for the operator.
+    #
+    # We also pass the per-axis sample means so the combine returns
+    # the principled 2D radial A2 indicator
+    # |(mean_x, mean_y)| / sigma_R_median (rotation-invariant in the
+    # body frame; cleaner than worst-of per-axis ratios).
     rad_post = combine_radial_posterior(
         sig_pos_x_post_p, sig_pos_y_post_p,
         credible=0.90, n_mc=5000,
         rng=np.random.default_rng(2024),
+        sample_mean_x=health_pos_x.sample_mean,
+        sample_mean_y=health_pos_y.sample_mean,
     )
     print(f"\nOperator radial posterior:")
     print(f"  sigma_R          = {rad_post.sigma_R_median:.3f} m  "
           f"(90% CI [{rad_post.sigma_R_lo:.3f}, {rad_post.sigma_R_hi:.3f}])")
     print(f"  E[|R|] (typical) = {rad_post.expected_R_median:.3f} m  "
           f"(90% CI [{rad_post.expected_R_lo:.3f}, {rad_post.expected_R_hi:.3f}])")
+    print(f"  radial offset    = {rad_post.radial_mean_offset_m:.3f} m  "
+          f"(|mean_vec|/sigma_R = {rad_post.radial_mean_offset_over_sigma:.3f})")
+
+    # Composite radial badge from the principled 2D metric
+    # |(mean_x, mean_y)| / sigma_R_median. Rotation-invariant; replaces
+    # the ad-hoc worst-of-x,y on per-axis ratios. Same threshold bands
+    # as the per-axis A2 indicator.
+    radial_badge = _badge_from_ratio(
+        rad_post.radial_mean_offset_over_sigma, rad_post.is_warm,
+    )
+    print(f"  radial badge     = [{radial_badge}]  "
+          f"(2D vector-mean magnitude on radial channel; "
+          f"per-axis: x=[{_badge(health_pos_x)}], y=[{_badge(health_pos_y)}])")
 
     # Tier A sanity check: the SAME identities, computed empirically on
     # the realisation r(t). For 5 min of data this is one realisation
