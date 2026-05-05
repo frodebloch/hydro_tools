@@ -129,3 +129,72 @@ def test_covariance_bounded_when_cqa_satisfied():
     assert sigma_e_max < 10.0 * max(sigma_e_init, 0.05), (
         f"Variance grew unbounded: max sigma_e={sigma_e_max:.3f} vs init {sigma_e_init:.3f}"
     )
+
+
+def test_bistability_score_zero_in_no_clip_regime():
+    """When the immediate cap is not exceeded, the bistability score should be 0."""
+    cfg = csov_default_config()
+    # Mild operating point: 8 m/s wind, head sea -> tau_env tiny in sway.
+    res = wcfdi_transient(
+        cfg,
+        Vw_mean=8.0, Hs=1.5, Tp=6.0, Vc=0.2,
+        theta_rel=0.0,
+        scenario=WcfdiScenario(alpha=(2.0/3.0,)*3, gamma_immediate=0.5,
+                               T_realloc=10.0),
+        t_end=200.0, n_t=201,
+    )
+    assert "bistability_risk_score" in res.info
+    assert "bistability_per_dof" in res.info
+    assert res.info["bistability_risk_score"] == 0.0, (
+        f"Expected score=0 in no-clip regime, got {res.info['bistability_risk_score']}"
+    )
+    assert np.allclose(res.info["bistability_per_dof"], 0.0)
+
+
+def test_bistability_score_monotone_with_severity():
+    """Score should grow as the saturation severity increases."""
+    cfg = csov_default_config()
+    scen = WcfdiScenario(alpha=(2.0/3.0,)*3, gamma_immediate=0.5, T_realloc=10.0)
+    scores = []
+    for Vw in [11.0, 12.5, 13.5, 14.0]:
+        Hs = 0.21 * Vw
+        Tp = max(4.0, 4.0 * np.sqrt(Hs))
+        res = wcfdi_transient(
+            cfg, Vw_mean=Vw, Hs=Hs, Tp=Tp, Vc=0.5,
+            theta_rel=np.pi / 2.0, scenario=scen,
+            t_end=400.0, n_t=801,
+        )
+        scores.append(res.info["bistability_risk_score"])
+    # Strictly non-decreasing.
+    assert all(scores[i] <= scores[i + 1] for i in range(len(scores) - 1)), (
+        f"Bistability score not monotone in V_w: {scores}"
+    )
+    # Should span at least a factor of ~5 across the range from
+    # below-clip to hard-saturation.
+    assert scores[-1] > 5.0 * max(scores[0], 0.1), (
+        f"Score range too small to be informative: {scores}"
+    )
+
+
+def test_bistability_score_finite_when_cqa_satisfied():
+    """At CQA-feasible operating points the score is finite and per-DOF
+    diagnostics have the expected shape."""
+    cfg = csov_default_config()
+    res = wcfdi_transient(
+        cfg, Vw_mean=12.0, Hs=2.5, Tp=7.0, Vc=0.4,
+        theta_rel=np.pi / 4.0,
+        scenario=WcfdiScenario(alpha=(2.0/3.0,)*3),
+        t_end=200.0, n_t=201,
+    )
+    assert not np.any(res.info["cqa_precondition_violated"])
+    s = res.info["bistability_risk_score"]
+    assert np.isfinite(s)
+    assert s >= 0.0
+    sd = res.info["bistability_per_dof"]
+    assert sd.shape == (3,)
+    assert np.all(sd >= 0.0)
+    assert np.allclose(sd.max(), s)
+    # Diagnostic time series shapes.
+    assert res.info["tau_cmd_mean"].shape == (201, 3)
+    assert res.info["sigma_tau_cmd"].shape == (201, 3)
+    assert res.info["cap_t"].shape == (201, 3)

@@ -415,3 +415,33 @@ def test_wcfdi_overlay_k_sigma_zero_is_deterministic_p50(csov_polar_inputs):
     )
     assert o.k_sigma == 0.0
     assert np.all(np.isfinite(o.pos_alarm_Vw))
+
+
+def test_wcfdi_overlay_bistability_gate_metadata(csov_wcfdi_overlay_small):
+    """The fixture default uses bistability_alarm=1.5 (the wcfdi
+    overlay default). It must be carried into the result dataclass."""
+    o = csov_wcfdi_overlay_small
+    assert hasattr(o, "bistability_alarm")
+    assert o.bistability_alarm == 1.5
+
+
+def test_wcfdi_overlay_bistability_gate_tightens_boundary(csov_polar_inputs):
+    """Enabling the bistability gate (default 1.5) cannot relax any
+    alarm boundary relative to the gate-disabled (alarm=inf) case;
+    near the saturated regime it must strictly tighten beam-direction
+    boundaries."""
+    cfg, joint = csov_polar_inputs
+    common = dict(
+        n_directions=4,
+        Vw_min=2.0, Vw_max=20.0, Vc_m_s=0.5,
+        k_sigma=0.674, bisect_tol_m_s=1.0, t_end=120.0,
+    )
+    o_no = wcfdi_operability_overlay(cfg, joint, bistability_alarm=float("inf"), **common)
+    o_g = wcfdi_operability_overlay(cfg, joint, bistability_alarm=1.5, **common)
+    # Gated boundary must be no larger than ungated everywhere.
+    assert np.all(o_g.pos_alarm_Vw <= o_no.pos_alarm_Vw + 1e-9)
+    # And strictly smaller in at least one direction (the saturated DOF).
+    assert np.any(o_g.pos_alarm_Vw < o_no.pos_alarm_Vw - 1e-3), (
+        "Bistability gate had no effect; expected a measurable tightening "
+        "near beam direction for the default CSOV scenario."
+    )

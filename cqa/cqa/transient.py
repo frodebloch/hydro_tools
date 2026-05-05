@@ -371,6 +371,17 @@ def wcfdi_transient(
     defaults to ``cfg.controller`` (single source of truth shared with
     the WCFDI MC and the intact-prior pipeline).
 
+    The result's ``info`` dict carries a ``bistability_risk_score``
+    (per-DOF and scalar): the maximum over time of
+    ``max(0, |tau_cmd_mean(t)| - cap(t)) / sigma_tau_cmd(t)``. Empirically
+    against ``cqa.wcfdi_self_mc``, scores below ~1 sigma correspond to
+    deterministic + stochastic recovery in essentially every realisation;
+    scores above ~1 sigma correspond to a meta-stable saturated regime
+    where a fraction of stochastic realisations runs away even though
+    the deterministic mean ODE recovers. Operability gating should
+    therefore treat large bistability scores as alarm regardless of the
+    nominal mean+std excursion prediction.
+
     Returns a TransientResult with t, mean and covariance trajectories.
     """
     vp = cfg.vessel
@@ -525,6 +536,37 @@ def wcfdi_transient(
     eta_mean = x_mean[:, 0:3]
     eta_std = np.sqrt(np.maximum(np.diagonal(P_t[:, 0:3, 0:3], axis1=1, axis2=2), 0.0))
 
+    # ----- Bistability severity score -----
+    # Diagnoses the regime where the deterministic mean ODE finds the
+    # recovering branch of the saturated dynamics, but a non-trivial
+    # fraction of stochastic realisations falls onto the runaway branch.
+    # Validated empirically against the wcfdi_self_mc engine: when the
+    # commanded thrust mean exceeds the cap by more than ~1 std of the
+    # commanded-thrust fluctuation, MC recovery rate drops below ~90%.
+    #
+    # Per DOF, per time:
+    #   mu_tau   = K_tau @ x_mean        (deterministic commanded thrust)
+    #   sigma_tau= sqrt(diag(K_tau @ P @ K_tau^T))
+    #   severity = max(0, (|mu_tau| - cap) / sigma_tau)
+    #
+    # The reported score is the maximum over time, per DOF, plus the
+    # overall scalar maximum (the headline "bistability_risk_score").
+    K_tau = np.zeros((3, 12))
+    K_tau[:, 0:3] = -aug.Kp
+    K_tau[:, 3:6] = -aug.Kd
+    K_tau[:, 6:9] = -np.eye(3)
+    tau_cmd_mean = (K_tau @ x_mean.T).T            # (n_t, 3)
+    # tau_cmd variance: (n_t, 3, 3) = K @ P @ K^T per time
+    tau_cmd_var = np.einsum("ij,tjk,lk->til", K_tau, P_t, K_tau)
+    sigma_tau_cmd = np.sqrt(
+        np.maximum(np.diagonal(tau_cmd_var, axis1=1, axis2=2), 0.0)
+    )                                               # (n_t, 3)
+    cap_t = np.array([scenario.cap_at_time(float(tt), cfg) for tt in t_eval])
+    headroom = cap_t - np.abs(tau_cmd_mean)        # (n_t, 3)
+    severity_t = np.maximum(0.0, -headroom) / np.maximum(sigma_tau_cmd, 1e-9)
+    bistability_per_dof = severity_t.max(axis=0)   # (3,)
+    bistability_risk_score = float(bistability_per_dof.max())
+
     info = {
         "tau_env": tau_env,
         "x0_intact": x0,
@@ -535,6 +577,11 @@ def wcfdi_transient(
         "T_realloc": scenario.T_realloc,
         "P0_eta_diag": np.sqrt(np.maximum(np.diag(P6), 0.0)),
         "cqa_precondition_violated": cqa_violated,
+        "bistability_per_dof": bistability_per_dof,
+        "bistability_risk_score": bistability_risk_score,
+        "tau_cmd_mean": tau_cmd_mean,
+        "sigma_tau_cmd": sigma_tau_cmd,
+        "cap_t": cap_t,
     }
     return TransientResult(
         t=t_eval,

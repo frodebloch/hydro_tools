@@ -48,6 +48,13 @@ from .wcfdi_mc import (
     wcfdi_mc,
     starting_state_sensitivity,
 )
+from .wcfdi_self_mc import (
+    WcfdiSelfMcResult,
+    WcfdiSelfMcMatrix,
+    WcfdiSelfMcMatrixCell,
+    wcfdi_self_mc,
+    wcfdi_self_mc_matrix,
+)
 from .operator_view import (
     OperatorSummary,
     summarise_for_operator,
@@ -161,6 +168,11 @@ __all__ = [
     "WcfdiMcResult",
     "wcfdi_mc",
     "starting_state_sensitivity",
+    "WcfdiSelfMcResult",
+    "WcfdiSelfMcMatrix",
+    "WcfdiSelfMcMatrixCell",
+    "wcfdi_self_mc",
+    "wcfdi_self_mc_matrix",
     "OperatorSummary",
     "summarise_for_operator",
     "plot_operator_summary",

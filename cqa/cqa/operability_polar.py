@@ -553,6 +553,10 @@ class WcfdiOperabilityOverlay:
     alpha : (3,) per-DOF surviving-fraction passed to ``WcfdiScenario``.
     T_realloc : reallocation time constant [s] used.
     t_end : transient integration horizon [s] used.
+    bistability_alarm : threshold on the deterministic transient's
+        bistability_risk_score above which the operating point is
+        forced to alarm. See `wcfdi_operability_overlay` parameter
+        docstring for the empirical calibration.
 
     Note
     ----
@@ -560,7 +564,10 @@ class WcfdiOperabilityOverlay:
     is NOT exposed as a separate flag; if it is violated at a given V_w,
     the peak metric is +inf and the bisection saturates the boundary at
     Vw_min, which already conveys "no-go at any wind speed in this
-    direction" to the operator.
+    direction" to the operator. Likewise, operating points where the
+    bistability_risk_score exceeds ``bistability_alarm`` are folded
+    into the alarm boundary via the same +inf saturation -- the
+    bisection-driven boundary already reflects bistability gating.
     """
 
     theta_rel_rad: np.ndarray
@@ -587,6 +594,7 @@ class WcfdiOperabilityOverlay:
     alpha: tuple
     T_realloc: float
     t_end: float
+    bistability_alarm: float
 
 
 def _wcfdi_peak_metrics(
@@ -603,7 +611,7 @@ def _wcfdi_peak_metrics(
     tau_Vc: float,
     c_L: np.ndarray,
 ):
-    """Run wcfdi_transient and return ``(peak_pos_m, peak_dL_m)``.
+    """Run wcfdi_transient and return ``(peak_pos_m, peak_dL_m, bistability_score)``.
 
     The peaks are the worst-time, worst-side envelope:
 
@@ -618,6 +626,15 @@ def _wcfdi_peak_metrics(
     "max(mean) + k * max(sigma)" is similar. We choose the per-time
     sum because it matches the visual envelope plotted in the WCFDI
     transient demo.
+
+    The bistability score is ``info["bistability_risk_score"]`` from
+    ``wcfdi_transient``: ``max_t max(0, |tau_cmd_mean| - cap) /
+    sigma_tau_cmd`` over all DOFs and time. Used by the polar's
+    `bistability_alarm` gate to flag operating points where the
+    deterministic linear predictor finds the recovering branch of the
+    saturated dynamics but a meta-stable runaway branch coexists. See
+    `wcfdi_transient` docstring and analysis.md for the empirical
+    calibration against `wcfdi_self_mc`.
 
     If the post-failure CQA precondition is violated the underlying
     covariance ODE diverges and ``wcfdi_transient`` raises
@@ -655,7 +672,9 @@ def _wcfdi_peak_metrics(
     ))
     dL_envelope = np.abs(dL_mean) + k_sigma * sigma_dL
 
-    return float(np.max(pos_envelope)), float(np.max(dL_envelope))
+    return float(np.max(pos_envelope)), float(np.max(dL_envelope)), float(
+        res.info.get("bistability_risk_score", 0.0)
+    )
 
 
 def wcfdi_operability_overlay(
@@ -672,6 +691,7 @@ def wcfdi_operability_overlay(
     k_sigma: float = 0.674,
     bisect_tol_m_s: float = 0.25,
     t_end: float = 200.0,
+    bistability_alarm: float = 1.5,
 ) -> WcfdiOperabilityOverlay:
     """Sweep relative weather direction and find, per axis, the V_w at
     which the post-WCFDI transient peak crosses the IMCA M254 warn /
@@ -700,6 +720,14 @@ def wcfdi_operability_overlay(
     t_end : transient integration horizon [s]. Default 200 s, long
         enough for the post-failure peak (typically reached in 10-60 s)
         even for slow controllers.
+    bistability_alarm : threshold on the deterministic transient's
+        bistability_risk_score above which the operating point is
+        treated as alarm regardless of the nominal mean+sigma peak
+        envelope. Default 1.5: empirically (against `wcfdi_self_mc`)
+        this catches the band where MC recovery rate drops below ~95%
+        even though the deterministic mean ODE finds the recovering
+        branch of the saturated dynamics. Set to +inf to disable the
+        gate (recover the pure linear-predictor behaviour).
 
     Returns
     -------
@@ -785,11 +813,20 @@ def wcfdi_operability_overlay(
             if key in cache_pos:
                 return cache_pos[key], cache_gw[key]
             try:
-                p_peak, dL_peak = _wcfdi_peak_metrics(
+                p_peak, dL_peak, bist = _wcfdi_peak_metrics(
                     cfg, joint, Vw, Vc_m_s, theta,
                     scenario=scenario, k_sigma=k_sigma, t_end=t_end,
                     sigma_Vc=sigma_Vc, tau_Vc=tau_Vc, c_L=c_L,
                 )
+                # Bistability gate: if the deterministic predictor is in
+                # the meta-stable regime where stochastic realisations
+                # may run away (score above alarm threshold), force
+                # both metrics to +inf so bisection saturates this
+                # operating point as alarm. Score < threshold leaves the
+                # nominal envelope alone.
+                if bist > bistability_alarm:
+                    p_peak = float("inf")
+                    dL_peak = float("inf")
             except Exception:
                 # CQA precondition violation -> divergent ODE; treat as
                 # already past every threshold so bisection saturates low.
@@ -851,6 +888,7 @@ def wcfdi_operability_overlay(
         alpha=tuple(scenario.alpha),
         T_realloc=float(scenario.T_realloc),
         t_end=float(t_end),
+        bistability_alarm=float(bistability_alarm),
     )
 
 

@@ -991,3 +991,158 @@ telescope axis the reduction is 36 %. Saved figures:
 `scripts/csov_wcfdi_operability_polar.png` (intact + WCFDI overlay).
 Full overlay sweep takes ~10 s (most directions saturate the bisection
 early on the post-failure side); intact polar takes ~30 s.
+
+
+### 12.14 Bistability of the saturated post-WCFDI dynamics
+
+A time-domain self-MC validator (`cqa.wcfdi_self_mc`) was built to
+cross-check the linearised `wcfdi_transient` predictor against
+stochastic realisations of the same augmented system, driven by
+Shinozuka realisations of the wind-gust / slow-drift / current
+disturbance PSDs. The validator targets the augmented-state structure,
+the time-varying thrust-cap clipping, and the covariance ODE; it
+shares the same equivalent-white-noise approximation as the linear
+predictor and is therefore not a check against a higher-fidelity
+nonlinear simulator (that cross-check belongs to the brucon
+`vessel_simulator` / `dp_runfast_simulator` work, deferred).
+
+Running the validator at increasing severity along the beam direction
+revealed a clean three-regime structure for the CSOV defaults
+(alpha = 2/3, gamma_immediate = 0.5, T_realloc = 10 s):
+
+| `|tau_env|/cap_post` | `|tau_env|/cap_imm` | regime                                           |
+|--------------------- |--------------------- |--------------------------------------------------|
+| < 0.85               | < 1.15               | immediate cap not exceeded; no transient at all  |
+| 0.85 - 0.92          | 1.15 - 1.22          | mild transient; deterministic + 100 % MC recover |
+| **0.92 - 1.0**       | **1.22 - 1.39**      | **bistability band: deterministic recovers, fraction of MC realisations runs away** |
+| > 1.0                | > 1.39               | drift-off; deterministic and MC both fail; CQA precondition flag fires |
+
+The bistability is structural: under hard saturation the controller
+is open-loop in the saturated DOF, and the bias estimator integrates
+the position residual slowly enough that a moderate disturbance kick
+during the recovery window can push individual realisations onto a
+runaway branch from which the slow integrator never catches up. The
+deterministic mean ODE always finds the recovering branch (because
+the mean disturbance is zero), so the linear predictor's mean-and-std
+output is *systematically optimistic* in this band: at Vw = 14 m/s
+(beam, |tau|/cap_post = 0.98) the deterministic predictor returns a
+1.9 m peak with the MC ensemble mean at 4.2 m and ~40 % of
+realisations diverging.
+
+This matches operator experience: when the CQA margin is around 10 %
+the vessel "usually" recovers from a WCF; below that it does not.
+
+**Detection: the bistability_risk_score.** No linear correction
+(describing-function / Bussgang statistical linearisation) closes the
+gap because in the hard-saturation limit the Bussgang gain
+`N0(mu, sigma, L) = P(|tau_cmd| < L)` falls structurally to zero
+(commanded thrust mean is 2-6 sigma into the saturated region for
+all bistability-band operating points). The fix is therefore not to
+correct the predictor but to *flag* operating points where it is
+unreliable. We compute, along the deterministic mean trajectory:
+
+    severity(t, dof) = max(0, |tau_cmd_mean(t, dof)| - cap(t, dof)) / sigma_tau_cmd(t, dof)
+
+with `sigma_tau_cmd(t)^2 = K_tau P(t) K_tau^T` (per DOF) and
+`K_tau = [-Kp, -Kd, -I_3, 0]`. The headline
+`bistability_risk_score = max over (t, dof)` is reported in
+`wcfdi_transient`'s `info` dict alongside per-DOF and time-series
+diagnostics (`tau_cmd_mean`, `sigma_tau_cmd`, `cap_t`).
+
+**Empirical calibration against `wcfdi_self_mc` (M = 128 seeds, 90
+deg beam):**
+
+| score | recovery rate |
+|-------|---------------|
+| 0.55  | 100 %         |
+| 1.11  | 99 %          |
+| 1.39  | 98 %          |
+| 1.66  | 88 %          |
+| 2.79  | 77 %          |
+| 5.98  | 59 %          |
+
+The 95 % recovery boundary sits at score ~1.5; the 80 % boundary at
+score ~2. We adopt **`bistability_alarm = 1.5`** as the default gate
+in `wcfdi_operability_overlay`: any direction / V_w combination whose
+deterministic predictor returns a score above 1.5 is folded into the
+alarm boundary regardless of the nominal mean+sigma envelope, by
+forcing the metric to +inf at that operating point (mirroring the
+existing CQA-violation handling). This shifts the CSOV post-WCFDI
+alarm boundary inward by 0.15 - 0.61 m/s depending on direction, with
+the largest shifts in the oblique-to-beam quarter where the operating
+point is closest to the saturated regime.
+
+**Why this is the right place for the gate (and not a cheaper /
+linear fix).** Three alternatives were investigated and discarded:
+
+1. *Bussgang correction on the variance ODE (gain N0 modulated):*
+   correctly identifies "open loop" in the hard-saturation regime
+   (N0 -> 0) but cannot restore the missing closed-loop dynamics
+   because they don't exist at that operating point. The corrected
+   variance ODE collapses to the open-loop variance growth that we
+   need to model, but does not by itself capture the bistability
+   (which is a population-level statement, not a linearisation).
+2. *Bussgang correction on the mean ODE:* shifts E[clip(X)] toward
+   the cap by a `sigma * phi(alpha)` term. In the hard-saturation
+   limit (alpha << 0) the correction vanishes; the deterministic
+   mean trajectory is already correctly clipped to the cap. So the
+   2-3x mean discrepancy in the bistability band is not an
+   E[clip(X)] != clip(E[X]) effect.
+3. *Linearise around the deterministic mean trajectory and propagate
+   IC perturbations:* under hard saturation the linearised dynamics
+   are open-loop, so the first-order mean correction is zero
+   (intact stationary IC is zero-mean). The MC's 2x larger mean is a
+   *second-order* effect (variance of IC plus disturbance, both
+   coupled through the saturating clip), which has no linear closed
+   form.
+
+The bistability is fundamentally a feature of the *coexistence* of
+two stable branches in the saturated nonlinear dynamics, with the
+ratio of basin volumes determining the recovery rate. No deterministic
+linearisation can capture coexistence; only a population-level metric
+(such as our severity score, calibrated against MC) can flag it.
+
+**Implication for the operability polar.** With the gate enabled
+(default), the polar's amber and red boundaries move inward by the
+amounts above and now correctly mark the bistability band as alarm.
+This adds physical realism to the polar without adding a Monte-Carlo
+cost to the design tool: the score is computed from quantities
+(`x_mean`, `P`) the linear predictor already produces. The polar can
+still be regenerated with `bistability_alarm = inf` to recover the
+pre-gate behaviour (useful for diagnostic comparisons).
+
+**Implication for the brucon production transfer.** The
+deterministic-predictor + bistability-gate pattern is exactly the
+right shape for a real-time DP advisory: it stays cheap (no
+per-cell MC), it is honest about regime boundaries, and the gate
+threshold is tunable per vessel from a one-time MC calibration sweep.
+When the brucon nonlinear thruster allocator and power-limit
+saturation are wired in, individual-DOF saturation in the score
+generalises naturally to per-allocator-output saturation; the same
+threshold logic applies. This avoids the "always run a Monte-Carlo
+in the loop" path that would otherwise be necessary if the linear
+predictor were used naively in the bistability band.
+
+**Files.** `cqa/cqa/transient.py` (score computation in `info`),
+`cqa/cqa/operability_polar.py` (`bistability_alarm` parameter and
+gate, `WcfdiOperabilityOverlay.bistability_alarm` field),
+`cqa/cqa/wcfdi_self_mc.py` (validator engine, used here for the
+calibration), `cqa/tests/test_transient.py` (3 score tests),
+`cqa/tests/test_operability_polar.py` (2 gate tests).
+
+**Future work / open questions.**
+
+* The score uses the *intact* covariance ODE for `sigma_tau_cmd` (the
+  same one that under-predicts variance in the saturated regime).
+  This is conservative for the score: the true `sigma_tau_cmd` during
+  saturation is larger, which would *lower* the severity ratio and
+  reduce the gate's coverage. Worth re-calibrating the threshold once
+  fix tier 3 (saturation-window open-loop variance correction) is
+  added to the variance ODE.
+* Threshold 1.5 calibrated for the CSOV defaults
+  (alpha = 2/3, gamma_immediate = 0.5, T_realloc = 10 s). For other
+  vessels and other failure modes the calibration sweep should be
+  re-run via `wcfdi_self_mc`.
+* The `wcfdi_self_mc` engine itself is general-purpose; promoting it
+  to a public API (with its own demo / validation script) is a small
+  follow-on.
