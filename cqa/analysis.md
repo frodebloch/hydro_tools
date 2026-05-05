@@ -746,8 +746,28 @@ smooth function of those scale parameters. The wide 90% CI honestly
 reflects the small effective sample count (n_eff_x ≈ 6, n_eff_y ≈ 3
 in 5 min).
 
-Coverage validation across many seeds (Tier B) is deferred to a
-dedicated `validate_radial_combine.py` script.
+**Tier B coverage validation** (`scripts/validate_radial_combine.py`):
+M=200 independent 5-min realisations at the canonical CSOV operating
+point. For each seed we draw the per-axis posteriors, combine, and ask
+whether the spectral-truth `sigma_R` and `E[|R|]` lie inside the
+claimed 90% credible interval. Two-sided binomial test against
+H0: true coverage = 0.90.
+
+Result (commit follow-up to 64d5119):
+
+| Quantity | In CI | Empirical coverage | Wilson 95% CI | p-value | Verdict |
+|---|---|---|---|---|---|
+| `sigma_R`   | 177/200 | 88.5% | [83.2%, 92.6%] | 0.479 | **PASS** |
+| `E[\|R\|]`  | 177/200 | 88.5% | [83.2%, 92.6%] | 0.479 | **PASS** |
+
+The CI is well-calibrated. Note however the **median bias**: posterior
+median sigma_R sits ~12 cm below the truth (0.83 m vs 0.95 m). This
+is a known and benign property of reporting the median of an
+InvGamma-on-σ²: at α ≈ 6 (small n_eff), median(σ²) ≈ β/(α − 1/3) sits
+~13% below the mean β/(α−1), so √median underestimates σ by ~6% per
+axis. The CI is wide enough to absorb this, hence calibration passes.
+For an unbiased point estimate use `sigma_R_mean` (closed form;
+already exposed on `RadialPosterior`).
 
 ### 12.10 Posterior health primitives (assumption diagnostics)
 
