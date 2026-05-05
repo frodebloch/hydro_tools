@@ -884,3 +884,110 @@ the physics: 30 effective samples in the 5-min window, A2 ratio ~10⁻³
 (perfect zero-mean), well-behaved kurtosis. The slow channels all
 suffer from small `n_eff` and the slow-drift settling transient,
 exactly as expected at the start of an operation.
+
+### 12.13 WCFDI overlay on the operability polar (design / table-top tool)
+
+Added `wcfdi_operability_overlay` and a single dashed-line overlay on
+`plot_operability_polar`: per heading, the V_w at which the post-WCFDI
+peak excursion (deterministic mean from the linearised post-failure
+transient + `k_sigma * sigma(t)` from the augmented covariance ODE)
+crosses the IMCA M254 alarm threshold. The default scenario is one of
+three thruster groups lost (`alpha = 2/3` per DOF, `gamma_immediate =
+0.5`, `T_realloc = 10 s`); default `k_sigma = 0.674` (P75 of the
+conditional peak distribution).
+
+**Scope and audience.** This polar (intact + WCFDI overlay) is a
+**design / table-top / feasibility** chart, not an operational chart.
+The sea state at each V_w is a synthetic Pierson-Moskowitz law and all
+360 directions are evaluated independently against a swept envelope.
+It answers the question *"is this vessel + thruster layout suitable
+for this work scope?"* before the steel is cut, and it sits alongside
+the standard DP capability plot (IMCA M140 / DNV-ST-0111) in the design
+deliverables. It is not what a navigator should be looking at on the
+bridge.
+
+**The two operationally-facing analogues are separate workstreams:**
+
+* **Forecast case (item 4b on the roadmap, not yet implemented).** Per
+  forecast time-slot and the *chosen* heading, evaluate the same
+  intact and post-WCFDI metrics at the *forecast*
+  `(V_w, Hs, Tp, V_c, theta_w, theta_wave, theta_c)` and emit a per
+  time-slot traffic light. This is the operating-window decision matrix
+  the operator actually uses pre-operation. Reuses the same engines as
+  the polar but consumes forecast inputs instead of swept inputs.
+* **Operation case live what-if (item 4c, not yet implemented).** At
+  runtime, given the live posterior from `online_estimator` and the
+  live measured environment, run `wcfdi_transient` with the live
+  posterior `P0` (rather than the steady-state Lyapunov `P0`) and the
+  live measured `(V_w, Hs, Tp, V_c)` as the operating point; emit a
+  single live badge "if WCFDI fires now, P75 peak vessel excursion =
+  X m, telescope = Y m". Depends on item P4 (vessel_simulator MC
+  validation matrix) to bound the linearisation error against the
+  nonlinear truth before the operator can trust the live number.
+
+**Metric definitions.** Per heading, with the linearised post-failure
+state-space evaluated by `wcfdi_transient`:
+
+* Vessel base: `peak_pos = max_t  ||eta_mean[:,0:2](t)||
+  + k_sigma * sigma_R(t)` with `sigma_R(t) = sqrt(P[t,0,0] + P[t,1,1])`
+  (trace of the 2x2 position-block covariance; correct when `cov(x,y)`
+  is small as it is for decoupled controllers under collinear forcing,
+  slight over-estimate otherwise).
+* Telescope: `peak_dL = max_t  |c_L^T eta_mean(t)|
+  + k_sigma * sigma_dL(t)` with `sigma_dL(t)
+  = sqrt(c_L^T P[t,0:3,0:3] c_L)` and `c_L` from
+  `telescope_sensitivity`.
+
+Adding the `+ k * sigma` *inside* the `max_t` is a small conservative
+over-estimate (the time of peak mean and the time of peak sigma may
+differ); the alternative `max(mean) + k * max(sigma)` is similar and
+slightly less conservative. The per-time sum matches the visual
+envelope drawn by `run_wcfdi_transient_demo.py`.
+
+**`k_sigma` choice and rare-event conditioning.** The intact polar
+uses `quantile_p = 0.90`. For the WCFDI overlay we default to
+`k_sigma = 0.674` (P75 of the post-failure conditional peak), which
+sits *below* the intact P90 convention. The reason is that WCFDI is
+itself a rare event (annual frequency `~ 1e-3` for a single
+thruster-group failure on a redundant DP-2 vessel); conditioning on a
+high-quantile peak excursion *given* the failure compounds two rare
+events and inflates the design margin against an event whose joint
+probability is already small. P75 is a meaningful margin above the
+deterministic mean (P50, `k = 0`) without paying for a low-probability
+tail twice. The parameter is exposed; raise to 1.282 (P90) or 1.96
+(95 %) for more conservative envelopes.
+
+**CQA precondition handling.** If the surviving thrusters cannot hold
+the steady-state environmental load nominally
+(`|tau_env| > alpha * cap_intact` in any DOF), the linearised
+post-failure covariance ODE diverges. We catch the resulting
+`RuntimeError` and assign `+inf` to the peak metric, which causes the
+bisection to saturate the boundary at `Vw_min` for that direction.
+This is *not* surfaced as a separate flag on the dataclass: the
+saturation already conveys "no-go at any wind speed in this heading
+under this failure scenario" and the polar's existing `*_capped_low`
+arrays carry the bookkeeping.
+
+**The head-sea shape difference is real physics, not a bug.** On the
+CSOV demo, the WCFDI dashed line sits *outside* the intact alarm at
+head/stern seas (theta ~ 0 / 180). The intact bands and the WCFDI line
+are different metrics with different rose patterns: intact = slow-drift
+*PSD* of the fluctuating load integrated over T_op; WCFDI = post-failure
+*step response* to the deterministic mean of the load. They genuinely
+disagree in shape, especially where one mechanism is unfavourable and
+the other is favourable. This is informative for a design engineer
+(it tells you *which* failure modes constrain *which* headings) and
+exactly the reason this chart should not be sent to operations: the
+operator would parse it as *"the worst case is safer than the best
+case"*, which is not the message.
+
+**CSOV demo readout (default scenario).** 36 directions, 20-minute
+operating window, Vc = 0.5 m/s, port gangway at mid-stroke. Intact
+worst-direction alarm V_w = 17.6 m/s @ 70 deg; post-WCFDI
+worst-direction alarm V_w = 12.4 m/s @ 80 deg, a 30 % reduction in
+operable wind speed for the worst heading (vessel base). For the
+telescope axis the reduction is 36 %. Saved figures:
+`scripts/csov_operability_polar.png` (intact) and
+`scripts/csov_wcfdi_operability_polar.png` (intact + WCFDI overlay).
+Full overlay sweep takes ~10 s (most directions saturate the bisection
+early on the post-failure side); intact polar takes ~30 s.

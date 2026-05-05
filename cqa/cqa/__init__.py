@@ -109,8 +109,10 @@ from .sea_state_relations import (
 )
 from .operability_polar import (
     OperabilityPolar,
+    WcfdiOperabilityOverlay,
     operability_polar,
     plot_operability_polar,
+    wcfdi_operability_overlay,
 )
 from .time_series_realisation import (
     realise_vector_force_time_series,
@@ -205,6 +207,8 @@ __all__ = [
     "OperabilityPolar",
     "operability_polar",
     "plot_operability_polar",
+    "WcfdiOperabilityOverlay",
+    "wcfdi_operability_overlay",
     "realise_vector_force_time_series",
     "integrate_closed_loop_response",
     "realise_wave_motion_6dof",

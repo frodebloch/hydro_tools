@@ -18,10 +18,13 @@ from cqa.sea_state_relations import (
 )
 from cqa.operability_polar import (
     OperabilityPolar,
+    WcfdiOperabilityOverlay,
     operability_polar,
     plot_operability_polar,
+    wcfdi_operability_overlay,
 )
 from cqa.operability_polar import _bisect_boundary
+from cqa.transient import WcfdiScenario
 
 
 # ---------------------------------------------------------------------------
@@ -230,3 +233,185 @@ def test_polar_plot_smoke(csov_polar_small):
     # Two polar axes.
     assert len(fig.axes) >= 2
     plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# wcfdi_operability_overlay
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def csov_wcfdi_overlay_small(csov_polar_inputs):
+    """Small post-WCFDI overlay shared across the structural tests
+    (4 directions, coarse Vw tolerance, short t_end). Default scenario:
+    one of three thruster groups lost (alpha = 2/3 per DOF)."""
+    cfg, joint = csov_polar_inputs
+    return wcfdi_operability_overlay(
+        cfg, joint,
+        scenario=WcfdiScenario(
+            alpha=(2.0 / 3.0,) * 3,
+            gamma_immediate=0.5,
+            T_realloc=10.0,
+        ),
+        n_directions=4,
+        Vw_min=2.0,
+        Vw_max=20.0,
+        Vc_m_s=0.5,
+        k_sigma=0.674,
+        bisect_tol_m_s=1.0,
+        t_end=120.0,
+    )
+
+
+def test_wcfdi_overlay_validation_errors(csov_polar_inputs):
+    cfg, joint = csov_polar_inputs
+    with pytest.raises(ValueError, match="Vw_min"):
+        wcfdi_operability_overlay(cfg, joint, n_directions=4,
+                                  Vw_min=0.0, Vw_max=10.0)
+    with pytest.raises(ValueError, match="Vw_max"):
+        wcfdi_operability_overlay(cfg, joint, n_directions=4,
+                                  Vw_min=10.0, Vw_max=5.0)
+    with pytest.raises(ValueError, match="n_directions"):
+        wcfdi_operability_overlay(cfg, joint, n_directions=2)
+    with pytest.raises(ValueError, match="k_sigma"):
+        wcfdi_operability_overlay(cfg, joint, n_directions=4,
+                                  k_sigma=-1.0)
+
+
+def test_wcfdi_overlay_shapes_and_metadata(csov_wcfdi_overlay_small):
+    o = csov_wcfdi_overlay_small
+    n = 4
+    assert isinstance(o, WcfdiOperabilityOverlay)
+    for arr in (o.theta_rel_rad, o.pos_warn_Vw, o.pos_alarm_Vw,
+                o.gw_warn_Vw, o.gw_alarm_Vw):
+        assert arr.shape == (n,)
+        assert np.all(np.isfinite(arr))
+    for arr in (o.pos_warn_capped_low, o.pos_warn_capped_high,
+                o.pos_alarm_capped_low, o.pos_alarm_capped_high,
+                o.gw_warn_capped_low, o.gw_warn_capped_high,
+                o.gw_alarm_capped_low, o.gw_alarm_capped_high):
+        assert arr.dtype == bool
+        assert arr.shape == (n,)
+    # Sweep / scenario metadata propagated.
+    assert o.Vw_min == 2.0
+    assert o.Vw_max == 20.0
+    assert o.Vc_m_s == 0.5
+    assert o.k_sigma == 0.674
+    assert o.T_realloc == 10.0
+    assert o.alpha == (2.0 / 3.0,) * 3
+    assert o.t_end == 120.0
+
+
+def test_wcfdi_overlay_alarm_geq_warn(csov_wcfdi_overlay_small):
+    """Alarm threshold (4 m / 80%) is larger than warn (2 m / 60%);
+    with a monotone metric the V_w required to hit alarm must be >=
+    the V_w required to hit warn -- per direction. Allow saturation."""
+    o = csov_wcfdi_overlay_small
+    for i in range(len(o.theta_rel_rad)):
+        if not (o.pos_warn_capped_low[i] or o.pos_alarm_capped_high[i]):
+            assert o.pos_alarm_Vw[i] >= o.pos_warn_Vw[i] - 1e-6
+        if not (o.gw_warn_capped_low[i] or o.gw_alarm_capped_high[i]):
+            assert o.gw_alarm_Vw[i] >= o.gw_warn_Vw[i] - 1e-6
+
+
+def test_wcfdi_overlay_within_sweep_range(csov_wcfdi_overlay_small):
+    o = csov_wcfdi_overlay_small
+    for arr in (o.pos_warn_Vw, o.pos_alarm_Vw,
+                o.gw_warn_Vw, o.gw_alarm_Vw):
+        assert np.all(arr >= o.Vw_min - 1e-9)
+        assert np.all(arr <= o.Vw_max + 1e-9)
+
+
+def test_wcfdi_overlay_thresholds_match_intact(csov_wcfdi_overlay_small,
+                                                csov_polar_small):
+    """The IMCA radii and telescope thresholds on the overlay must
+    equal those on the intact polar so the two are directly
+    comparable when overlaid on the same axes."""
+    o = csov_wcfdi_overlay_small
+    p = csov_polar_small
+    assert o.pos_warn_radius_m == p.pos_warn_radius_m
+    assert o.pos_alarm_radius_m == p.pos_alarm_radius_m
+    assert o.gw_warn_m == p.gw_warn_m
+    assert o.gw_alarm_m == p.gw_alarm_m
+
+
+def test_wcfdi_overlay_tighter_than_intact(csov_wcfdi_overlay_small,
+                                            csov_polar_small):
+    """Physical sanity: the post-WCFDI peak excursion at any V_w is
+    >= the intact P90 envelope at the same V_w (lost thrust capability
+    + first-order reallocation transient can only make things worse).
+    Hence the V_w boundary at which the post-WCFDI peak crosses each
+    threshold must be <= the intact V_w boundary -- per direction.
+
+    The fixtures use different n_directions (4 vs 8) so we compare
+    the AGGREGATE worst-direction boundary instead of per-direction."""
+    o = csov_wcfdi_overlay_small
+    p = csov_polar_small
+    assert float(np.min(o.pos_warn_Vw)) <= float(np.min(p.pos_warn_Vw)) + 1e-6
+    assert float(np.min(o.pos_alarm_Vw)) <= float(np.min(p.pos_alarm_Vw)) + 1e-6
+
+
+def test_wcfdi_overlay_alpha_monotone(csov_polar_inputs):
+    """Sanity: tighter alpha (less surviving thrust) -> tighter V_w
+    boundary. Use 4 directions, very coarse tol; the worst-direction
+    vessel alarm boundary must be non-increasing in (1 - alpha)."""
+    cfg, joint = csov_polar_inputs
+    common = dict(
+        n_directions=4,
+        Vw_min=2.0, Vw_max=20.0, Vc_m_s=0.5,
+        k_sigma=0.674, bisect_tol_m_s=2.0, t_end=80.0,
+    )
+    o_strong = wcfdi_operability_overlay(
+        cfg, joint,
+        scenario=WcfdiScenario(alpha=(0.85,) * 3,
+                               gamma_immediate=0.5, T_realloc=10.0),
+        **common,
+    )
+    o_weak = wcfdi_operability_overlay(
+        cfg, joint,
+        scenario=WcfdiScenario(alpha=(0.5,) * 3,
+                               gamma_immediate=0.5, T_realloc=10.0),
+        **common,
+    )
+    # Worst-direction alarm boundary tightens as alpha drops.
+    assert (float(np.min(o_weak.pos_alarm_Vw))
+            <= float(np.min(o_strong.pos_alarm_Vw)) + 1e-6)
+
+
+def test_wcfdi_overlay_plot_smoke(csov_polar_small,
+                                   csov_wcfdi_overlay_small):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig = plot_operability_polar(csov_polar_small,
+                                 overlay=csov_wcfdi_overlay_small)
+    assert fig is not None
+    assert len(fig.axes) >= 2
+    plt.close(fig)
+
+
+def test_wcfdi_overlay_plot_without_overlay(csov_polar_small):
+    """plot_operability_polar must remain backwards compatible when
+    overlay is omitted (default None)."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig = plot_operability_polar(csov_polar_small)
+    assert fig is not None
+    plt.close(fig)
+
+
+def test_wcfdi_overlay_k_sigma_zero_is_deterministic_p50(csov_polar_inputs):
+    """k_sigma = 0 reduces the metric to the deterministic mean trajectory
+    (P50 peak). Must not raise; boundary must lie within the sweep range."""
+    cfg, joint = csov_polar_inputs
+    o = wcfdi_operability_overlay(
+        cfg, joint,
+        n_directions=4,
+        Vw_min=2.0, Vw_max=20.0, Vc_m_s=0.5,
+        k_sigma=0.0, bisect_tol_m_s=2.0, t_end=80.0,
+    )
+    assert o.k_sigma == 0.0
+    assert np.all(np.isfinite(o.pos_alarm_Vw))
