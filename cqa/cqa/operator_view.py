@@ -50,6 +50,7 @@ from typing import Optional
 import numpy as np
 
 from .config import CqaConfig, OperationalLimits
+from .online_estimator import PosteriorHealth
 from .wcfdi_mc import WcfdiMcResult
 
 
@@ -554,6 +555,17 @@ class IntactPriorSummary:
 
     Vessel-capability axis:
       pos_sigma_m   : sqrt(sigma_x^2+sigma_y^2) of (dp_base_x, dp_base_y) [m].
+      pos_sigma_x_m, pos_sigma_y_m : per-axis 1-sigma of (dp_base_x,
+                      dp_base_y) [m]. These are the natural channels for
+                      the online Bayesian estimator: x and y are
+                      zero-mean by DP construction (integral term and
+                      observer bias regulate them to setpoint), so the
+                      A2 (zero-mean) assumption holds. The radial
+                      ``r = sqrt(x^2+y^2)`` is Rayleigh-distributed and
+                      has a structural non-zero mean, which contaminates
+                      the posterior-health A2 diagnostic; build the
+                      operator estimators per-axis and combine via
+                      ``sigma_radial = sqrt(sigma_x_post^2 + sigma_y_post^2)``.
       pos_nu0_max   : max(nu_0+) across the two horizontal axes [Hz].
       pos_q         : max(q) across axes (Vanmarcke spectral bandwidth).
       pos_T_decorr_var_s : variance-estimator decorrelation time for the
@@ -563,6 +575,9 @@ class IntactPriorSummary:
                       `variance_decorrelation_time_from_psd`. Reported
                       as max(T_var_x, T_var_y) -- the conservative
                       (slowest-decorrelating) of the two horizontal axes.
+      pos_T_decorr_var_x_s, pos_T_decorr_var_y_s : per-axis variance-
+                      estimator decorrelation times [s], used by per-
+                      axis BayesianSigmaEstimator instances.
       pos_a_p50, pos_a_p90 : P50 / P90 peak |dp_base| over T_op [m].
       pos_p_breach  : P(footprint > pos_warning_radius_m) over T_op
                       (kept as diagnostic).
@@ -598,9 +613,13 @@ class IntactPriorSummary:
     quantiles: tuple[float, float]
 
     pos_sigma_m: float
+    pos_sigma_x_m: float
+    pos_sigma_y_m: float
     pos_nu0_max: float
     pos_q: float
     pos_T_decorr_var_s: float
+    pos_T_decorr_var_x_s: float
+    pos_T_decorr_var_y_s: float
     pos_a_p50: float
     pos_a_p90: float
     pos_p_breach: float
@@ -630,6 +649,24 @@ class IntactPriorSummary:
     gw_p_breach_alarm: float
     gw_p_breach_per_band: tuple[float, float]
     gw_traffic_prior: str
+
+    # Posterior health diagnostics, populated only when the corresponding
+    # posterior sigma was supplied by the caller. The C++/operator-panel
+    # layer composes the WARMING/OK/UNSETTLED/INVALID badge from these
+    # primitives (see `PosteriorHealth` for field semantics, including
+    # the recommended sample_mean_over_sigma thresholds for catching the
+    # DP integral / observer bias settling transient).
+    #
+    # The position channel is reported per-axis (x, y) because the DP
+    # regulates each axis to zero mean independently; the aggregated
+    # radial channel is Rayleigh-distributed with structural non-zero
+    # mean, which contaminates the A2 (zero-mean) health primitive.
+    # The operator badge for "radial" should be composed as the worst
+    # of (pos_x_posterior_health, pos_y_posterior_health).
+    pos_x_posterior_health: Optional[PosteriorHealth] = None
+    pos_y_posterior_health: Optional[PosteriorHealth] = None
+    gw_slow_posterior_health: Optional[PosteriorHealth] = None
+    gw_wave_posterior_health: Optional[PosteriorHealth] = None
 
 
 def _imca_traffic_prior(a_p90: float, warn_radius: float,
@@ -670,6 +707,10 @@ def summarise_intact_prior(
     posterior_sigma_telescope_wave_m: Optional[float] = None,
     T_decorr_var_telescope_wave_s: Optional[float] = None,
     q_wave: Optional[float] = None,
+    posterior_health_radial_x: Optional[PosteriorHealth] = None,
+    posterior_health_radial_y: Optional[PosteriorHealth] = None,
+    posterior_health_telescope_slow: Optional[PosteriorHealth] = None,
+    posterior_health_telescope_wave: Optional[PosteriorHealth] = None,
 ) -> IntactPriorSummary:
     """Build the intact-condition extreme-value summary for one operation.
 
@@ -742,6 +783,24 @@ def summarise_intact_prior(
         (typical CSOV value ~0.16). If ``None``, falls back to a
         coarse 0.30 narrowband proxy that biases towards Poisson
         clustering (i.e. slightly conservative for amber/red).
+    posterior_health_radial_x : optional PosteriorHealth. Diagnostics
+        on the posterior used for the body-x base-position channel
+        (typically ``BayesianSigmaEstimator.health()`` on dx(t)).
+        Surfaced verbatim in ``IntactPriorSummary.pos_x_posterior_health``
+        for the operator panel to compose its WARMING/OK/UNSETTLED/INVALID
+        badge. The DP regulates dx to zero mean (A2 holds), so the
+        ``sample_mean_over_sigma`` primitive is a clean diagnostic.
+        Pass ``None`` (default) when no online estimator is running for
+        this channel.
+    posterior_health_radial_y : optional PosteriorHealth. Same idea for
+        the body-y base-position channel; surfaces in
+        ``pos_y_posterior_health``.
+    posterior_health_telescope_slow : optional PosteriorHealth. Same
+        idea for the slow-drift telescope band; surfaces in
+        ``gw_slow_posterior_health``.
+    posterior_health_telescope_wave : optional PosteriorHealth. Same
+        idea for the wave-frequency telescope band; surfaces in
+        ``gw_wave_posterior_health``.
 
     Returns
     -------
@@ -935,9 +994,13 @@ def summarise_intact_prior(
         T_op_s=float(T_op_s),
         quantiles=(p_lo, p_hi),
         pos_sigma_m=sigma_radial,
+        pos_sigma_x_m=sigma_x,
+        pos_sigma_y_m=sigma_y,
         pos_nu0_max=nu0_pos,
         pos_q=q_pos,
         pos_T_decorr_var_s=pos_T_decorr_var_s,
+        pos_T_decorr_var_x_s=float(T_var_x),
+        pos_T_decorr_var_y_s=float(T_var_y),
         pos_a_p50=float(pos_a_p50),
         pos_a_p90=float(pos_a_p90),
         pos_p_breach=float(res_pos_warn.p_breach),
@@ -966,6 +1029,10 @@ def summarise_intact_prior(
         gw_p_breach_alarm=gw_p_alarm,
         gw_p_breach_per_band=per_band_tuple,
         gw_traffic_prior=gw_traffic_prior,
+        pos_x_posterior_health=posterior_health_radial_x,
+        pos_y_posterior_health=posterior_health_radial_y,
+        gw_slow_posterior_health=posterior_health_telescope_slow,
+        gw_wave_posterior_health=posterior_health_telescope_wave,
     )
 
 

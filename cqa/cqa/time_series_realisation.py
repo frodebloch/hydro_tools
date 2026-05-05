@@ -343,6 +343,49 @@ def realise_wave_motion_6dof(
 # ---------------------------------------------------------------------------
 
 
+def base_position_xy_time_series(
+    x_lf: np.ndarray,
+    xi_wf: np.ndarray,
+    cfg: CqaConfig,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Per-axis gangway-base position deviation (dx(t), dy(t)) [m].
+
+    Same construction as ``radial_position_time_series`` but returns
+    the two scalar axes separately *before* the ``sqrt(dx^2+dy^2)``
+    collapse. These are the natural channels for the online Bayesian
+    estimator: x and y are zero-mean by DP construction (the DP
+    integral term and the observer bias estimator regulate them to
+    setpoint), so the A2 (zero-mean) assumption that
+    ``BayesianSigmaEstimator.posterior()`` relies on holds. The
+    aggregated ``r = sqrt(dx^2+dy^2)`` is Rayleigh-distributed and has
+    a structural non-zero mean ``E[r] = sqrt(pi/2)*sigma`` even when
+    (dx, dy) are perfectly zero-mean -- which contaminates the
+    ``sample_mean_over_sigma`` health primitive.
+
+    Combine the per-axis posteriors for the Rice formula via
+
+        sigma_radial_post = sqrt(sigma_x_post^2 + sigma_y_post^2),
+
+    valid when (x, y) are uncorrelated (the canonical case for
+    decoupled surge/sway controllers; oblique forcing introduces a
+    cross-term that is small for the operating points considered here).
+
+    Returns
+    -------
+    (dx, dy) : tuple of (N_t,) arrays, in metres, base position
+        deviation in the body-frame x and y directions.
+    """
+    base_x_b, base_y_b, _ = cfg.gangway.base_position_body
+    c_x = np.array([1.0, 0.0, -base_y_b])
+    c_y = np.array([0.0, 1.0,  base_x_b])
+    eta_lf = x_lf[0:3]
+    eta_wf = xi_wf[[0, 1, 5]]
+    eta_total = eta_lf + eta_wf
+    dx = c_x @ eta_total
+    dy = c_y @ eta_total
+    return dx, dy
+
+
 def radial_position_time_series(
     x_lf: np.ndarray,
     xi_wf: np.ndarray,
@@ -359,19 +402,17 @@ def radial_position_time_series(
         horizontal base displacement (heave, roll, pitch contribute
         height, not radial range).
 
+    For the online Bayesian estimator, prefer
+    ``base_position_xy_time_series`` -- the per-axis (dx, dy) channels
+    are zero-mean by DP construction (A2 holds), whereas the radial
+    aggregate r is Rayleigh-distributed with a structural non-zero
+    mean.
+
     Returns
     -------
     r(t) : (N_t,) radial distance from setpoint at the gangway base.
     """
-    base_x_b, base_y_b, _ = cfg.gangway.base_position_body
-    c_x = np.array([1.0, 0.0, -base_y_b])
-    c_y = np.array([0.0, 1.0,  base_x_b])
-    eta_lf = x_lf[0:3]  # (3, N_t)
-    # Wave-frequency surge/sway/yaw of the body origin.
-    eta_wf = xi_wf[[0, 1, 5]]  # (3, N_t)
-    eta_total = eta_lf + eta_wf
-    dx = c_x @ eta_total
-    dy = c_y @ eta_total
+    dx, dy = base_position_xy_time_series(x_lf, xi_wf, cfg)
     return np.sqrt(dx * dx + dy * dy)
 
 
@@ -399,5 +440,6 @@ __all__ = [
     "integrate_closed_loop_response",
     "realise_wave_motion_6dof",
     "radial_position_time_series",
+    "base_position_xy_time_series",
     "telescope_length_deviation_time_series",
 ]

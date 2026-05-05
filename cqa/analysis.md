@@ -632,6 +632,8 @@ that table:
 | Wave-frequency telescope channel | DONE | `wave_response.sigma_L_wave` |
 | Time-domain realisations (LF + WF) | DONE | non-uniform-grid acceptance, geom-grid policy |
 | Bayesian sigma estimator (3 channels in parallel) | DONE | `bayesian.BayesianSigmaEstimator`, with the `T_var` fix |
+| Posterior health diagnostics (A1-A5 primitives) | DONE | `online_estimator.PosteriorHealth` + `BayesianSigmaEstimator.health()` |
+| Per-axis (x, y) radial estimation + Hoyt-aware combine | DONE | `online_estimator.combine_radial_posterior`, validated against time-domain realisation |
 | Band-split + posterior pipeline | DONE | `signal_processing.bandsplit_lowpass`, validated |
 | Running-max CDF validation | DONE | Rice valid above `a/sigma ≈ 2.5`, conservative below |
 | P4 MC validation against `vessel_simulator` | TODO | grid sweep needed |
@@ -640,3 +642,140 @@ that table:
 | `sigma_L_wave` batch evaluation optimisation | TODO | for the offline polar case |
 | Tier 2 sigma-inconsistency fix (12-state augmented system) | TODO | open from P2 |
 | P7 C++ demonstrator | TODO | feeds `dp_gui` |
+
+### 12.9 Per-axis (x, y) estimation and Hoyt-aware radial combination
+
+The first iteration of the online posterior pipeline ran a single
+`BayesianSigmaEstimator` on the radial channel `r(t) = sqrt(dx² + dy²)`
+directly. The newly-added `PosteriorHealth.sample_mean_over_sigma`
+diagnostic immediately flagged this channel as `INVALID`
+(`|mean(r)|/σ_post ≈ 1.0`) — but for a structural reason, not a
+settling-transient one:
+
+* `r` is **Rayleigh-distributed** (when σ_x = σ_y) with mean
+  `E[r] = σ·sqrt(π/2) ≈ 1.253·σ`. Even when (dx, dy) are perfectly
+  zero-mean, `r` has a structural non-zero mean that contaminates the
+  zero-mean (A2) assumption baked into `BayesianSigmaEstimator`.
+* The conjugate model is still inverse-gamma (the Rayleigh sufficient
+  statistic `Σ rᵢ²` recovers `2σ²·N` in expectation), so the variance
+  point estimate `posterior().sigma_median` was actually correct in
+  expectation — but the A2 health primitive could not distinguish
+  "DP integral term not yet settled" from "this channel has a
+  Rayleigh-shaped distribution".
+
+#### Decision: per-axis (dx, dy) channels
+
+The DP regulates body-x and body-y independently, so `dx(t)` and
+`dy(t)` are **zero-mean Gaussian by construction** — A2 holds. The
+new helper `time_series_realisation.base_position_xy_time_series`
+exposes them; two separate `BayesianSigmaEstimator` instances watch
+the two channels.
+
+Benefits realised in the demo:
+
+* The A2 indicator is now physically meaningful per axis. At the
+  canonical 30° quartering operating point with 5 min of data:
+  `|mean(dx)|/σ_x ≈ 0.51` (UNSETTLED), `|mean(dy)|/σ_y ≈ 0.84`
+  (UNSETTLED). The y-axis is correctly flagged worse than the x-axis
+  because the slow-drift sway memory at oblique forcing is longer
+  (T_var_y ≈ 94 s vs T_var_x ≈ 47 s).
+* The radial composite badge is composed as the worst-of (x, y) — if
+  either axis hasn't settled, the radial summary is unreliable.
+* Per-axis priors (σ_x, σ_y, T_var_x, T_var_y) are surfaced as new
+  fields on `IntactPriorSummary`.
+
+#### Why a single Rayleigh estimator was rejected
+
+A naïve alternative is to swap the Gaussian likelihood in
+`BayesianSigmaEstimator` for a Rayleigh likelihood: same conjugate
+inverse-gamma family, sufficient statistic `S = Σ rᵢ²`, posterior
+update `α += N/2`, `β += S/4` (note the `/4` instead of `/2` because
+of `E[r²] = 2σ²`). This was rejected because:
+
+* For σ_x ≠ σ_y the radial process is not Rayleigh but **Hoyt
+  (Nakagami-q)** with eccentricity `q = σ_min/σ_max`. The conjugate
+  inverse-gamma breaks down — the Hoyt MLE has no closed form.
+* At the canonical CSOV 30° quartering operating point we observe
+  σ_x_prior = 0.72 m vs σ_y_prior = 0.61 m, ratio 1.18. Forcing
+  Rayleigh would systematically bias the variance estimate.
+* Correct handling of σ_x ≠ σ_y requires a 2D estimator on (dx, dy)
+  anyway, which is exactly what we now have.
+
+#### Combining per-axis posteriors for the operator-facing radial scalar
+
+The operator monitors radial distance, so we still need a single
+"σ_R" / "E[|R|]" scalar to display. The natural radial scale is
+
+`σ_R := sqrt(σ_x² + σ_y²) = sqrt(trace(Σ))`
+
+— equal to `sqrt(2)·σ` in the Rayleigh limit, axis-rotation invariant
+in general, and the parameter the Rice formula consumes for the
+bilateral-Gaussian envelope of the radial running max.
+
+The sum `σ_x² + σ_y²` of two independent inverse-gamma RVs is
+**not** itself inverse-gamma — there is no closed-form posterior. The
+new `combine_radial_posterior` helper handles this with cheap MC
+(default 2000 samples):
+
+1. Sample `σ_x² ~ InvGamma(α_x, β_x)` and `σ_y² ~ InvGamma(α_y, β_y)`
+   independently.
+2. Form `σ_R = sqrt(σ_x² + σ_y²)` per sample → median, mean, equal-tail
+   credible interval.
+3. For `E[|R|]` (the operator-friendly "typical radial distance"):
+   sample one `(X, Y)` pair per `(σ_x, σ_y)` draw, take the mean of
+   `sqrt(X² + Y²)`. This integrates over BOTH posterior uncertainty AND
+   in-window Hoyt asymmetry exactly, with no need for the elliptic-
+   integral closed form.
+
+The closed-form `E[σ_R²] = β_x/(α_x-1) + β_y/(α_y-1)` is also reported
+when both posteriors have α > 1.
+
+#### Validation against the time-domain realisation
+
+Tier A check, evaluated on the 5-min CSOV demo realisation each run:
+
+* Empirical `sqrt(E[r²]) = 1.136 m` vs predicted `σ_R = 1.038 m`,
+  inside the posterior 90% CI [0.750, 1.621]. ✓
+* Empirical `mean(r) = 0.951 m` vs predicted `E[|R|] = 0.952 m` — agreement
+  to 1 mm. ✓
+
+The `E[|R|]` agreement to sub-mm precision in a single-seed test is
+remarkable but expected: the posterior median tracks the underlying σ
+scale parameters tightly even with small `n_eff`, and `E[|R|]` is a
+smooth function of those scale parameters. The wide 90% CI honestly
+reflects the small effective sample count (n_eff_x ≈ 6, n_eff_y ≈ 3
+in 5 min).
+
+Coverage validation across many seeds (Tier B) is deferred to a
+dedicated `validate_radial_combine.py` script.
+
+### 12.10 Posterior health primitives (assumption diagnostics)
+
+The conjugate posterior in `BayesianSigmaEstimator` rests on five
+assumptions; `PosteriorHealth` exposes one cheap runtime primitive
+per assumption so the operator panel can compose a WARMING / OK /
+UNSETTLED / INVALID badge.
+
+| Assumption | Primitive | Failure mode caught |
+|---|---|---|
+| **A1** stationarity within window | `halves_sigma_ratio` | sea-state ramp, controller retune mid-window |
+| **A2** zero-mean signal | `sample_mean_over_sigma` (PRIMARY) | DP integral term still settling (~2-5 min), observer bias still converging (~1-2 min), persistent low-frequency disturbance, setpoint drift |
+| **A3** Gaussian marginals | `kurtosis_excess` | thruster saturation, slamming, heavy-tail residuals |
+| **A4** Bartlett ESS captures autocorrelation | `is_warm` (`n_eff ≥ threshold`) | window too short relative to T_var |
+| **A5** prior shape correct, only level data-conditioned | `prior_in_credible_interval` | sea-state misclassification, post-WCFDI controller retune |
+
+The A2 primitive is the operationally most important: it directly
+catches the early-operation transient where the DP integral and
+observer bias estimator have not yet converged, before any of the
+spectral assumptions enter. Suggested operator thresholds:
+
+* `|mean|/σ < 0.1`: settled
+* `0.1 ≤ ratio < 0.3`: warming
+* `0.3 ≤ ratio < 1.0`: UNSETTLED (variance estimate inflated by
+  9-100%)
+* `ratio ≥ 1.0`: INVALID (variance inflated by ≥2×; likely setpoint
+  drift or unmodeled DC bias)
+
+The thresholds are exposed as primitives, not enforced inside
+`BayesianSigmaEstimator`, so the C++ panel layer can tune them per
+site / per channel without modifying the estimator.

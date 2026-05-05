@@ -93,7 +93,10 @@ from .extreme_value import (
 )
 from .online_estimator import (
     SigmaPosterior,
+    PosteriorHealth,
+    RadialPosterior,
     BayesianSigmaEstimator,
+    combine_radial_posterior,
     closed_loop_decorrelation_time,
 )
 from .sea_state_relations import (
@@ -112,6 +115,7 @@ from .time_series_realisation import (
     integrate_closed_loop_response,
     realise_wave_motion_6dof,
     radial_position_time_series,
+    base_position_xy_time_series,
     telescope_length_deviation_time_series,
 )
 from .signal_processing import bandsplit_lowpass
@@ -186,6 +190,9 @@ __all__ = [
     "predictive_running_max_quantile",
     "SigmaPosterior",
     "BayesianSigmaEstimator",
+    "PosteriorHealth",
+    "RadialPosterior",
+    "combine_radial_posterior",
     "closed_loop_decorrelation_time",
     "WindSeaState",
     "pm_hs_from_vw",
@@ -198,6 +205,7 @@ __all__ = [
     "integrate_closed_loop_response",
     "realise_wave_motion_6dof",
     "radial_position_time_series",
+    "base_position_xy_time_series",
     "telescope_length_deviation_time_series",
     "bandsplit_lowpass",
 ]

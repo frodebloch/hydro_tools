@@ -175,6 +175,291 @@ class SigmaPosterior:
 
 
 # ---------------------------------------------------------------------------
+# Posterior health diagnostics
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PosteriorHealth:
+    """Cheap runtime primitives diagnosing the assumptions baked into
+    ``BayesianSigmaEstimator.posterior()``.
+
+    Design philosophy
+    -----------------
+    Expose primitives, do not decide. The operator panel (or the C++
+    runtime) composes a WARMING / OK / UNSETTLED / INVALID badge from
+    these scalars using site-tuned thresholds. We only flag the cheapest
+    assumption-failure modes here; richer goodness-of-fit checks belong
+    in the offline regression suite, not the online cycle.
+
+    Assumption coverage
+    -------------------
+    A1 stationarity            -- ``halves_sigma_ratio``
+    A2 zero mean (DP regulates)-- ``sample_mean_over_sigma``  (KEY)
+    A3 Gaussian marginals      -- ``kurtosis_excess``
+    A4 Bartlett ESS captures   -- ``is_warm`` (n_eff >= threshold)
+       autocorrelation
+    A5 prior shape correct,    -- ``prior_in_credible_interval``
+       only LEVEL data-driven
+
+    The primary signal is ``sample_mean_over_sigma``: at the start of
+    an operation the DP integral term and observer bias estimator are
+    still settling (~2-5 min and ~1-2 min respectively); a non-zero
+    sample mean during that transient inflates the sufficient statistic
+    ``S = sum x_i^2`` because ``E[X^2] = sigma^2 + mu^2``. A ratio of
+    0.3 inflates the variance estimate by ~9 %; a ratio of 1.0 inflates
+    it by 2x. Suggested thresholds:
+
+        |mean|/sigma < 0.1   "settled"
+        0.1 <= ratio < 0.3   "warming"
+        0.3 <= ratio < 1.0   "unsettled"
+        ratio >= 1.0         "invalid" (likely setpoint drift / bias)
+
+    Fields
+    ------
+    n_raw : int. Raw samples currently in the window.
+    n_eff : float. Effective independent sample count after Bartlett.
+    is_warm : bool. ``n_eff >= n_eff_threshold``.
+    n_eff_threshold : float. Threshold used for ``is_warm``.
+    sample_mean : float. Windowed sample mean of X. NaN if window empty.
+    sample_mean_over_sigma : float. ``|sample_mean| / sigma_post.sigma_median``.
+        NaN if window empty or posterior median is non-positive. **Primary
+        A2 indicator** -- catches DP integral / observer bias not yet
+        converged, persistent low-frequency disturbance, setpoint drift.
+    prior_in_credible_interval : bool. True if the prior sigma
+        ``sqrt(prior_sigma2)`` falls inside the posterior equal-tail
+        credible interval ``[sigma_lo, sigma_hi]``. False signals
+        model-data tension (A4/A5).
+    kurtosis_excess : float. Sample excess kurtosis (kurtosis - 3.0)
+        of the in-window samples. Zero for Gaussian; positive for
+        heavy-tailed (slamming, saturation). NaN if n_raw < 4.
+        Note: variance of the sample kurtosis is ~24/n_raw for Gaussian
+        data, so this is noisy below ~50 samples; use with caution.
+    halves_sigma_ratio : float. ``std(second_half) / std(first_half)``
+        of the windowed samples (zero-mean assumption: divides by
+        sqrt(sum_sq/n) of each half). Ratios far from 1.0 indicate
+        non-stationarity within the window. NaN if n_raw < 4.
+    """
+
+    n_raw: int
+    n_eff: float
+    is_warm: bool
+    n_eff_threshold: float
+    sample_mean: float
+    sample_mean_over_sigma: float
+    prior_in_credible_interval: bool
+    kurtosis_excess: float
+    halves_sigma_ratio: float
+
+
+# ---------------------------------------------------------------------------
+# Radial posterior (combination of per-axis x, y posteriors)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RadialPosterior:
+    """Combined radial posterior built from two independent per-axis
+    InvGamma posteriors on sigma_x^2 and sigma_y^2.
+
+    Why this exists
+    ---------------
+    The DP regulates the body-x and body-y position to setpoint
+    independently, so the natural channels for online estimation are
+    ``dx(t)`` and ``dy(t)`` (each zero-mean Gaussian with its own
+    variance). The operator, however, cares about the **radial
+    distance** ``R(t) = sqrt(dx^2 + dy^2)`` — a single scalar with
+    obvious geometric meaning ("how far are we from setpoint?").
+
+    This class produces operator-facing radial scalars from the two
+    per-axis posteriors:
+
+    * ``sigma_R = sqrt(sigma_x^2 + sigma_y^2)`` — the Rice-formula
+      radial scale parameter. Equal to ``sqrt(2)*sigma`` in the
+      equal-variance Rayleigh limit; equal to ``sqrt(trace(Sigma))``
+      in general (axis-rotation invariant).
+
+    * ``E[R]`` — the typical radial deviation, marginalised over both
+      the posterior uncertainty in (sigma_x, sigma_y) AND the in-window
+      Hoyt asymmetry. Computed by Monte Carlo: sample
+      sigma_x^2 ~ InvGamma, sigma_y^2 ~ InvGamma, then X ~ N(0, sigma_x),
+      Y ~ N(0, sigma_y), R = sqrt(X^2+Y^2), report mean(R). In the
+      equal-variance limit this reduces to ``sigma_R * sqrt(pi)/2``
+      (i.e. the Rayleigh ``sigma * sqrt(pi/2)``).
+
+    * 90% CI on sigma_R from MC samples (the sum of two independent
+      InvGamma RVs is NOT InvGamma — no closed form, MC is the right
+      tool).
+
+    Independence assumption
+    -----------------------
+    Built assuming ``cov(sigma_x^2, sigma_y^2) = 0`` (independent
+    posteriors). For decoupled surge/sway controllers the per-axis
+    estimators ARE independent (separate sufficient statistics on
+    independent channels). Cross-axis coupling at oblique forcing
+    (cov(dx, dy) ≠ 0) is a second-order effect, deferred until
+    empirical evidence shows it matters at production operating points.
+
+    Fields
+    ------
+    sigma_R_median, sigma_R_mean : sqrt(sigma_x^2+sigma_y^2) point
+        estimates [m]. ``median`` uses MC sample median (matches the
+        per-axis posterior medians for equal-variance, slightly
+        different otherwise); ``mean = sqrt(E[sigma_x^2]+E[sigma_y^2])``
+        is exact from the InvGamma means (only finite when both
+        posteriors have alpha > 1).
+    sigma_R_lo, sigma_R_hi : equal-tail credible-interval bounds [m]
+        at the level ``credible``. From MC.
+    expected_R_median : E[R] in metres, marginalised over the joint
+        posterior + Hoyt asymmetry, computed by MC.
+    expected_R_lo, expected_R_hi : equal-tail CI on E[R] [m]. NB this
+        is the CI on the *expected* radial distance under the
+        posterior, NOT the CI of the actual radial distance (which is
+        a much wider Rayleigh-type spread).
+    n_mc : number of Monte Carlo samples used.
+    n_eff_min : min(n_eff_x, n_eff_y) — composite "warmth" indicator.
+        The radial summary is only as warm as its slowest axis.
+    n_eff_x, n_eff_y : per-axis effective sample counts.
+    is_warm : True iff both per-axis estimators are warm.
+    credible : credible level used for the CIs.
+    """
+
+    sigma_R_median: float
+    sigma_R_mean: float
+    sigma_R_lo: float
+    sigma_R_hi: float
+    expected_R_median: float
+    expected_R_lo: float
+    expected_R_hi: float
+    n_mc: int
+    n_eff_min: float
+    n_eff_x: float
+    n_eff_y: float
+    is_warm: bool
+    credible: float
+
+
+def combine_radial_posterior(
+    posterior_x: SigmaPosterior,
+    posterior_y: SigmaPosterior,
+    *,
+    credible: float = 0.90,
+    n_mc: int = 2000,
+    rng: Optional[np.random.Generator] = None,
+) -> RadialPosterior:
+    """Combine two per-axis InvGamma posteriors into a radial summary.
+
+    Pure function; no state.
+
+    Parameters
+    ----------
+    posterior_x, posterior_y : SigmaPosterior
+        Per-axis posteriors, typically from two
+        ``BayesianSigmaEstimator`` instances watching ``dx(t)`` and
+        ``dy(t)`` from ``base_position_xy_time_series``.
+    credible : float in (0, 1), default 0.90.
+        Equal-tail credible level for the CI bounds.
+    n_mc : int, default 2000.
+        Monte Carlo sample count. 2000 gives ~1 % stderr on the 5 %
+        and 95 % quantiles of sigma_R. Cheap (one scipy.invgamma.rvs
+        per axis + one normal draw per axis + one sqrt).
+    rng : optional numpy Generator. Defaults to a fresh
+        ``default_rng()`` seeded from the OS each call (so successive
+        calls give jittered but consistent estimates). Pass an explicit
+        Generator to make demos / tests reproducible.
+
+    Returns
+    -------
+    RadialPosterior. See the dataclass docstring for field semantics.
+    """
+    from scipy.stats import invgamma
+
+    if not (0.0 < credible < 1.0):
+        raise ValueError(f"credible must be in (0, 1), got {credible}")
+    if n_mc < 100:
+        raise ValueError(
+            f"n_mc must be >= 100 for usable quantiles, got {n_mc}"
+        )
+
+    if rng is None:
+        rng = np.random.default_rng()
+
+    # Sample sigma_x^2, sigma_y^2 from their InvGamma posteriors. Use
+    # scipy's parameterisation (a=alpha, scale=beta) consistently with
+    # SigmaPosterior.posterior().
+    sigma2_x_samples = invgamma.rvs(
+        a=posterior_x.alpha, scale=posterior_x.beta,
+        size=n_mc, random_state=rng,
+    )
+    sigma2_y_samples = invgamma.rvs(
+        a=posterior_y.alpha, scale=posterior_y.beta,
+        size=n_mc, random_state=rng,
+    )
+    sigma_R_samples = np.sqrt(sigma2_x_samples + sigma2_y_samples)
+
+    # E[R | sigma_x, sigma_y]: for each MC draw of (sigma_x, sigma_y),
+    # the conditional Hoyt mean is itself an integral. Cheapest exact
+    # marginalisation: one extra (X, Y) draw per MC sample, then
+    # mean(sqrt(X^2+Y^2)) is an unbiased estimator of E[R]. With
+    # n_mc=2000 the SE on E[R] is ~0.5 %.
+    sigma_x_samples = np.sqrt(sigma2_x_samples)
+    sigma_y_samples = np.sqrt(sigma2_y_samples)
+    X = rng.standard_normal(n_mc) * sigma_x_samples
+    Y = rng.standard_normal(n_mc) * sigma_y_samples
+    R_samples = np.sqrt(X * X + Y * Y)
+
+    # Quantiles.
+    lo_q = 0.5 * (1.0 - credible)
+    hi_q = 1.0 - lo_q
+    sigma_R_median = float(np.median(sigma_R_samples))
+    sigma_R_lo = float(np.quantile(sigma_R_samples, lo_q))
+    sigma_R_hi = float(np.quantile(sigma_R_samples, hi_q))
+
+    # Closed-form mean (exact, no MC noise) when both alphas > 1.
+    if posterior_x.alpha > 1.0 and posterior_y.alpha > 1.0:
+        sigma_R_mean = float(np.sqrt(
+            posterior_x.beta / (posterior_x.alpha - 1.0)
+            + posterior_y.beta / (posterior_y.alpha - 1.0)
+        ))
+    else:
+        sigma_R_mean = float("inf")
+
+    # E[R]: report MC mean as the point estimate (exact under both
+    # posterior uncertainty AND Hoyt asymmetry of the in-window R |
+    # sigma_x, sigma_y). For the CI on E[R], we report quantiles of
+    # the per-sample conditional mean E[R | sigma_x, sigma_y]. We use
+    # the equal-variance approximation
+    #   E[R | sigma_x, sigma_y] ~ sqrt(sigma_x^2+sigma_y^2) * sqrt(pi)/2
+    # whose worst-case bias for sigma_y/sigma_x in [0.5, 2.0] is ~3 %;
+    # exact only at sigma_y/sigma_x = 1 (Rayleigh). Documented caveat.
+    cond_R_means = sigma_R_samples * (np.sqrt(np.pi) / 2.0)
+    expected_R_median = float(np.mean(R_samples))
+    expected_R_lo = float(np.quantile(cond_R_means, lo_q))
+    expected_R_hi = float(np.quantile(cond_R_means, hi_q))
+
+    n_eff_x = float(posterior_x.n_eff)
+    n_eff_y = float(posterior_y.n_eff)
+    n_eff_min = float(min(n_eff_x, n_eff_y))
+    is_warm = (n_eff_x >= 1.0) and (n_eff_y >= 1.0)
+
+    return RadialPosterior(
+        sigma_R_median=sigma_R_median,
+        sigma_R_mean=sigma_R_mean,
+        sigma_R_lo=sigma_R_lo,
+        sigma_R_hi=sigma_R_hi,
+        expected_R_median=expected_R_median,
+        expected_R_lo=expected_R_lo,
+        expected_R_hi=expected_R_hi,
+        n_mc=int(n_mc),
+        n_eff_min=n_eff_min,
+        n_eff_x=n_eff_x,
+        n_eff_y=n_eff_y,
+        is_warm=bool(is_warm),
+        credible=float(credible),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Decorrelation-time helper
 # ---------------------------------------------------------------------------
 
@@ -486,9 +771,118 @@ class BayesianSigmaEstimator:
             credible=float(credible),
         )
 
+    # ----- diagnostics -----
+
+    def health(
+        self,
+        credible: float = 0.90,
+        n_eff_threshold: float = 1.0,
+    ) -> PosteriorHealth:
+        """Cheap runtime diagnostics on the posterior assumptions.
+
+        Pure function over the buffer; does not mutate state.
+
+        Parameters
+        ----------
+        credible : float in (0, 1). Credible level used to compute the
+            interval against which ``prior_in_credible_interval`` is
+            tested. Default 0.90 (matches the default in ``posterior``).
+        n_eff_threshold : float. Threshold for the ``is_warm`` flag,
+            forwarded to ``is_warm()``. Default 1.0.
+
+        Returns
+        -------
+        PosteriorHealth. See that dataclass for field semantics. NaN is
+        used for any primitive that is undefined at the current sample
+        count (e.g. kurtosis with n_raw < 4).
+        """
+        n_raw = self.n_raw
+        n_eff = self.n_eff
+        warm = self.is_warm(n_eff_threshold=n_eff_threshold)
+
+        if n_raw == 0:
+            nan = float("nan")
+            return PosteriorHealth(
+                n_raw=0,
+                n_eff=float(n_eff),
+                is_warm=warm,
+                n_eff_threshold=float(n_eff_threshold),
+                sample_mean=nan,
+                sample_mean_over_sigma=nan,
+                prior_in_credible_interval=True,  # posterior == prior
+                kurtosis_excess=nan,
+                halves_sigma_ratio=nan,
+            )
+
+        # Sample mean. Cheap from the running sum.
+        sample_mean = float(self._sum / n_raw)
+
+        # Posterior median sigma -- needed for the A2 ratio and for the
+        # prior-in-CI test. Reuse posterior() so we get the same Bartlett
+        # ESS and the same credible interval semantics.
+        post = self.posterior(credible=credible)
+
+        if post.sigma_median > 0.0:
+            sample_mean_over_sigma = float(abs(sample_mean) / post.sigma_median)
+        else:
+            sample_mean_over_sigma = float("nan")
+
+        prior_sigma = float(np.sqrt(self.prior_sigma2))
+        prior_in_ci = bool(post.sigma_lo <= prior_sigma <= post.sigma_hi)
+
+        # Sample kurtosis (excess). Use the zero-mean form to be
+        # consistent with the estimator's working assumption; this also
+        # avoids confounding A2 (mean offset) with A3 (heavy tails).
+        if n_raw >= 4:
+            x = np.fromiter(self._buffer, dtype=float, count=n_raw)
+            if self.assume_zero_mean:
+                m2 = float(np.mean(x * x))
+                m4 = float(np.mean(x * x * x * x))
+            else:
+                xc = x - np.mean(x)
+                m2 = float(np.mean(xc * xc))
+                m4 = float(np.mean(xc * xc * xc * xc))
+            if m2 > 0.0:
+                kurtosis_excess = float(m4 / (m2 * m2) - 3.0)
+            else:
+                kurtosis_excess = float("nan")
+
+            # Halves split for stationarity. Zero-mean RMS of each half.
+            half = n_raw // 2
+            x1 = x[:half]
+            x2 = x[-half:]
+            if self.assume_zero_mean:
+                s1 = float(np.sqrt(np.mean(x1 * x1)))
+                s2 = float(np.sqrt(np.mean(x2 * x2)))
+            else:
+                s1 = float(np.std(x1, ddof=0))
+                s2 = float(np.std(x2, ddof=0))
+            if s1 > 0.0:
+                halves_sigma_ratio = float(s2 / s1)
+            else:
+                halves_sigma_ratio = float("nan")
+        else:
+            kurtosis_excess = float("nan")
+            halves_sigma_ratio = float("nan")
+
+        return PosteriorHealth(
+            n_raw=int(n_raw),
+            n_eff=float(n_eff),
+            is_warm=warm,
+            n_eff_threshold=float(n_eff_threshold),
+            sample_mean=sample_mean,
+            sample_mean_over_sigma=sample_mean_over_sigma,
+            prior_in_credible_interval=prior_in_ci,
+            kurtosis_excess=kurtosis_excess,
+            halves_sigma_ratio=halves_sigma_ratio,
+        )
+
 
 __all__ = [
     "SigmaPosterior",
+    "PosteriorHealth",
+    "RadialPosterior",
     "BayesianSigmaEstimator",
+    "combine_radial_posterior",
     "closed_loop_decorrelation_time",
 ]

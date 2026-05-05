@@ -66,10 +66,12 @@ from cqa import (
     slow_drift_force_psd_newman_pdstrip,
     BayesianSigmaEstimator,
     closed_loop_decorrelation_time,
+    combine_radial_posterior,
     realise_vector_force_time_series,
     integrate_closed_loop_response,
     realise_wave_motion_6dof,
     radial_position_time_series,
+    base_position_xy_time_series,
     telescope_length_deviation_time_series,
     predictive_running_max_quantile,
     bandsplit_lowpass,
@@ -176,7 +178,14 @@ def main() -> None:
     )
 
     # --- Channel projections -------------------------------------------
-    r = radial_position_time_series(x_lf, xi_wf, cfg)             # (N_t,)
+    # Per-axis (dx, dy) AND aggregated radial r. The per-axis channels
+    # are the right input for the online BayesianSigmaEstimator: x and
+    # y are zero-mean by DP construction (A2 holds), whereas the
+    # aggregated r is Rayleigh and has structural non-zero mean
+    # E[r] = sqrt(pi/2)*sigma -- which contaminates the
+    # sample_mean_over_sigma health primitive.
+    dx, dy = base_position_xy_time_series(x_lf, xi_wf, cfg)        # (N_t,) each
+    r = radial_position_time_series(x_lf, xi_wf, cfg)              # (N_t,)
     dL = telescope_length_deviation_time_series(x_lf, xi_wf, joint, cfg)
 
     # Band-split the telescope channel into low-frequency (closed-loop
@@ -198,8 +207,16 @@ def main() -> None:
         variance_decorrelation_time_from_psd(wave.integrand, wave.omega)
     )
 
+    print(f"  empirical sigma(dx)    [sqrt E[dx^2]]   = "
+          f"{np.sqrt(np.mean(dx*dx)):.3f} m   (zero-mean axis)")
+    print(f"  empirical sigma(dy)    [sqrt E[dy^2]]   = "
+          f"{np.sqrt(np.mean(dy*dy)):.3f} m   (zero-mean axis)")
+    print(f"  empirical mean(dx) / sigma(dx)          = "
+          f"{abs(np.mean(dx))/np.sqrt(np.mean(dx*dx)):.3f}   (A2 indicator)")
+    print(f"  empirical mean(dy) / sigma(dy)          = "
+          f"{abs(np.mean(dy))/np.sqrt(np.mean(dy*dy)):.3f}   (A2 indicator)")
     print(f"  empirical sigma(r)     [sqrt E[r^2]]    = "
-          f"{np.sqrt(np.mean(r*r)):.3f} m")
+          f"{np.sqrt(np.mean(r*r)):.3f} m   (Rayleigh aggregate)")
     print(f"  empirical sigma(dL)    [sqrt E[dL^2]]   = "
           f"{np.sqrt(np.mean(dL*dL)):.3f} m   (full-band)")
     print(f"  empirical sigma(dL_lf) [sqrt E[dL_lf^2]] = "
@@ -207,7 +224,6 @@ def main() -> None:
     print(f"  empirical sigma(dL_wf) [sqrt E[dL_wf^2]] = "
           f"{np.sqrt(np.mean(dL_wf*dL_wf)):.3f} m  (wave band)")
     print(f"  T_var_wf (from wave PSD) = {T_decorr_wave_var_s:.1f} s")
-    print(f"  (NB: r(t) is Rayleigh-distributed so np.std(r) != sigma_radial)")
 
     # WF Vanmarcke bandwidth from the actual JONSWAP*RAO product PSD
     # (typical CSOV value ~0.16, vs the 0.30 narrowband proxy fallback).
@@ -220,7 +236,10 @@ def main() -> None:
         quantiles=(0.50, 0.90),
         q_wave=q_wave_spec,
     )
-    print(f"\nModel-prior sigma_radial = {prior.pos_sigma_m:.3f} m")
+    print(f"\nModel-prior sigma_x      = {prior.pos_sigma_x_m:.3f} m  (zero-mean axis)")
+    print(f"Model-prior sigma_y      = {prior.pos_sigma_y_m:.3f} m  (zero-mean axis)")
+    print(f"Model-prior sigma_radial = {prior.pos_sigma_m:.3f} m  "
+          f"(= sqrt(sigma_x^2 + sigma_y^2))")
     print(f"Model-prior sigma_slow   = {prior.gw_sigma_slow_m:.3f} m")
     print(f"Model-prior sigma_wave   = {prior.gw_sigma_wave_m:.3f} m  (RAO, fixed)")
 
@@ -232,22 +251,35 @@ def main() -> None:
     dt_obs = dt_s * obs_stride
     obs_idx = np.arange(0, N_t, obs_stride)
 
-    T_decorr_pos = float(prior.pos_T_decorr_var_s)
-    T_decorr_gw  = float(prior.gw_T_decorr_var_s)
+    T_decorr_pos_x = float(prior.pos_T_decorr_var_x_s)
+    T_decorr_pos_y = float(prior.pos_T_decorr_var_y_s)
+    T_decorr_pos   = float(prior.pos_T_decorr_var_s)  # max(x,y), kept for badge
+    T_decorr_gw    = float(prior.gw_T_decorr_var_s)
     T_decorr_pos_legacy = closed_loop_decorrelation_time(cfg.controller, "position")
     T_decorr_gw_legacy  = closed_loop_decorrelation_time(cfg.controller, "sway")
-    print(f"\nT_decorr (position, variance-estimator from PSD) = "
-          f"{T_decorr_pos:.1f} s   "
-          f"[legacy 1/(zeta*omega_n) = {T_decorr_pos_legacy:.1f} s, "
-          f"ratio {T_decorr_pos/T_decorr_pos_legacy:.2f}x]")
+    print(f"\nT_decorr (pos x, variance-estimator from PSD) = "
+          f"{T_decorr_pos_x:.1f} s")
+    print(f"T_decorr (pos y, variance-estimator from PSD) = "
+          f"{T_decorr_pos_y:.1f} s   "
+          f"[radial = max(x,y) = {T_decorr_pos:.1f} s; "
+          f"legacy 1/(zeta*omega_n) = {T_decorr_pos_legacy:.1f} s]")
     print(f"T_decorr (gangway slow, variance-estimator from PSD) = "
           f"{T_decorr_gw:.1f} s   "
           f"[legacy 1/(zeta*omega_n) = {T_decorr_gw_legacy:.1f} s, "
           f"ratio {T_decorr_gw/T_decorr_gw_legacy:.2f}x]")
 
-    est_pos = BayesianSigmaEstimator(
-        prior_sigma2=prior.pos_sigma_m ** 2,
-        T_decorr_s=T_decorr_pos,
+    # Per-axis position estimators -- A2 (zero-mean) holds on (dx, dy)
+    # by DP construction, so the sample_mean_over_sigma health primitive
+    # is a meaningful "DP integral / observer bias settled?" diagnostic.
+    est_pos_x = BayesianSigmaEstimator(
+        prior_sigma2=prior.pos_sigma_x_m ** 2,
+        T_decorr_s=T_decorr_pos_x,
+        dt_s=dt_obs,
+        window_s=T_op_s,
+    )
+    est_pos_y = BayesianSigmaEstimator(
+        prior_sigma2=prior.pos_sigma_y_m ** 2,
+        T_decorr_s=T_decorr_pos_y,
         dt_s=dt_obs,
         window_s=T_op_s,
     )
@@ -267,31 +299,133 @@ def main() -> None:
         window_s=T_op_s,
     )
     for k in obs_idx:
-        est_pos.update(float(r[k]))
+        est_pos_x.update(float(dx[k]))
+        est_pos_y.update(float(dy[k]))
         est_gw.update(float(dL_lf[k]))
         est_gw_wf.update(float(dL_wf[k]))
 
-    sig_pos_post_p   = est_pos.posterior(credible=0.90)
+    sig_pos_x_post_p = est_pos_x.posterior(credible=0.90)
+    sig_pos_y_post_p = est_pos_y.posterior(credible=0.90)
     sig_gw_post_p    = est_gw.posterior(credible=0.90)
     sig_gw_wf_post_p = est_gw_wf.posterior(credible=0.90)
-    sig_pos_post   = sig_pos_post_p.sigma_median
+    health_pos_x = est_pos_x.health(credible=0.90)
+    health_pos_y = est_pos_y.health(credible=0.90)
+    health_gw    = est_gw.health(credible=0.90)
+    health_gw_wf = est_gw_wf.health(credible=0.90)
+
+    # Combine per-axis posteriors -> radial sigma for the Rice formula.
+    # Valid when (x, y) are uncorrelated; for the canonical decoupled
+    # surge/sway controllers cov(x,y) is ~0 even at oblique sea states.
+    sig_pos_x_post = sig_pos_x_post_p.sigma_median
+    sig_pos_y_post = sig_pos_y_post_p.sigma_median
+    sig_pos_post   = float(np.sqrt(sig_pos_x_post ** 2 + sig_pos_y_post ** 2))
     sig_gw_post    = sig_gw_post_p.sigma_median
     sig_gw_wf_post = sig_gw_wf_post_p.sigma_median
-    n_eff_pos   = est_pos.n_eff
+
+    # Effective sample counts. Radial badge is the per-axis MIN
+    # (worst case): the radial estimate is only as warm as its slowest
+    # contributor.
+    n_eff_pos_x = est_pos_x.n_eff
+    n_eff_pos_y = est_pos_y.n_eff
+    n_eff_pos   = float(min(n_eff_pos_x, n_eff_pos_y))
     n_eff_gw    = est_gw.n_eff
     n_eff_gw_wf = est_gw_wf.n_eff
-    print(f"\nPosterior sigma_radial = {sig_pos_post:.3f} m  "
-          f"(90% CI [{sig_pos_post_p.sigma_lo:.3f}, {sig_pos_post_p.sigma_hi:.3f}], "
-          f"n_eff={n_eff_pos:.1f}, warm={est_pos.is_warm()})")
+    print(f"\nPosterior sigma_x      = {sig_pos_x_post:.3f} m  "
+          f"(90% CI [{sig_pos_x_post_p.sigma_lo:.3f}, {sig_pos_x_post_p.sigma_hi:.3f}], "
+          f"n_eff={n_eff_pos_x:.1f}, warm={est_pos_x.is_warm()})")
+    print(f"Posterior sigma_y      = {sig_pos_y_post:.3f} m  "
+          f"(90% CI [{sig_pos_y_post_p.sigma_lo:.3f}, {sig_pos_y_post_p.sigma_hi:.3f}], "
+          f"n_eff={n_eff_pos_y:.1f}, warm={est_pos_y.is_warm()})")
+    print(f"Posterior sigma_radial = {sig_pos_post:.3f} m  "
+          f"(combined; n_eff_min={n_eff_pos:.1f})")
     print(f"Posterior sigma_slow   = {sig_gw_post:.3f} m  "
           f"(90% CI [{sig_gw_post_p.sigma_lo:.3f}, {sig_gw_post_p.sigma_hi:.3f}], "
           f"n_eff={n_eff_gw:.1f}, warm={est_gw.is_warm()})")
     print(f"Posterior sigma_wave   = {sig_gw_wf_post:.3f} m  "
           f"(90% CI [{sig_gw_wf_post_p.sigma_lo:.3f}, {sig_gw_wf_post_p.sigma_hi:.3f}], "
           f"n_eff={n_eff_gw_wf:.1f}, warm={est_gw_wf.is_warm()})")
-    print(f"Ratios: radial post/prior = {sig_pos_post/prior.pos_sigma_m:.3f}, "
+    print(f"Ratios: x post/prior = {sig_pos_x_post/prior.pos_sigma_x_m:.3f}, "
+          f"y post/prior = {sig_pos_y_post/prior.pos_sigma_y_m:.3f}, "
+          f"radial post/prior = {sig_pos_post/prior.pos_sigma_m:.3f}, "
           f"slow post/prior = {sig_gw_post/prior.gw_sigma_slow_m:.3f}, "
           f"wave post/prior = {sig_gw_wf_post/sigma_L_wave_m:.3f}")
+
+    # --- Posterior health diagnostics ----------------------------------
+    # Primary signal: |sample_mean|/sigma. Catches DP integral term not
+    # yet settled (~2-5 min), observer bias still converging (~1-2 min),
+    # persistent low-frequency disturbance, setpoint drift. Operator
+    # band thresholds: <0.1 settled, 0.1-0.3 warming, 0.3-1.0 unsettled,
+    # >=1.0 invalid (variance estimate inflated by 2x or more).
+    def _badge(h) -> str:
+        if not h.is_warm:
+            return "WARMING"
+        r_ratio = h.sample_mean_over_sigma
+        if not np.isfinite(r_ratio):
+            return "?"
+        if r_ratio >= 1.0:
+            return "INVALID"
+        if r_ratio >= 0.3:
+            return "UNSETTLED"
+        if r_ratio >= 0.1:
+            return "warming"
+        return "ok"
+
+    def _worst(b1: str, b2: str) -> str:
+        rank = {"ok": 0, "warming": 1, "WARMING": 2, "UNSETTLED": 3, "INVALID": 4, "?": 5}
+        return b1 if rank.get(b1, -1) >= rank.get(b2, -1) else b2
+
+    print(f"\nPosterior health (assumption diagnostics):")
+    for label, h in [
+        ("pos x    ", health_pos_x),
+        ("pos y    ", health_pos_y),
+        ("slow gw  ", health_gw),
+        ("wave gw  ", health_gw_wf),
+    ]:
+        print(
+            f"  {label}: |mean|/sigma={h.sample_mean_over_sigma:.3f}  "
+            f"prior_in_CI={h.prior_in_credible_interval}  "
+            f"kurt_excess={h.kurtosis_excess:+.2f}  "
+            f"halves_ratio={h.halves_sigma_ratio:.2f}  "
+            f"[{_badge(h)}]"
+        )
+    radial_badge = _worst(_badge(health_pos_x), _badge(health_pos_y))
+    print(f"  radial   : composite badge (worst of x, y) = [{radial_badge}]")
+
+    # --- Operator-facing radial posterior ------------------------------
+    # combine_radial_posterior produces a single sigma_R = sqrt(sigma_x^2
+    # + sigma_y^2) summary (the natural Rice-formula radial scale) and
+    # an MC-marginalised E[R] = expected typical radial deviation.
+    # This is the "front-page" radial number for the operator.
+    rad_post = combine_radial_posterior(
+        sig_pos_x_post_p, sig_pos_y_post_p,
+        credible=0.90, n_mc=5000,
+        rng=np.random.default_rng(2024),
+    )
+    print(f"\nOperator radial posterior:")
+    print(f"  sigma_R          = {rad_post.sigma_R_median:.3f} m  "
+          f"(90% CI [{rad_post.sigma_R_lo:.3f}, {rad_post.sigma_R_hi:.3f}])")
+    print(f"  E[|R|] (typical) = {rad_post.expected_R_median:.3f} m  "
+          f"(90% CI [{rad_post.expected_R_lo:.3f}, {rad_post.expected_R_hi:.3f}])")
+
+    # Tier A sanity check: the SAME identities, computed empirically on
+    # the realisation r(t). For 5 min of data this is one realisation
+    # of a stochastic process; we expect agreement to within the
+    # posterior CI half-width, NOT to two-decimal precision. The point
+    # is to flag gross errors (sign mistakes, factor-of-2 errors, broken
+    # combination logic) -- this is a regression check, not a hypothesis
+    # test. For CI-coverage validation across many seeds, see Tier B
+    # (separate validation script).
+    sigma_R_emp = float(np.sqrt(np.mean(r * r)))   # E[R^2] = sigma_x^2+sigma_y^2
+    ER_emp = float(np.mean(r))
+    in_ci_sigma_R = rad_post.sigma_R_lo <= sigma_R_emp <= rad_post.sigma_R_hi
+    in_ci_ER = rad_post.expected_R_lo <= ER_emp <= rad_post.expected_R_hi
+    print(f"\n  Tier A check vs realisation r(t):")
+    print(f"    empirical sqrt(E[R^2]) = {sigma_R_emp:.3f} m  "
+          f"(predicted sigma_R = {rad_post.sigma_R_median:.3f}; "
+          f"empirical in 90% CI: {in_ci_sigma_R})")
+    print(f"    empirical mean(|R|)    = {ER_emp:.3f} m  "
+          f"(predicted E[|R|] = {rad_post.expected_R_median:.3f}; "
+          f"empirical in 90% CI: {in_ci_ER})")
 
     # --- Posterior summary (same shapes, data-conditioned median sigma) ---
     posterior = summarise_intact_prior(
@@ -303,18 +437,33 @@ def main() -> None:
         posterior_sigma_telescope_wave_m=sig_gw_wf_post,
         T_decorr_var_telescope_wave_s=T_decorr_wave_var_s,
         q_wave=q_wave_spec,
+        posterior_health_radial_x=health_pos_x,
+        posterior_health_radial_y=health_pos_y,
+        posterior_health_telescope_slow=health_gw,
+        posterior_health_telescope_wave=health_gw_wf,
     )
 
     # --- Marginalised predictive P90: integrates over the posterior
     # uncertainty in sigma. ONE number per channel that the operator
     # can act on directly: "with 90% confidence the running max stays
     # below this value over the next T_op."
+    #
+    # Radial: pass two independent InvGamma bands (x and y), each with
+    # its own posterior. Uses pos_nu0_max / pos_q as a conservative
+    # shared bandwidth (same approximation used by summarise_intact_prior
+    # for the plug-in path; per-axis nu_0_+ / q exposure is a follow-up).
+    # The multi-band Rice composes the bilateral envelope correctly when
+    # the two channels are uncorrelated (canonical decoupled controllers).
     p_target = 1.0 - 0.90  # P(M > a) <= 0.10  <=>  P90 of the running max
     a_pred_pos = predictive_running_max_quantile(
         p=p_target,
-        bands=[((sig_pos_post_p.alpha, sig_pos_post_p.beta),
-                posterior.pos_nu0_max, posterior.pos_q)],
-        T=T_op_s, bilateral=True, clustering="vanmarcke", n_quad=64,
+        bands=[
+            ((sig_pos_x_post_p.alpha, sig_pos_x_post_p.beta),
+             posterior.pos_nu0_max, posterior.pos_q),
+            ((sig_pos_y_post_p.alpha, sig_pos_y_post_p.beta),
+             posterior.pos_nu0_max, posterior.pos_q),
+        ],
+        T=T_op_s, bilateral=True, clustering="vanmarcke", n_quad=32,
     )
     gw_bands = [((sig_gw_post_p.alpha, sig_gw_post_p.beta),
                  posterior.gw_nu0_slow, posterior.gw_q_slow)]
