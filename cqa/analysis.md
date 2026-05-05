@@ -1146,3 +1146,31 @@ calibration), `cqa/tests/test_transient.py` (3 score tests),
 * The `wcfdi_self_mc` engine itself is general-purpose; promoting it
   to a public API (with its own demo / validation script) is a small
   follow-on.
+
+**Visualisation: bistability spaghetti.** A direct illustration of
+the bistability is produced by
+`scripts/diagnose_bistability_spaghetti.py`, which runs M=128
+stochastic post-failure realisations at the deep-band operating point
+(CSOV defaults, `V_w = 14 m/s` beam, alpha=2/3, `t_end = 400 s`) and
+plots all per-realisation sway trajectories on a single axis,
+colour-coded by recovery (green if `|eta_y(t_end)| < 5 m`, red
+otherwise), with the deterministic linear-predictor mean overlaid.
+Output: `csov_wcfdi_bistability_spaghetti.png`.
+
+At this operating point the deterministic mean stays on the
+recovering branch (peak ~ 1.9 m, returns to the new equilibrium
+within ~ 200 s), but 50/128 = 39% of the realisations diverge onto
+the runaway branch -- they sit on top of each other and look like a
+single bundle until ~ 60-100 s after the failure, then bifurcate.
+The companion peak-`|eta_y|` histogram makes the bimodality
+explicit: a tight green cluster around the deterministic peak versus
+a broad red tail extending well beyond the IMCA alarm radii. The
+score for this point is ~ 6, which is consistent with the
+> 5 -> < 70% recovery row of the calibration table above and far
+above the gate threshold of 1.5.
+
+This is the picture that motivates the entire bistability gate: the
+mean trajectory alone is *not* a sufficient operability statistic in
+the saturated band, and a cheap deterministic indicator
+(`bistability_risk_score`) is the right way to flag it without
+running MC in the operational loop.

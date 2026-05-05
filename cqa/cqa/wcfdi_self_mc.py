@@ -124,6 +124,11 @@ class WcfdiSelfMcResult:
     operating_point: dict
     metrics: dict
     info: dict = field(default_factory=dict)
+    eta_realisations: Optional[np.ndarray] = None
+    """(n_realisations, n_t, 3) per-realisation eta trajectories, or
+    None unless the call passed ``return_realisations=True``. Memory:
+    ``8 * n_realisations * n_t * 3`` bytes (e.g. ~1.2 MB for M=128,
+    n_t=401)."""
 
 
 # ---------------------------------------------------------------------------
@@ -318,6 +323,7 @@ def wcfdi_self_mc(
     tau_Vc: float = 600.0,
     seed=None,
     progress_cb: Optional[Callable[[int, int], None]] = None,
+    return_realisations: bool = False,
 ) -> WcfdiSelfMcResult:
     """Run the time-domain self-MC at a single operating point.
 
@@ -337,6 +343,10 @@ def wcfdi_self_mc(
     seed : base seed; per-realisation seeds are derived as
         `(seed, k)` via `np.random.SeedSequence`.
     progress_cb : optional callable(k, n) called once per realisation.
+    return_realisations : if True, the returned
+        ``WcfdiSelfMcResult.eta_realisations`` holds the full
+        ``(n_realisations, n_t, 3)`` ensemble (default False to keep
+        the result lightweight).
 
     Returns
     -------
@@ -486,6 +496,7 @@ def wcfdi_self_mc(
         operating_point=operating_point,
         metrics=metrics,
         info=info,
+        eta_realisations=eta_post_all if return_realisations else None,
     )
 
 
