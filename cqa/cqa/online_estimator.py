@@ -509,6 +509,251 @@ def combine_radial_posterior(
 
 
 # ---------------------------------------------------------------------------
+# Validity badge: compose A1-A5 health primitives into a single verdict
+# ---------------------------------------------------------------------------
+
+
+# Ordered worst-to-best for max() comparison: a numeric rank works fine
+# but using strings + a dict keeps the public API human-readable.
+_VALIDITY_RANK = {"OK": 0, "WARMING": 1, "UNSETTLED": 2, "INVALID": 3}
+_VALIDITY_LEVELS = ("OK", "WARMING", "UNSETTLED", "INVALID")
+
+
+def _worst_validity(*levels: str) -> str:
+    """Return the highest-severity validity level among the args."""
+    return max(levels, key=lambda v: _VALIDITY_RANK[v])
+
+
+@dataclass(frozen=True)
+class ValidityBadge:
+    """Composite operator-facing verdict on a single posterior channel.
+
+    Built by ``compose_validity_badge`` from a ``PosteriorHealth`` plus
+    optional thresholds. The ``level`` is a single 4-state badge
+    (OK / WARMING / UNSETTLED / INVALID) computed as the worst over
+    five per-assumption verdicts; ``reasons`` is a human-readable list
+    of strings naming every primitive that contributed *at or above*
+    WARMING. Empty for a fully OK channel.
+
+    Per-assumption verdicts
+    -----------------------
+    A4 (n_eff): below ``n_eff_min`` -> INVALID, below ``n_eff_warm`` ->
+        WARMING, otherwise OK. Rationale: ``n_eff < 2`` means the
+        posterior is the prior + noise; we cannot trust *any* of the
+        other primitives if there are not at least a couple of
+        independent draws in the window.
+    A2 (|mean|/sigma): the four-band ``[0.1, 0.3, 1.0]`` ladder
+        documented on ``PosteriorHealth.sample_mean_over_sigma``.
+        NaN -> INVALID (window empty or sigma_median <= 0).
+    A1 (halves_sigma_ratio): inside ``[1/1.5, 1.5]`` OK, inside
+        ``[1/2, 2]`` WARMING, outside UNSETTLED. NaN (n_raw < 4) ->
+        skipped (treated as OK; A4 already governs the cold case).
+        Rationale: stationarity violations inflate the variance
+        estimate but do not make it nonsensical -- they degrade
+        gracefully.
+    A3 (|kurtosis_excess|): inside 0.5 OK, inside 1.5 WARMING,
+        outside UNSETTLED. NaN (n_raw < 4) -> skipped. Caveat:
+        sample kurtosis has variance ~24/n_raw under H0=Gaussian, so
+        the WARMING band fires routinely below ~50 raw samples and
+        should be interpreted loosely there.
+    A5 (prior_in_credible_interval): False -> WARMING only.
+        Rationale: posterior contradicting prior is informational
+        ("model and data disagree, investigate") but does not
+        invalidate the data-driven posterior; the data wins.
+
+    Fields
+    ------
+    level : str. One of ``"OK"``, ``"WARMING"``, ``"UNSETTLED"``,
+        ``"INVALID"``. Worst over the per-assumption verdicts.
+    reasons : tuple[str, ...]. Human-readable strings for every
+        primitive that was at or above WARMING. Empty when level=OK.
+        Each string starts with the assumption tag (``"A2: ..."``)
+        and ends with the threshold band that fired.
+    """
+
+    level: str
+    reasons: tuple
+
+
+def compose_validity_badge(
+    health: PosteriorHealth,
+    *,
+    n_eff_min: float = 2.0,
+    n_eff_warm: float = 5.0,
+    a2_warming: float = 0.1,
+    a2_unsettled: float = 0.3,
+    a2_invalid: float = 1.0,
+    a1_ok_ratio: float = 1.5,
+    a1_warm_ratio: float = 2.0,
+    a3_ok: float = 0.5,
+    a3_warm: float = 1.5,
+) -> ValidityBadge:
+    """Compose A1-A5 health primitives into a single per-channel
+    validity badge.
+
+    Pure function; no state. Defaults match the operator-band
+    suggestions documented on ``PosteriorHealth``. All thresholds are
+    overridable per call so the C++ panel layer can tune per site /
+    per channel.
+
+    Parameters
+    ----------
+    health : PosteriorHealth
+        From ``BayesianSigmaEstimator.health(...)``.
+    n_eff_min : float, default 2.0.
+        Below this the posterior is the prior + noise -> INVALID.
+    n_eff_warm : float, default 5.0.
+        Below this but at least ``n_eff_min`` -> WARMING.
+    a2_warming, a2_unsettled, a2_invalid : float, defaults
+        ``0.1, 0.3, 1.0``. ``|sample_mean| / sigma_median`` thresholds
+        for the A2 ladder.
+    a1_ok_ratio, a1_warm_ratio : float, defaults ``1.5, 2.0``.
+        ``halves_sigma_ratio`` is OK if it lies in
+        ``[1/a1_ok_ratio, a1_ok_ratio]``, WARMING if in
+        ``[1/a1_warm_ratio, a1_warm_ratio]``, else UNSETTLED.
+    a3_ok, a3_warm : float, defaults ``0.5, 1.5``.
+        ``|kurtosis_excess|`` thresholds.
+
+    Returns
+    -------
+    ValidityBadge.
+    """
+    if not (n_eff_min > 0.0 and n_eff_warm >= n_eff_min):
+        raise ValueError(
+            f"require n_eff_warm >= n_eff_min > 0; got "
+            f"n_eff_min={n_eff_min}, n_eff_warm={n_eff_warm}"
+        )
+    if not (0.0 < a2_warming < a2_unsettled < a2_invalid):
+        raise ValueError(
+            f"A2 thresholds must satisfy 0 < a2_warming < a2_unsettled < "
+            f"a2_invalid; got {a2_warming}, {a2_unsettled}, {a2_invalid}"
+        )
+    if not (1.0 < a1_ok_ratio <= a1_warm_ratio):
+        raise ValueError(
+            f"A1 thresholds must satisfy 1 < a1_ok_ratio <= a1_warm_ratio; "
+            f"got {a1_ok_ratio}, {a1_warm_ratio}"
+        )
+    if not (0.0 < a3_ok < a3_warm):
+        raise ValueError(
+            f"A3 thresholds must satisfy 0 < a3_ok < a3_warm; "
+            f"got {a3_ok}, {a3_warm}"
+        )
+
+    reasons = []
+
+    # A4 warmth (governs everything else; checked first because if
+    # there are too few independent draws, the other primitives are
+    # noise).
+    if health.n_eff < n_eff_min:
+        a4 = "INVALID"
+        reasons.append(
+            f"A4: n_eff={health.n_eff:.1f} below INVALID threshold "
+            f"{n_eff_min:.1f} (posterior is essentially the prior)"
+        )
+    elif health.n_eff < n_eff_warm:
+        a4 = "WARMING"
+        reasons.append(
+            f"A4: n_eff={health.n_eff:.1f} below warm threshold "
+            f"{n_eff_warm:.1f}"
+        )
+    else:
+        a4 = "OK"
+
+    # A2 zero-mean (the operationally most important one).
+    r = health.sample_mean_over_sigma
+    if not np.isfinite(r):
+        a2 = "INVALID"
+        reasons.append(
+            "A2: sample_mean_over_sigma is NaN (window empty or "
+            "sigma_median <= 0)"
+        )
+    elif r >= a2_invalid:
+        a2 = "INVALID"
+        reasons.append(
+            f"A2: |mean|/sigma={r:.2f} >= {a2_invalid:.2f} "
+            f"(variance estimate inflated >=2x; likely setpoint drift "
+            f"or unmodeled DC bias)"
+        )
+    elif r >= a2_unsettled:
+        a2 = "UNSETTLED"
+        reasons.append(
+            f"A2: |mean|/sigma={r:.2f} in [{a2_unsettled:.2f}, "
+            f"{a2_invalid:.2f}) (variance inflated 9-100%; DP integral "
+            f"or observer bias likely still settling)"
+        )
+    elif r >= a2_warming:
+        a2 = "WARMING"
+        reasons.append(
+            f"A2: |mean|/sigma={r:.2f} in [{a2_warming:.2f}, "
+            f"{a2_unsettled:.2f})"
+        )
+    else:
+        a2 = "OK"
+
+    # A1 stationarity. NaN (window too short) -> skip; A4 already
+    # handles the cold case.
+    h = health.halves_sigma_ratio
+    if not np.isfinite(h):
+        a1 = "OK"
+    else:
+        # Symmetric in log-ratio: ratio and 1/ratio should land in the
+        # same band.
+        h_eff = max(h, 1.0 / h) if h > 0.0 else float("inf")
+        if h_eff <= a1_ok_ratio:
+            a1 = "OK"
+        elif h_eff <= a1_warm_ratio:
+            a1 = "WARMING"
+            reasons.append(
+                f"A1: halves_sigma_ratio={h:.2f} in warming band "
+                f"(|log| <= log({a1_warm_ratio:.2f}))"
+            )
+        else:
+            a1 = "UNSETTLED"
+            reasons.append(
+                f"A1: halves_sigma_ratio={h:.2f} outside "
+                f"[{1.0/a1_warm_ratio:.2f}, {a1_warm_ratio:.2f}] "
+                f"(non-stationarity within window: sea-state ramp, "
+                f"controller retune, or transient settling)"
+            )
+
+    # A3 Gaussianity. NaN -> skip.
+    k = health.kurtosis_excess
+    if not np.isfinite(k):
+        a3 = "OK"
+    else:
+        ka = abs(k)
+        if ka <= a3_ok:
+            a3 = "OK"
+        elif ka <= a3_warm:
+            a3 = "WARMING"
+            reasons.append(
+                f"A3: |kurtosis_excess|={ka:.2f} in warming band "
+                f"(noisy below ~50 raw samples; interpret loosely)"
+            )
+        else:
+            a3 = "UNSETTLED"
+            reasons.append(
+                f"A3: |kurtosis_excess|={ka:.2f} > {a3_warm:.2f} "
+                f"(heavy tails: thruster saturation, slamming, or "
+                f"non-Gaussian residuals)"
+            )
+
+    # A5 prior-in-CI. False -> WARMING only (informational, data wins).
+    if health.prior_in_credible_interval:
+        a5 = "OK"
+    else:
+        a5 = "WARMING"
+        reasons.append(
+            "A5: prior sigma falls outside the posterior CI "
+            "(model-data tension; investigate sea-state, controller "
+            "retune, or post-WCFDI state)"
+        )
+
+    level = _worst_validity(a4, a2, a1, a3, a5)
+    return ValidityBadge(level=level, reasons=tuple(reasons))
+
+
+# ---------------------------------------------------------------------------
 # Decorrelation-time helper
 # ---------------------------------------------------------------------------
 

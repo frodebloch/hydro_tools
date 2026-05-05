@@ -19,8 +19,10 @@ from cqa.online_estimator import (
     PosteriorHealth,
     RadialPosterior,
     SigmaPosterior,
+    ValidityBadge,
     closed_loop_decorrelation_time,
     combine_radial_posterior,
+    compose_validity_badge,
 )
 
 
@@ -854,3 +856,205 @@ def test_combine_radial_mean_offset_partial_input_yields_nan():
     assert np.isnan(rad_only_x.radial_mean_offset_over_sigma)
     assert np.isnan(rad_only_y.radial_mean_offset_m)
     assert np.isnan(rad_only_y.radial_mean_offset_over_sigma)
+
+
+# ---------------------------------------------------------------------------
+# compose_validity_badge: per-channel A1-A5 composition
+# ---------------------------------------------------------------------------
+
+
+def _mk_health(
+    *,
+    n_eff: float = 100.0,
+    sample_mean_over_sigma: float = 0.0,
+    halves_sigma_ratio: float = 1.0,
+    kurtosis_excess: float = 0.0,
+    prior_in_credible_interval: bool = True,
+    n_raw: int = 100,
+) -> PosteriorHealth:
+    """Synthesise a PosteriorHealth with chosen primitives. Other
+    fields take innocuous defaults; n_eff_threshold and is_warm follow
+    the conventional defaults so isolation is on the per-primitive
+    verdicts, not the warmth gate."""
+    return PosteriorHealth(
+        n_raw=n_raw,
+        n_eff=n_eff,
+        is_warm=(n_eff >= 5.0),
+        n_eff_threshold=5.0,
+        sample_mean=sample_mean_over_sigma,  # value irrelevant for compose
+        sample_mean_over_sigma=sample_mean_over_sigma,
+        prior_in_credible_interval=prior_in_credible_interval,
+        kurtosis_excess=kurtosis_excess,
+        halves_sigma_ratio=halves_sigma_ratio,
+    )
+
+
+def test_validity_badge_clean_health_is_ok():
+    """All primitives at nominal values -> OK with no reasons."""
+    h = _mk_health()
+    b = compose_validity_badge(h)
+    assert b.level == "OK"
+    assert b.reasons == ()
+
+
+def test_validity_badge_a4_invalid_below_n_eff_min():
+    """n_eff < n_eff_min -> INVALID (posterior is the prior)."""
+    h = _mk_health(n_eff=1.0)
+    b = compose_validity_badge(h)
+    assert b.level == "INVALID"
+    assert any("A4" in r for r in b.reasons)
+
+
+def test_validity_badge_a4_warming_between_thresholds():
+    """n_eff in [n_eff_min, n_eff_warm) -> WARMING."""
+    h = _mk_health(n_eff=3.0)
+    b = compose_validity_badge(h)
+    assert b.level == "WARMING"
+    assert any("A4" in r for r in b.reasons)
+
+
+def test_validity_badge_a2_ladder():
+    """A2 |mean|/sigma four-band ladder."""
+    assert compose_validity_badge(
+        _mk_health(sample_mean_over_sigma=0.05)).level == "OK"
+    assert compose_validity_badge(
+        _mk_health(sample_mean_over_sigma=0.2)).level == "WARMING"
+    assert compose_validity_badge(
+        _mk_health(sample_mean_over_sigma=0.5)).level == "UNSETTLED"
+    assert compose_validity_badge(
+        _mk_health(sample_mean_over_sigma=1.5)).level == "INVALID"
+
+
+def test_validity_badge_a2_nan_is_invalid():
+    """sample_mean_over_sigma NaN (window empty / sigma_median<=0)
+    -> INVALID."""
+    h = _mk_health(sample_mean_over_sigma=float("nan"))
+    b = compose_validity_badge(h)
+    assert b.level == "INVALID"
+    assert any("A2" in r and "NaN" in r for r in b.reasons)
+
+
+def test_validity_badge_a1_symmetric_in_log_ratio():
+    """A1 should treat halves_ratio=h and h=1/r identically. Demonstrates
+    the symmetric-in-log treatment."""
+    b_hi = compose_validity_badge(_mk_health(halves_sigma_ratio=1.7))
+    b_lo = compose_validity_badge(_mk_health(halves_sigma_ratio=1.0/1.7))
+    assert b_hi.level == b_lo.level == "WARMING"
+    b_unset_hi = compose_validity_badge(
+        _mk_health(halves_sigma_ratio=2.5))
+    b_unset_lo = compose_validity_badge(
+        _mk_health(halves_sigma_ratio=1.0/2.5))
+    assert b_unset_hi.level == b_unset_lo.level == "UNSETTLED"
+
+
+def test_validity_badge_a1_skipped_when_nan():
+    """A1 NaN (window too short) -> A1 contributes OK; final level
+    governed by other primitives. Independence test: pair with a clean
+    A2 to confirm OK."""
+    h = _mk_health(halves_sigma_ratio=float("nan"))
+    b = compose_validity_badge(h)
+    assert b.level == "OK"
+    assert b.reasons == ()
+
+
+def test_validity_badge_a3_kurtosis_three_bands():
+    assert compose_validity_badge(
+        _mk_health(kurtosis_excess=0.3)).level == "OK"
+    assert compose_validity_badge(
+        _mk_health(kurtosis_excess=1.0)).level == "WARMING"
+    assert compose_validity_badge(
+        _mk_health(kurtosis_excess=2.5)).level == "UNSETTLED"
+    # Negative kurtosis (sub-Gaussian) treated symmetrically.
+    assert compose_validity_badge(
+        _mk_health(kurtosis_excess=-2.5)).level == "UNSETTLED"
+
+
+def test_validity_badge_a5_prior_outside_ci_is_warming_only():
+    """A5 False is informational ('model and data disagree'); the
+    data-driven posterior is still trustable, so it caps at WARMING."""
+    h = _mk_health(prior_in_credible_interval=False)
+    b = compose_validity_badge(h)
+    assert b.level == "WARMING"
+    assert any("A5" in r for r in b.reasons)
+
+
+def test_validity_badge_worst_wins():
+    """When multiple primitives fire at different severities, the
+    worst sets the badge level. Construct A2=WARMING + A3=UNSETTLED;
+    expect UNSETTLED."""
+    h = _mk_health(sample_mean_over_sigma=0.2, kurtosis_excess=2.5)
+    b = compose_validity_badge(h)
+    assert b.level == "UNSETTLED"
+    # Both primitives appear in reasons.
+    assert any("A2" in r for r in b.reasons)
+    assert any("A3" in r for r in b.reasons)
+
+
+def test_validity_badge_reasons_only_for_warming_or_worse():
+    """OK-level primitives do not appear in reasons, even when other
+    primitives fire."""
+    h = _mk_health(sample_mean_over_sigma=0.5, kurtosis_excess=0.1)
+    b = compose_validity_badge(h)
+    assert b.level == "UNSETTLED"
+    assert any("A2" in r for r in b.reasons)
+    # A3 was clean -> not in reasons.
+    assert not any("A3" in r for r in b.reasons)
+
+
+def test_validity_badge_threshold_overrides_apply():
+    """A site-tuned threshold passed via kwarg should change the
+    classification accordingly. Make A2=0.4 land in OK by raising
+    a2_warming above it."""
+    h = _mk_health(sample_mean_over_sigma=0.4)
+    b_default = compose_validity_badge(h)
+    assert b_default.level == "UNSETTLED"
+    b_relaxed = compose_validity_badge(
+        h, a2_warming=0.5, a2_unsettled=0.7, a2_invalid=2.0,
+    )
+    assert b_relaxed.level == "OK"
+
+
+def test_validity_badge_rejects_inverted_thresholds():
+    """Threshold validation: misordered bands are caught at call
+    time, not silently producing nonsense bands."""
+    h = _mk_health()
+    with pytest.raises(ValueError, match="A2 thresholds"):
+        compose_validity_badge(h, a2_warming=0.5, a2_unsettled=0.3)
+    with pytest.raises(ValueError, match="A1 thresholds"):
+        compose_validity_badge(h, a1_ok_ratio=2.0, a1_warm_ratio=1.5)
+    with pytest.raises(ValueError, match="A3 thresholds"):
+        compose_validity_badge(h, a3_ok=2.0, a3_warm=1.0)
+    with pytest.raises(ValueError, match="n_eff_warm >= n_eff_min"):
+        compose_validity_badge(h, n_eff_min=10.0, n_eff_warm=5.0)
+
+
+def test_validity_badge_demo_csov_pos_y_is_unsettled():
+    """Reproduces the demo's 'pos y' channel: n_eff~3, A2~1.0 (just
+    below INVALID), A3 warming, A1 warming, A5 OK. Badge should be
+    UNSETTLED (the worst per-assumption verdict). Not INVALID because
+    A2 is just shy of the threshold."""
+    h = _mk_health(
+        n_eff=3.2,
+        sample_mean_over_sigma=0.999,
+        halves_sigma_ratio=1.26,
+        kurtosis_excess=-0.76,
+        prior_in_credible_interval=True,
+    )
+    b = compose_validity_badge(h)
+    assert b.level == "UNSETTLED"
+    assert any("A2" in r for r in b.reasons)
+    assert any("A3" in r for r in b.reasons)
+    assert any("A4" in r for r in b.reasons)
+
+
+def test_validity_badge_pure_function_no_health_mutation():
+    """Sanity: compose_validity_badge does not mutate its input."""
+    h = _mk_health(sample_mean_over_sigma=0.5)
+    snapshot = (h.n_raw, h.n_eff, h.is_warm, h.sample_mean_over_sigma,
+                h.halves_sigma_ratio, h.kurtosis_excess,
+                h.prior_in_credible_interval)
+    _ = compose_validity_badge(h)
+    after = (h.n_raw, h.n_eff, h.is_warm, h.sample_mean_over_sigma,
+             h.halves_sigma_ratio, h.kurtosis_excess,
+             h.prior_in_credible_interval)
+    assert snapshot == after

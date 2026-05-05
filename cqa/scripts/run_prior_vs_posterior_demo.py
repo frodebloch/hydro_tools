@@ -67,6 +67,7 @@ from cqa import (
     BayesianSigmaEstimator,
     closed_loop_decorrelation_time,
     combine_radial_posterior,
+    compose_validity_badge,
     realise_vector_force_time_series,
     integrate_closed_loop_response,
     realise_wave_motion_6dof,
@@ -351,41 +352,31 @@ def main() -> None:
           f"wave post/prior = {sig_gw_wf_post/sigma_L_wave_m:.3f}")
 
     # --- Posterior health diagnostics ----------------------------------
-    # Primary signal: |sample_mean|/sigma. Catches DP integral term not
-    # yet settled (~2-5 min), observer bias still converging (~1-2 min),
-    # persistent low-frequency disturbance, setpoint drift. Operator
-    # band thresholds: <0.1 settled, 0.1-0.3 warming, 0.3-1.0 unsettled,
-    # >=1.0 invalid (variance estimate inflated by 2x or more).
-    def _badge_from_ratio(r_ratio: float, is_warm: bool) -> str:
-        if not is_warm:
-            return "WARMING"
-        if not np.isfinite(r_ratio):
-            return "?"
-        if r_ratio >= 1.0:
-            return "INVALID"
-        if r_ratio >= 0.3:
-            return "UNSETTLED"
-        if r_ratio >= 0.1:
-            return "warming"
-        return "ok"
-
-    def _badge(h) -> str:
-        return _badge_from_ratio(h.sample_mean_over_sigma, h.is_warm)
-
+    # Composite per-channel validity badge from compose_validity_badge:
+    # the worst over A1-A5 sets the level (OK / WARMING / UNSETTLED /
+    # INVALID); reasons[] names every primitive that contributed at or
+    # above WARMING. Defaults match the operator-band thresholds
+    # documented on PosteriorHealth (A2: 0.1/0.3/1.0; A4: n_eff_min=2,
+    # n_eff_warm=5; A1: 1.5/2.0; A3: 0.5/1.5).
     print(f"\nPosterior health (assumption diagnostics):")
+    badges = []
     for label, h in [
         ("pos x    ", health_pos_x),
         ("pos y    ", health_pos_y),
         ("slow gw  ", health_gw),
         ("wave gw  ", health_gw_wf),
     ]:
+        b = compose_validity_badge(h)
+        badges.append((label, b))
         print(
             f"  {label}: |mean|/sigma={h.sample_mean_over_sigma:.3f}  "
             f"prior_in_CI={h.prior_in_credible_interval}  "
             f"kurt_excess={h.kurtosis_excess:+.2f}  "
             f"halves_ratio={h.halves_sigma_ratio:.2f}  "
-            f"[{_badge(h)}]"
+            f"[{b.level}]"
         )
+        for reason in b.reasons:
+            print(f"      -> {reason}")
 
     # --- Operator-facing radial posterior ------------------------------
     # combine_radial_posterior produces a single sigma_R = sqrt(sigma_x^2
@@ -414,14 +405,32 @@ def main() -> None:
 
     # Composite radial badge from the principled 2D metric
     # |(mean_x, mean_y)| / sigma_R_median. Rotation-invariant; replaces
-    # the ad-hoc worst-of-x,y on per-axis ratios. Same threshold bands
-    # as the per-axis A2 indicator.
-    radial_badge = _badge_from_ratio(
-        rad_post.radial_mean_offset_over_sigma, rad_post.is_warm,
-    )
+    # the ad-hoc worst-of-x,y on per-axis ratios. Same A2 threshold
+    # bands as compose_validity_badge (defaults 0.1 / 0.3 / 1.0).
+    # The radial channel has no native A1/A3/A5 primitives -- those
+    # live on the per-axis estimators -- so the radial badge is the
+    # max of the A2-on-radial and the per-axis composite badges below.
+    r2d = rad_post.radial_mean_offset_over_sigma
+    if not rad_post.is_warm:
+        radial_a2_level = "WARMING"
+    elif not np.isfinite(r2d):
+        radial_a2_level = "INVALID"
+    elif r2d >= 1.0:
+        radial_a2_level = "INVALID"
+    elif r2d >= 0.3:
+        radial_a2_level = "UNSETTLED"
+    elif r2d >= 0.1:
+        radial_a2_level = "WARMING"
+    else:
+        radial_a2_level = "OK"
+    # Worst over: radial-A2, per-axis x composite, per-axis y composite.
+    badge_x = next(b for label, b in badges if "pos x" in label).level
+    badge_y = next(b for label, b in badges if "pos y" in label).level
+    rank = {"OK": 0, "WARMING": 1, "UNSETTLED": 2, "INVALID": 3}
+    radial_badge = max(radial_a2_level, badge_x, badge_y, key=rank.get)
     print(f"  radial badge     = [{radial_badge}]  "
-          f"(2D vector-mean magnitude on radial channel; "
-          f"per-axis: x=[{_badge(health_pos_x)}], y=[{_badge(health_pos_y)}])")
+          f"(radial-A2={radial_a2_level} from 2D vector-mean; "
+          f"per-axis: x=[{badge_x}], y=[{badge_y}])")
 
     # Tier A sanity check: the SAME identities, computed empirically on
     # the realisation r(t). For 5 min of data this is one realisation

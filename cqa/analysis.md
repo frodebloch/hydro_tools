@@ -837,3 +837,50 @@ also UNSETTLED but for the right reason. The signs of the
 contributions are not coincidental cancellation here; both axes carry
 genuine slow drift and the 2D magnitude correctly reflects ~80 cm of
 mean offset over the 5-min window.
+
+### 12.12 Per-channel validity badge (compose_validity_badge)
+
+`PosteriorHealth` exposes the assumption-failure primitives; the
+operator panel needs a single per-channel verdict the bridge can act
+on. `compose_validity_badge(health, ...)` is the pure-function
+composer: takes a `PosteriorHealth`, returns a `ValidityBadge` with a
+4-state `level` (`OK`, `WARMING`, `UNSETTLED`, `INVALID`) and a list
+of human-readable `reasons` naming every primitive that contributed
+at or above WARMING.
+
+**Per-assumption verdicts** (worst wins):
+
+| Assumption | Severity ladder | Rationale |
+|---|---|---|
+| **A4** `n_eff` | < 2: INVALID; < 5: WARMING | Below 2 independent draws the posterior is the prior + noise; the other primitives are uninterpretable. |
+| **A2** `\|mean\|/σ` | 0.1 / 0.3 / 1.0 → WARMING / UNSETTLED / INVALID; NaN → INVALID | Operator-band thresholds documented on `PosteriorHealth`. |
+| **A1** `halves_sigma_ratio` | inside [1/1.5, 1.5]: OK; inside [1/2, 2]: WARMING; else UNSETTLED | Symmetric in log-ratio. Stationarity violations inflate variance but degrade gracefully. |
+| **A3** `\|κ_ex\|` | < 0.5: OK; < 1.5: WARMING; else UNSETTLED | Skip if NaN. Caveat: sample kurtosis variance ~24/n_raw, so WARMING fires routinely below ~50 samples. |
+| **A5** `prior_in_credible_interval` | False → WARMING only | Informational ("model and data disagree"); the data-driven posterior is still trustworthy. |
+
+All thresholds are kwargs with defaults matching the operator-band
+suggestions. Site-tuning is one call away; the C++ panel can override
+per channel without touching the estimator.
+
+CSOV demo readout (5 min, 30° quartering) — exercises every band:
+
+```
+pos x  : [UNSETTLED]
+   -> A2: |mean|/sigma=0.56 in [0.30, 1.00) (...)
+   -> A1: halves_sigma_ratio=1.72 in warming band
+pos y  : [UNSETTLED]
+   -> A4: n_eff=3.2 below warm threshold 5.0
+   -> A2: |mean|/sigma=1.00 in [0.30, 1.00)
+   -> A3: |kurtosis_excess|=0.76 in warming band
+slow gw: [INVALID]
+   -> A4: n_eff=3.2 below warm threshold 5.0
+   -> A2: |mean|/sigma=1.03 >= 1.00 (variance inflated >=2x; ...)
+   -> A3: |kurtosis_excess|=0.89 in warming band
+wave gw: [OK]
+```
+
+The `wave gw` channel is the only one that scores `OK`, which matches
+the physics: 30 effective samples in the 5-min window, A2 ratio ~10⁻³
+(perfect zero-mean), well-behaved kurtosis. The slow channels all
+suffer from small `n_eff` and the slow-drift settling transient,
+exactly as expected at the start of an operation.

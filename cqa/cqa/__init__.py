@@ -95,8 +95,10 @@ from .online_estimator import (
     SigmaPosterior,
     PosteriorHealth,
     RadialPosterior,
+    ValidityBadge,
     BayesianSigmaEstimator,
     combine_radial_posterior,
+    compose_validity_badge,
     closed_loop_decorrelation_time,
 )
 from .sea_state_relations import (
@@ -193,6 +195,8 @@ __all__ = [
     "PosteriorHealth",
     "RadialPosterior",
     "combine_radial_posterior",
+    "ValidityBadge",
+    "compose_validity_badge",
     "closed_loop_decorrelation_time",
     "WindSeaState",
     "pm_hs_from_vw",
