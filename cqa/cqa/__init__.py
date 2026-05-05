@@ -121,6 +121,13 @@ from .operability_polar import (
     plot_operability_polar,
     wcfdi_operability_overlay,
 )
+from .decision_matrix import (
+    ForecastSlot,
+    DecisionCell,
+    WcfdiDecisionMatrix,
+    evaluate_decision_cell,
+    wcfdi_decision_matrix,
+)
 from .time_series_realisation import (
     realise_vector_force_time_series,
     integrate_closed_loop_response,
@@ -221,6 +228,11 @@ __all__ = [
     "plot_operability_polar",
     "WcfdiOperabilityOverlay",
     "wcfdi_operability_overlay",
+    "ForecastSlot",
+    "DecisionCell",
+    "WcfdiDecisionMatrix",
+    "evaluate_decision_cell",
+    "wcfdi_decision_matrix",
     "realise_vector_force_time_series",
     "integrate_closed_loop_response",
     "realise_wave_motion_6dof",

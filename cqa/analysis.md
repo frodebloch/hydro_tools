@@ -1174,3 +1174,127 @@ mean trajectory alone is *not* a sufficient operability statistic in
 the saturated band, and a cheap deterministic indicator
 (`bistability_risk_score`) is the right way to flag it without
 running MC in the operational loop.
+
+### 12.15 Forecast-case WCFDI decision matrix (operationally-facing)
+
+The operability polar (§12.13) and its WCFDI overlay are
+*table-top / design-time* artefacts that sweep a synthetic
+Pierson-Moskowitz environment over all directions. The
+**forecast-case decision matrix** is the first operationally-facing
+analogue: per forecast time-slot and chosen vessel heading, evaluate
+the *same* intact and post-WCFDI metrics at the *forecast* sea state
+`(V_w, H_s, T_p, V_c, theta_env)` and assign a per-cell
+green/amber/red traffic light.
+
+**Module:** `cqa/cqa/decision_matrix.py`. Public types
+`ForecastSlot`, `DecisionCell`, `WcfdiDecisionMatrix`. Public
+functions `evaluate_decision_cell` (single-cell, useful standalone)
+and `wcfdi_decision_matrix` (full grid driver, with progress
+callback). Tests: `cqa/tests/test_decision_matrix.py` (12 tests
+covering helpers, single-cell happy path, bistability gate,
+CQA precondition, and matrix decomposition invariants). Demo:
+`scripts/run_decision_matrix_demo.py`, output
+`csov_wcfdi_decision_matrix.png`.
+
+**Direction model.** v1 honours the polar's collinear convention:
+each slot carries a single `theta_env_compass` for wind, wave and
+current. The evaluator computes
+`theta_rel = wrap_to_pi(theta_env_compass - heading_compass)` and
+feeds it to the underlying PSD assemblers and `wcfdi_transient`.
+This is realistic for North-Sea wind-driven seas where wind, wave
+and (wind-driven) current are usually co-aligned. Independent
+per-peril directions are a deferred extension; they would require
+extending `wcfdi_transient` and (more substantially) the
+`slow_drift_force_psd_newman` derivation, which currently assumes
+collinear forcing.
+
+**Reuse, not reinvention.** The intact axis goes through
+`summarise_intact_prior` (the same engine used by the polar at each
+swept point) so the forecast-case intact P90 metric and traffic
+light are identical to the polar's per-direction read at the
+matching `(V_w, H_s, T_p)`. The WCFDI axis goes through
+`wcfdi_transient` and uses the same envelope rule
+`max_t (|eta_mean(t)| + k_sigma * sigma(t))` as the polar's
+`_wcfdi_peak_metrics`, with the same `k_sigma = 0.674` (P75) default.
+The bistability gate (`bistability_alarm = 1.5`) from §12.14 is
+applied identically. Net effect: at any operating point that the
+polar can read directly (i.e. `(H_s, T_p) = PM(V_w)`), the decision
+matrix and the polar agree exactly. The matrix's added value is the
+*forecast* operating points where `(H_s, T_p)` are independent of
+`V_w`.
+
+**Combination rule.** Per cell, `overall = worst(intact, wcfdi)`
+under the order `green < amber < red`. This matches IMCA M254 Fig. 8
+"decision matrix" semantics: any axis red flips the cell red; any
+amber and none red flips amber. The CQA precondition violation
+(`info["cqa_precondition_violated"]` from `wcfdi_transient`) and the
+bistability gate both force WCFDI red regardless of the nominal
+peak envelope; on the demo storm grid the gate fires at the
+expected operating points (high-V_w beam slots).
+
+**Demo summary (24 h synthetic storm, CSOV defaults).** The demo
+generates a triangular V_w ramp from 7 -> 16 -> 7 m/s over 24 h
+with a slowly veering NW -> N direction, evaluates the matrix on
+12 vessel headings every 30 deg (12 x 24 = 288 cells), and emits a
+3-row heatmap (intact / WCFDI / overall) of headings x time. With
+the default thresholds and bistability gate, 217 cells are green,
+1 amber, 70 red; the red region forms a contiguous band around the
+storm peak (hours 9-15) for headings broadside to the
+weather, while head-on headings stay green throughout. This is
+exactly the shape an operator wants on a planning chart: pick a
+green vessel heading column for each forecast slot, accept that the
+beam-on hours are no-go.
+
+**Differences vs operability polar (when to use which).**
+
+* Polar: design-time, sweeps synthetic PM environment, output is the
+  V_w boundary at each direction. Use to size the vessel /
+  controller / IMCA-radius limits, or to compare candidate vessels.
+* Decision matrix: operationally-facing, consumes a forecast,
+  output is a per-(slot, heading) traffic light. Use to plan a
+  specific operation window. Same engines, different inputs.
+
+This is roadmap item 4b ("Forecast-case decision matrix"). Item 4c
+("Operation-case live what-if") is the next operationally-facing
+step: at runtime, given the live posterior from `online_estimator`
+and the live measured environment, evaluate the post-failure metric
+with the *live posterior* P0 (rather than the steady-state Lyapunov
+P0 used here) and emit a single live badge. 4c depends on the
+brucon `vessel_simulator` cross-check (P7) to bound the
+linearisation error before the operator trusts the live number; 4b
+does not, because the forecast itself is the dominant uncertainty
+on the planning side.
+
+**Files.** `cqa/cqa/decision_matrix.py` (engine + dataclasses),
+`cqa/tests/test_decision_matrix.py` (12 tests), `cqa/__init__.py`
+(exports), `cqa/scripts/run_decision_matrix_demo.py` (synthetic
+storm demo + heatmap), `csov_wcfdi_decision_matrix.png` (demo
+output, gitignored).
+
+**Open issues / future work.**
+
+* The synthetic storm demo uses `pm_hs_from_vw` (the proper
+  Pierson-Moskowitz `H_s = 0.21 V_w^2 / g` law). Note that
+  `wcfdi_self_mc_matrix` and the §12.14 calibration use the simpler
+  proxy `H_s = 0.21 V_w` (mismatched by a factor of `V_w / g ~ 1.4`
+  at V_w=14). Both are internally consistent within their own
+  modules; the bistability calibration table in §12.14 is keyed to
+  the proxy. When the calibration is next re-run (e.g. after the
+  saturation-window variance correction), the two should be
+  reconciled to the proper PM law and the table re-emitted.
+* Independent wind / wave / current directions per slot: deferred.
+  Real forecasts (NORA3, ECMWF) can have wave swell from a
+  different bearing than wind; the v1 collinear model is a
+  conservative approximation when the three are within ~30 deg of
+  each other (typical for wind-driven seas) but breaks down for
+  swell-dominated conditions.
+* Forecast input format: v1 takes a Python list of `ForecastSlot`
+  objects. A JSON / NetCDF parser is a natural follow-on once the
+  brucon-side forecast format is fixed.
+* The decision matrix grid is dense (slots x headings) and recomputes
+  every cell; for a fixed vessel/joint the per-slot intact axis
+  could be computed once per slot (it does not depend on heading
+  beyond `theta_rel`, but `theta_rel` does depend on heading -- so
+  no savings there). The WCFDI axis similarly. No cheap caching
+  trick was applied; the demo runs 288 cells in ~ 60 s on the
+  prototype stack.
