@@ -2968,3 +2968,30 @@ Known limitations carried forward (do not block this commit):
     `use_observer: bool = False` flag; flipping the default to
     True would change published P1 σ predictions by ~3× and is
     deferred to a separate decision.
+
+Operability polar wiring (follow-up to §12.20.13):
+
+  - `cqa.operability_polar.operability_polar` now takes an opt-in
+    keyword `use_observer: bool = False`. Default-False keeps the
+    historical bare 6-state P1 polar bit-identically, so all
+    previously published P1 σ / V_w boundary numbers in
+    §§12.20.7, 12.20.10, 12.20.12 remain valid as-is. Setting
+    `use_observer=True` swaps the bare `ClosedLoop` for the
+    24/27-state `ObserverAugmentedSystem` from `cqa.observer` via a
+    duck-typed adapter (`_ObserverClosedLoopShim`) exposing only the
+    `A_cl` / `B_w` attributes that `axis_psd` consumes; no API change
+    to `summarise_intact_prior` was required.
+  - The polar's footprint metric remains the **true vessel position**
+    `eta` (state indices 0:3 of the augmented system), not the
+    observer's LF estimate `eta_hat_LF`. This matches the operational
+    "what hits the turbine" semantic and keeps the IMCA M254 radii
+    interpretation unchanged. LF-only forcing is used (`B_wf` is left
+    at zero); wave-frequency content is not added to the footprint.
+  - Validated by 3 new tests in `tests/test_operability_polar.py`:
+    `*_default_is_false_byte_for_byte` (no-op when off),
+    `*_tightens_position_boundary` (observer-aug shrinks the operable
+    V_w window in every direction, by several m/s in at least one
+    direction at the §12.20 sea state), and `*_preserves_metadata`.
+  - Decision on flipping the default to True is deferred: it would
+    change published P1 polar V_w boundaries by O(several m/s) and
+    requires a separate analysis-md re-validation pass.

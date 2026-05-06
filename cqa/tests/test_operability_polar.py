@@ -445,3 +445,86 @@ def test_wcfdi_overlay_bistability_gate_tightens_boundary(csov_polar_inputs):
         "Bistability gate had no effect; expected a measurable tightening "
         "near beam direction for the default CSOV scenario."
     )
+
+
+# ---------------------------------------------------------------------------
+# use_observer flag (analysis.md §12.20.13)
+# ---------------------------------------------------------------------------
+
+
+def test_polar_use_observer_default_is_false_byte_for_byte(csov_polar_inputs):
+    """``use_observer`` defaults to False; passing False explicitly must
+    reproduce the historical bare-6-state polar bit-identically (no
+    silent change in published P1 numbers)."""
+    cfg, joint = csov_polar_inputs
+    common = dict(
+        n_directions=4, Vw_min=2.0, Vw_max=20.0, Vc_m_s=0.5,
+        T_op_s=20.0 * 60.0, bisect_tol_m_s=1.0,
+    )
+    p_default = operability_polar(cfg, joint, **common)
+    p_explicit = operability_polar(cfg, joint, use_observer=False, **common)
+    np.testing.assert_array_equal(p_default.pos_warn_Vw, p_explicit.pos_warn_Vw)
+    np.testing.assert_array_equal(p_default.pos_alarm_Vw, p_explicit.pos_alarm_Vw)
+    np.testing.assert_array_equal(p_default.gw_warn_Vw, p_explicit.gw_warn_Vw)
+    np.testing.assert_array_equal(p_default.gw_alarm_Vw, p_explicit.gw_alarm_Vw)
+
+
+def test_polar_use_observer_tightens_position_boundary(csov_polar_inputs):
+    """The 24-state observer-augmented closed loop predicts a larger
+    σ_eta than the bare 6-state PD closed loop (analysis.md §12.20.13:
+    ~0.69 m vs ~0.25 m at the §12.20 test sea state). Therefore the
+    V_w at which the IMCA position warn / alarm radii are crossed must
+    move *down* (tighter operating window) when use_observer=True.
+
+    Only the position axis is asserted (gangway adds wave-frequency
+    content not modelled by the observer-aug; not relevant for this
+    test). The bisection is run on a tiny grid for speed."""
+    cfg, joint = csov_polar_inputs
+    common = dict(
+        n_directions=4, Vw_min=2.0, Vw_max=25.0, Vc_m_s=0.5,
+        T_op_s=20.0 * 60.0, bisect_tol_m_s=1.0,
+    )
+    p_bare = operability_polar(cfg, joint, use_observer=False, **common)
+    p_obs = operability_polar(cfg, joint, use_observer=True, **common)
+    # In every direction where neither boundary is saturated, the
+    # observer-aug warn/alarm V_w must be <= the bare V_w.
+    for i in range(len(p_bare.theta_rel_rad)):
+        for arr_b, arr_o, lo_b, hi_b, lo_o, hi_o, name in [
+            (p_bare.pos_warn_Vw, p_obs.pos_warn_Vw,
+             p_bare.pos_warn_capped_low, p_bare.pos_warn_capped_high,
+             p_obs.pos_warn_capped_low, p_obs.pos_warn_capped_high, "warn"),
+            (p_bare.pos_alarm_Vw, p_obs.pos_alarm_Vw,
+             p_bare.pos_alarm_capped_low, p_bare.pos_alarm_capped_high,
+             p_obs.pos_alarm_capped_low, p_obs.pos_alarm_capped_high, "alarm"),
+        ]:
+            if lo_b[i] or hi_b[i] or lo_o[i] or hi_o[i]:
+                continue
+            assert arr_o[i] <= arr_b[i] + 1e-6, (
+                f"dir {i} {name}: observer-aug Vw {arr_o[i]:.3f} > "
+                f"bare Vw {arr_b[i]:.3f}; observer should tighten window"
+            )
+    # And strictly tighter in at least one direction on at least one
+    # boundary (otherwise the flag is a no-op and the test is vacuous).
+    delta_warn = p_bare.pos_warn_Vw - p_obs.pos_warn_Vw
+    delta_alarm = p_bare.pos_alarm_Vw - p_obs.pos_alarm_Vw
+    assert np.any(delta_warn > 1.0) or np.any(delta_alarm > 1.0), (
+        "Observer-aug had no measurable tightening effect on the "
+        "position boundary; expected several m/s shift down"
+    )
+
+
+def test_polar_use_observer_preserves_metadata(csov_polar_inputs):
+    """The opt-in observer path must not change the OperabilityPolar
+    metadata fields (IMCA radii, sweep range, quantile, T_op)."""
+    cfg, joint = csov_polar_inputs
+    p_obs = operability_polar(
+        cfg, joint, use_observer=True,
+        n_directions=4, Vw_min=2.0, Vw_max=20.0, Vc_m_s=0.5,
+        T_op_s=20.0 * 60.0, bisect_tol_m_s=1.0,
+    )
+    assert p_obs.pos_warn_radius_m == 2.0
+    assert p_obs.pos_alarm_radius_m == 4.0
+    assert p_obs.Vw_min == 2.0
+    assert p_obs.Vw_max == 20.0
+    assert p_obs.quantile_p == 0.90
+    assert p_obs.T_op_s == 20.0 * 60.0

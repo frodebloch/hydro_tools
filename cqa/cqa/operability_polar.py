@@ -200,6 +200,29 @@ def _bisect_boundary(
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class _ObserverClosedLoopShim:
+    """Duck-typed `ClosedLoop` adapter around an `ObserverAugmentedSystem`.
+
+    Exposes only the two attributes downstream `axis_psd` /
+    `state_psd_freqdomain` consumers actually read (`A_cl`, `B_w`),
+    so the 24-state observer-augmented system can be plugged into the
+    existing `summarise_intact_prior` pipeline with no API changes.
+
+    The downstream `position_psd` slices `[:, 0:3, 0:3]` of the state
+    PSD. With the observer-aug state ordering documented in
+    `cqa.observer`, indices 0:3 are the **true** vessel position eta
+    (not the observer's LF estimate). LF-only forcing is used (B_w
+    only); the wave-frequency excitation channel B_wf is intentionally
+    not wired here -- the polar's footprint metric is the true
+    slow-drift-driven eta envelope, matching the operational
+    "what hits the turbine" semantic chosen for the polar.
+    """
+
+    A_cl: np.ndarray
+    B_w: np.ndarray
+
+
 def _evaluate_intact_prior_at(
     cfg: CqaConfig,
     joint: GangwayJointState,
@@ -217,11 +240,21 @@ def _evaluate_intact_prior_at(
     quantile_lo: float,
     omega_grid: np.ndarray,
     use_pm_for_drift: bool,
+    use_observer: bool = False,
 ):
     """Build the closed loop + disturbance PSDs for one operating point
     and call summarise_intact_prior. Returns the IntactPriorSummary.
 
     Sea state Hs, Tp derived from V_w via PM (pm_hs_from_vw / pm_tp_from_vw).
+
+    If ``use_observer`` is True, the bare 6-state ``ClosedLoop`` is
+    replaced by the brucon-aligned 24/27-state observer-augmented
+    system from ``cqa.observer`` (validated to within ~7 % of the
+    brucon σ_y at the §12.20 test sea state when ``T_thr`` matches the
+    sandbox calibration; see analysis.md §12.20.13). The eta block
+    (state indices 0:3 = true vessel position) is what the downstream
+    ``axis_psd`` reads, so the polar's footprint metric remains "true
+    eta", just driven through a more realistic plant.
     """
     from .vessel import LinearVesselModel, CurrentForceModel
     from .controller import LinearDpController
@@ -247,7 +280,20 @@ def _evaluate_intact_prior_at(
     controller = LinearDpController.from_bandwidth(
         vessel.M, vessel.D, omega_n=omega_n, zeta=zeta,
     )
-    cl = ClosedLoop.build(vessel, controller)
+    if use_observer:
+        from .observer import build_observer_augmented_system
+        Tp_obs = Tp if Tp > 0.0 else 8.0
+        aug = build_observer_augmented_system(
+            vessel=vessel,
+            controller=controller,
+            observer=cfg.observer,
+            Tp=Tp_obs,
+            T_thr=cfg.controller.thruster_time_constant_s,
+            include_integrator=True,
+        )
+        cl = _ObserverClosedLoopShim(A_cl=aug.A, B_w=aug.B_w)
+    else:
+        cl = ClosedLoop.build(vessel, controller)
 
     from .psd import WindForceModel
     wind_model = WindForceModel(wp=wp, loa=vp.loa)
@@ -316,6 +362,7 @@ def operability_polar(
     quantile_p: float = 0.90,
     bisect_tol_m_s: float = 0.1,
     omega_grid: Optional[np.ndarray] = None,
+    use_observer: bool = False,
 ) -> OperabilityPolar:
     """Sweep relative weather direction and find, per axis, the V_w at
     which the intact-prior amber and red operability thresholds are hit.
@@ -352,6 +399,15 @@ def operability_polar(
         Default 0.90 (P90).
     bisect_tol_m_s : V_w bisection tolerance [m/s]. Default 0.1.
     omega_grid : optional integration grid for axis_psd. None = default.
+    use_observer : if True, replace the bare 6-state ``ClosedLoop`` with
+        the brucon-aligned 24/27-state observer-augmented system from
+        ``cqa.observer``. Default False (preserves the historical P1
+        polar numbers byte-for-byte; flipping to True increases P90
+        footprints by roughly 2-3x at the §12.20 test sea state and
+        is therefore an opt-in change). The polar still scores the
+        true vessel position eta (state indices 0:3 of the augmented
+        system); LF-only forcing is used (``B_wf`` left at zero), so
+        no wave-frequency content is added to the footprint.
 
     Returns
     -------
@@ -433,6 +489,7 @@ def operability_polar(
                 quantile_lo=quantile_lo,
                 omega_grid=omega_grid,
                 use_pm_for_drift=use_pm_for_drift,
+                use_observer=use_observer,
             )
             cache_pos[key] = float(res.pos_a_p90)
             cache_gw[key] = float(res.gw_a_p90)
