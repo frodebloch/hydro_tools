@@ -62,6 +62,13 @@ for i = 0, n_total do
     if (i == i_sk) then
         iop('From Lua: t=' .. (0.1 * i) .. 's, activating station keeping\n')
         SetStationKeeping()
+        -- Pin runtime gain level to kMedium (0=Relaxed, 1=Low, 2=Medium, 3=High).
+        -- This guarantees the proto-level omega values in
+        -- ~/src/brucon/build/bin/settings/tuning.prototxt
+        --   pid_surge.omega = 0.06, pid_sway.omega = 0.08, pid_yaw.omega = 0.12
+        -- are applied at full scale (gain_level_scaling.relaxed=0.4,low=0.8,high=1.2
+        -- would otherwise alter the effective bandwidth at startup defaults).
+        SetControllerGainLevel(2, 2, 2)
     end
 
     if (i == i_fail) then
