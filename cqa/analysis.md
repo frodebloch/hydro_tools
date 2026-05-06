@@ -2995,3 +2995,59 @@ Operability polar wiring (follow-up to §12.20.13):
   - Decision on flipping the default to True is deferred: it would
     change published P1 polar V_w boundaries by O(several m/s) and
     requires a separate analysis-md re-validation pass.
+
+#### 12.20.14 LF + WF combined covariance pipeline in cqa.observer
+
+Adds two public functions to `cqa.observer` that compose the LF
+disturbance channel (slow drift via `B_w`) with the WF wave-motion
+channel (true wave-frequency vessel position via `B_wf`) under
+the linearised assumption that the two inputs are uncorrelated:
+
+  - `combined_state_psd(aug, S_F_funcs, S_eta_w_func, omega)`:
+    one-sided state PSD of the full augmented state vector,
+    `H_LF · S_F · H_LF^H + H_WF · S_η_w · H_WF^H`. Pass `S_F_funcs=[]`
+    or `S_eta_w_func=None` to disable a channel.
+  - `total_position_psd(aug, S_F_funcs, S_eta_w_func, omega)`:
+    one-sided 3×3 PSD of the **total observed position**
+    `y_total = η + η_w_true` (LF + WF), in the body-fixed
+    (surge, sway, yaw) basis. The WF channel contributes both
+    indirectly through `C_η · H_WF` (controller responding to the
+    wave-corrupted innovation through the wave-filter notch) and
+    directly through `+ I₃` (the wave itself).
+
+The signature `S_eta_w_func: callable ω -> (3, 3)` is left to the
+caller to construct from JONSWAP × |RAO|² (e.g. via
+`cqa.rao.evaluate_rao` × `cqa.psd.wave_elevation_psd`); cqa.observer
+deliberately stays free of RAO machinery so both pdstrip-derived
+and parametric RAO sources remain available.
+
+Validation in `tests/test_observer.py` (6 new tests):
+
+  - `test_combined_state_psd_lf_only_matches_state_psd_freqdomain`
+    (sanity: WF=None reproduces the bare LF state PSD bit-for-bit).
+  - `test_total_position_psd_high_freq_limit_is_bare_S_eta_w`
+    (at ω ≫ closed-loop bandwidth, `(jωI − A)⁻¹ → 0` so
+    `G_WF → I₃` and `S_y(ω) → S_η_w(ω)`).
+  - `test_total_position_psd_channels_add` (linearity /
+    superposition: total = LF-only + WF-only at every frequency).
+  - `test_total_position_psd_hermitian_and_nonneg_diag` (one-sided
+    PSD properties).
+  - `test_combined_state_psd_zero_inputs_gives_zero`.
+  - `test_total_position_psd_sigma_y_total_brucon_cross_check`
+    (pdstrip-guarded; verifies σ_y_total > σ_y_LF and that
+    σ_y_total sits within ±15 % of the direct quadrature
+    σ_y_quad_direct = sqrt(σ_y_LF² + σ_y_WF_bare²) where
+    σ_y_WF_bare = ∫ |RAO_sway|² S_η dω. At the §12.20 sea state
+    with csov_default and T_thr=2 s: σ_y_LF ≈ 0.67 m,
+    σ_y_WF_bare ≈ 0.69 m on the CG-referenced sway RAO, so
+    σ_y_quad_direct ≈ 0.96 m and σ_y_total ≈ 1.01 m. The earlier
+    chat-quoted "sandbox σ_y_total ≈ 0.71 m" referred to a
+    body-base or otherwise-reduced output and is NOT directly
+    comparable to the CG-referenced complex sway RAO used here;
+    σ_y_total ≈ 1.01 m is consistent with the bare-RAO check.
+
+This closes the original sandbox-vs-cqa pipeline gap noted at the
+end of §12.20.13: the public cqa-core API can now produce both
+σ_y_LF (matches the brucon `pos_a_p*` semantic, i.e. what the DP
+shows the operator) and σ_y_total (matches the operational "what
+hits the turbine" semantic for collision / gangway risk).

@@ -37,6 +37,8 @@ from .observer import (
     ObserverAugmentedSystem,
     build_observer_augmented_system,
     position_state_indices,
+    combined_state_psd,
+    total_position_psd,
 )
 from .gangway import (
     GangwayJointState,
@@ -177,6 +179,8 @@ __all__ = [
     "ObserverAugmentedSystem",
     "build_observer_augmented_system",
     "position_state_indices",
+    "combined_state_psd",
+    "total_position_psd",
     "GangwayJointState",
     "OperabilityResult",
     "rotation_centre_body",

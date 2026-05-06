@@ -289,3 +289,161 @@ def position_state_indices(
     if aug is None or aug.include_integrator:
         blocks["I"] = _slc(_IDX_INT)
     return blocks
+
+
+# ---------------------------------------------------------------------------
+# Combined LF + WF covariance pipeline (analysis.md §12.20.13 follow-up)
+# ---------------------------------------------------------------------------
+
+
+def combined_state_psd(
+    aug: ObserverAugmentedSystem,
+    S_F_funcs,
+    S_eta_w_func,
+    omega: np.ndarray,
+) -> np.ndarray:
+    """One-sided state PSD with both LF disturbance and WF wave-motion
+    inputs, summed.
+
+    The augmented system has two distinct disturbance channels:
+
+      LF channel : slow-drift / wind / current force F enters via
+                   ``B_w`` (nonzero on the ν rows only, scaled by
+                   M⁻¹). PSD provided by ``S_F_funcs`` (list of
+                   callables ω -> (3, 3); summed before the H @ H^H
+                   sandwich, matching ``state_psd_freqdomain``).
+      WF channel : true wave-frequency vessel motion η_w_true enters
+                   via ``B_wf`` on the innovation chain rows only
+                   (bias, wave filter, observer pos / vel). PSD
+                   provided by ``S_eta_w_func`` (callable ω -> (3, 3)
+                   one-sided, matching the rad/s-native PSD
+                   convention used throughout cqa; build via
+                   ``cqa.wave_response.S_eta_wave_psd`` or similar
+                   from JONSWAP × RAO² for the (surge, sway, yaw)
+                   wave-induced position).
+
+    The two channels are **uncorrelated** at the input (slow-drift
+    forces and the linearised WF position originate from different
+    spectral bands of the same wave field; cross-spectra are
+    identically zero in the linear superposition adopted here),
+    so the output state PSD is just the sum:
+
+        S_x(ω) = H_LF(ω) S_F(ω) H_LF(ω)ᴴ + H_WF(ω) S_η_w(ω) H_WF(ω)ᴴ
+
+    with H_LF = (jωI − A)⁻¹ B_w and H_WF = (jωI − A)⁻¹ B_wf.
+
+    Parameters
+    ----------
+    aug : ObserverAugmentedSystem from `build_observer_augmented_system`.
+    S_F_funcs : list of callables ω -> (3, 3) one-sided LF force PSD
+        matrices [N² / (rad/s)]. Summed across the list. Pass an empty
+        list to disable the LF channel.
+    S_eta_w_func : callable ω -> (3, 3) one-sided WF position PSD
+        matrix [m² / (rad/s)] for the (surge, sway, yaw) channels.
+        Pass ``None`` to disable the WF channel.
+    omega : (n,) angular frequency grid [rad/s], strictly positive.
+
+    Returns
+    -------
+    (n, n_state, n_state) complex array of one-sided state PSD matrices.
+    """
+    omega = np.asarray(omega, dtype=float)
+    n_state = aug.A.shape[0]
+    I_n = np.eye(n_state)
+    S_x = np.zeros((omega.size, n_state, n_state), dtype=complex)
+    n_F = aug.B_w.shape[1]
+    for i, w in enumerate(omega):
+        jwI_A = 1j * w * I_n - aug.A
+        H_LF = np.linalg.solve(jwI_A, aug.B_w)
+        if S_F_funcs:
+            S_F_total = np.zeros((n_F, n_F))
+            for S_F in S_F_funcs:
+                S_F_total = S_F_total + S_F(w)
+            S_x[i] += H_LF @ S_F_total @ H_LF.conj().T
+        if S_eta_w_func is not None:
+            H_WF = np.linalg.solve(jwI_A, aug.B_wf)
+            S_eta_w = S_eta_w_func(w)
+            S_x[i] += H_WF @ S_eta_w @ H_WF.conj().T
+    return S_x
+
+
+def total_position_psd(
+    aug: ObserverAugmentedSystem,
+    S_F_funcs,
+    S_eta_w_func,
+    omega: np.ndarray,
+) -> np.ndarray:
+    """One-sided 3x3 PSD of the **total observed position**
+    y_total = η + η_w_true (LF + WF), in the body-fixed (surge, sway,
+    yaw) basis.
+
+    Decomposition (linear, uncorrelated LF and WF inputs):
+
+      y_total(ω) = C_η · x(ω) + η_w_true(ω)
+                = [C_η H_LF] F(ω) + [C_η H_WF + I] η_w_true(ω)
+
+    where C_η = [I₃ 0 0 ... 0] picks the true-position block (state
+    indices 0..2). The LF channel contributes only through
+    C_η H_LF F. The WF channel has a **direct** contribution
+    (η_w_true itself, through the +I term in C_η H_WF + I) AND an
+    indirect contribution through the controller's response to the
+    observer's wave-corrupted innovation (C_η H_WF, generally small
+    because the wave filter notches it out, but nonzero in the
+    transition band). Therefore:
+
+        S_y(ω) = (C_η H_LF) S_F (C_η H_LF)ᴴ
+               + (C_η H_WF + I) S_η_w (C_η H_WF + I)ᴴ
+
+    Cross terms between the LF and WF channels vanish (uncorrelated
+    inputs).
+
+    This is the public single-call shortcut that produces the
+    operator-relevant σ_y^total channel (matches the brucon
+    "true position" semantic used for collision / gangway risk),
+    distinct from the σ_y^LF (= σ on η_hat_LF) used by IMCA
+    `pos_a_p*` (= what the DP shows the operator).
+
+    Parameters
+    ----------
+    aug, S_F_funcs, S_eta_w_func, omega : as in `combined_state_psd`.
+
+    Returns
+    -------
+    (n, 3, 3) complex array of one-sided y_total PSD matrices.
+        Real diagonals are the per-axis (surge, sway, yaw) total
+        position spectra.
+
+    Recovery
+    --------
+        sigma_y_k^2 = ∫₀^∞ S_y[:, k, k].real dω
+        (one-sided, rad/s-native, no /π — matches `cqa.psd`
+         convention and verified by `cqa.psd.wave_elevation_psd`'s
+         ∫ S_eta dω = Hs²/16 cross-check.)
+    """
+    omega = np.asarray(omega, dtype=float)
+    n_state = aug.A.shape[0]
+    I_n = np.eye(n_state)
+    I3 = np.eye(3)
+    # C_eta picks state rows 0..2 (the true-position block).
+    C_eta = np.zeros((3, n_state))
+    C_eta[:, _slc(_IDX_ETA)] = I3
+
+    n_F = aug.B_w.shape[1]
+    S_y = np.zeros((omega.size, 3, 3), dtype=complex)
+    for i, w in enumerate(omega):
+        jwI_A = 1j * w * I_n - aug.A
+        # LF channel contribution.
+        if S_F_funcs:
+            H_LF = np.linalg.solve(jwI_A, aug.B_w)         # (n_state, 3)
+            G_LF = C_eta @ H_LF                            # (3, 3)
+            S_F_total = np.zeros((n_F, n_F))
+            for S_F in S_F_funcs:
+                S_F_total = S_F_total + S_F(w)
+            S_y[i] += G_LF @ S_F_total @ G_LF.conj().T
+        # WF channel contribution: includes direct +I term.
+        if S_eta_w_func is not None:
+            H_WF = np.linalg.solve(jwI_A, aug.B_wf)        # (n_state, 3)
+            G_WF = C_eta @ H_WF + I3                       # direct + indirect
+            S_eta_w = S_eta_w_func(w)
+            S_y[i] += G_WF @ S_eta_w @ G_WF.conj().T
+    return S_y
