@@ -1521,27 +1521,64 @@ saturated-equilibrium and achievable-polytope work.
 This validation also forces a project-level decision: **cqa's default
 wave spectrum for capability / station-keeping analyses should be
 Bretschneider (= 2-parameter Pierson-Moskowitz), not JONSWAP**.
-Three reasons:
+Three reasons -- and one important caveat about conservatism:
 
 1. **Standards alignment.** IMCA M254 Rev.1 (DPCAP guidance) and
    DNV-ST-0111 (assessment of station-keeping capability of DP
    vessels) both prescribe a 2-parameter PM / Bretschneider spectrum
    for capability analyses. The standards bodies picked the simpler
-   form to be globally applicable rather than tuning a `gamma` per
-   region; cqa is targetting these standards directly via the M254
-   Fig. 8 decision matrix (sec 12.1) and ST-0111 wind/wave/current
-   relations (sec 12.x).
+   form to be **globally applicable rather than tuning a `gamma`
+   per region** (JONSWAP's gamma was originally calibrated to
+   North Sea wind seas; the value to use elsewhere is contested
+   and adds avoidable variance to a normative deliverable). cqa
+   targets these standards directly via the M254 Fig. 8 decision
+   matrix (sec 12.1) and ST-0111 wind/wave/current relations.
 
-2. **Conservatism.** Bretschneider's broader spectral peak overlaps
-   more of the QTF support, giving 30-50% larger drift forces than
-   JONSWAP gamma=3.3 at the same H_s/T_p (this validation: -309 kN
-   vs -207 kN long-crested at beam-on for V_w=14, H_s=4.2). For
-   capability work this is the safe direction.
-
-3. **Brucon agreement.** Brucon's vessel_simulator defaults to
+2. **Brucon agreement.** Brucon's vessel_simulator defaults to
    Bretschneider when `wave_spectrum_type` is unset
    (`vessel_simulator_wrapper.cpp:117-120`). Matching brucon's
    default removes a needless cross-validation friction.
+
+3. **Mathematical equivalence.** Bretschneider is JONSWAP at
+   gamma=1 (verified numerically in cqa: `jonswap_psd(...,
+   gamma=1.0)` agrees with the standard Bretschneider closed
+   form to machine precision). So the migration is a one-line
+   parameter change in the helper, plus the API surface decisions
+   below.
+
+**Caveat on conservatism.** Capability analyses are often loosely
+described as wanting "conservative" disturbance spectra. The
+JONSWAP-vs-Bretschneider conservatism direction depends on T_p
+relative to the QTF peak frequency and is **not unconditionally
+in either direction** -- it cannot be argued generically. For the
+CSOV's sway-drift QTF (peak at omega ~ 1.1 rad/s, T ~ 5.6 s):
+
+  | T_p [s] | omega_p [rad/s] | F_y Bret [kN] | F_y JONSWAP gamma=3.3 [kN] | Bret/JON |
+  |--------:|----------------:|--------------:|---------------------------:|---------:|
+  |     5.0 | 1.26            | -867          | -988                       | 0.88     |
+  |     7.0 | 0.90            | -797          | -765                       | 1.04     |
+  |     8.0 | 0.79            | -618          | -488                       | 1.27     |
+  |    10.2 | 0.61            | -309          | -207                       | 1.49     |
+  |    12.0 | 0.52            | -167          | -108                       | 1.55     |
+  |    14.0 | 0.45            | -77           | -27                        | 2.82     |
+  |    16.0 | 0.39            | -34           | -1                         | large    |
+
+  At the *short* wind-sea T_p typical of dimensioning operability
+  conditions for North Sea / North Atlantic CSOVs (T_p ~ 6-9 s,
+  near or above the QTF peak), **JONSWAP gamma=3.3 gives larger
+  drift than Bretschneider**: JONSWAP's narrower peak concentrates
+  more energy in the high-overlap region near the QTF maximum.
+  At long T_p (swell-like), the order reverses because
+  Bretschneider's broader high-frequency tail still feeds the QTF
+  while JONSWAP's sharp low-frequency peak does not.
+
+  So the standards' move toward Bretschneider/2-param PM is
+  **not primarily a conservatism choice** -- it is a portability
+  and standardisation choice that accepts modest non-conservatism
+  in fully-developed wind seas (the regime where JONSWAP gamma > 1
+  was historically calibrated) in exchange for a globally
+  applicable single shape. This is a known DPCAP-community
+  trade-off and is acceptable within the standards framework.
 
 JONSWAP remains relevant for fatigue / extreme-response work where
 regional spectral peakedness matters and is well-calibrated, and
@@ -1551,7 +1588,9 @@ follow-up implementation involves:
 * Adding a `spectrum: Literal['bretschneider', 'jonswap'] = 'bretschneider'`
   argument to `mean_drift_force_pdstrip`,
   `slow_drift_force_psd_newman_pdstrip`, and the wave-frequency PSD
-  helpers in `cqa.psd` and `cqa.wave_response`.
+  helpers in `cqa.psd` and `cqa.wave_response`. Internally,
+  `bretschneider` dispatches to `jonswap_psd(..., gamma=1.0)`;
+  no separate Bretschneider implementation is required.
 * Changing the per-call default from JONSWAP gamma=3.3 to
   Bretschneider; existing tests and analyses that depend on
   JONSWAP behaviour pass `spectrum='jonswap'` explicitly.
@@ -1559,3 +1598,7 @@ follow-up implementation involves:
   alongside `cos-2s s=...` (cqa convention), with explicit docstring
   on the two parameterisations and the Gaussian-limit equivalence
   s ~ 2n. Default DPCAP spreading: cos^2 (n=2), matching brucon.
+* Re-calibration of the §12.14 bistability table under the new
+  default spectrum, since the slow-drift PSD energy distribution
+  (and hence the saturated-equilibrium / bistability transition)
+  shifts noticeably with gamma at the relevant T_p.
