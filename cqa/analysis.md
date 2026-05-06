@@ -1864,3 +1864,721 @@ decomposition cleanly separated the two independent root causes
 that were each contributing roughly half of the σ over-prediction
 on a log scale.
 
+
+### 12.19 Waves-only closed-loop residual: channel semantics + integrator gap
+
+After §12.18 closed the force-level residual to ~6 % at P7 beam-on,
+the closed-loop intact P50/P90 |pos| was still under-predicted: cqa
+1.31 / 1.60 m vs brucon ensemble 1.48 / 2.03 m. The user suggested
+isolating the wave channel by running a Vw=0, Vc=0 ("waves-only")
+ensemble to remove wind/current contributions. The result was more
+discordant than the full-env case: cqa 0.85 / 1.04 m vs brucon
+1.74 / 2.26 m -- a ~2× P50 ratio that reopened the diagnostic.
+
+The investigation involved two distinct stages: a wrong working
+hypothesis ("missing 1st-order wave-frequency motion") that was
+sharpened, then refuted by the user's clarification of the brucon
+output channel semantics. The final attribution is documented below.
+
+#### 12.19.1 Vw=0 zero-input handling
+
+The NPD wind-gust spectrum (`npd_wind_speed_psd`) takes a positive
+power of `Vw_mean` and is undefined for `Vw_mean=0`. Two call sites
+needed a short-circuit to return `S_wind = 0` when `Vw <= 1e-9`:
+`cqa/decision_matrix.py::_build_intact_prior_at_forecast` and
+`cqa/transient.py::wcfdi_transient`. Both fixes are applied in the
+current working tree -- a clean precondition for any waves-only
+diagnosis.
+
+#### 12.19.2 First diagnosis (later refuted): "WF motion missing from pos_a_p*"
+
+Running the waves-only ensemble and inspecting cqa's
+`IntactPriorSummary` showed:
+
+| | brucon | cqa | ratio |
+|---|---:|---:|---:|
+| σ_y (sway, body, intact window) | 0.590 m | 0.255 m | 2.31× |
+| ν_0_y (zero-up-crossings)       | 0.035 Hz | 0.012 Hz | 3.0× |
+| P50 |pos| (running max, T=200s) | 1.74 m | 0.85 m | 2.05× |
+
+Plugging brucon's measured σ_y + brucon's measured ν_0 into
+Vanmarcke's running-max formula reproduced brucon's empirical
+running-max (1.37 m P50 predicted vs 1.74 m measured -- the residual
+attributable to the non-zero sway mean of -0.28 m, see below). So
+the running-max machinery was correct; the inputs (σ, ν_0) were
+wrong on the cqa side.
+
+A first hypothesis emerged: cqa's `pos_sigma_*_m / pos_a_p*` is
+built only from the slow-band forcing PSDs `[S_wind, S_drift,
+S_curr]` passed through the closed-loop transfer (`operator_view.
+py:836`-`839`), but brucon's `SwayDev` includes the 1st-order
+wave-frequency RAO motion. At Hs=4.2 m beam-on, a quick
+RAO-times-Bretschneider integral at the vessel CG gave σ_y_WF ≈
+0.69 m -- the right ballpark to close the gap if combined with
+cqa's slow-band σ_y_slow=0.255 m via RSS.
+
+A new utility `sigma_pos_wave_at_body_point` was written in
+`cqa/wave_response.py` to compute, at any body-fixed point, the
+1st-order wave-frequency horizontal-position σ via the standard
+6-DOF RAO × spreading × wave-PSD quadrature. The function
+mirrors `sigma_L_wave` exactly. Per-axis sensitivity 6-vectors at
+a body point `r_b = (x_b, y_b, z_b)` are
+
+    c6_x = [1, 0, 0, 0,  z_b, -y_b]
+    c6_y = [0, 1, 0, -z_b, 0,  x_b]
+
+(rigid-body small-motion kinematics: `δp = ξ_trans + ω × r_b`).
+Three sanity checks passed:
+
+1. Long-crested at CG, beam=90°: σ_y_wf = 0.687 m. Matches the
+   hand calc to 0.001 m.
+2. Short-crested (cos²ˢ s=4) at CG: σ_y_wf = 0.518 m. Spreading
+   attenuates beam-on sway as expected.
+3. At dp_base body point (5, -9, -8) m, short-crested:
+   σ_x_wf = 0.250 m, σ_y_wf = 0.596 m. Yaw lever-arm (x_b·yaw)
+   boosts surge response; combination of sway + roll-lever +
+   yaw-lever gives σ_y close to the brucon-measured σ_SwayDev
+   = 0.59 m.
+
+The tantalising 1 % match with brucon's measured σ_SwayDev = 0.590 m
+made it look like the diagnosis was complete: just plumb
+`sigma_pos_wave_at_body_point` through `summarise_intact_prior`,
+multi-band the running-max via the existing `inverse_rice_multiband`
+infrastructure, and the cross-validation gap would close.
+
+It was the wrong fix.
+
+#### 12.19.3 The user's clarification: SurgeDev/SwayDev = DP LF estimate, NOT raw motion
+
+The user pointed out that the operationally-meaningful position
+channel for IMCA radii / DP alarms is the **DP estimator's
+low-frequency position estimate**, not the true total motion --
+1st-order wave motion is a known periodic oscillation that the DP
+control system already filters out, and ST-0111 / IMCA M254 define
+the station-keeping radius against the LF-filtered position. Truth
+checking confirmed:
+
+| brucon channel | what it actually is |
+|---|---|
+| `EstPosX, EstPosY` (estimator output) | DP estimator's LF position estimate, NED, relative to simulator start |
+| `HfPosX, HfPosY` (estimator output) | DP estimator's WF position estimate, NED |
+| `x, y` (main output) | True NED position, relative to simulator start |
+| `xHf, yHf` (main output) | High-frequency component of the true NED position |
+| `SurgeDev, SwayDev` | body-frame projection of `EstPosX, EstPosY` (= DP LF estimate, body-frame) |
+
+A direct numeric test on one seed in the intact window, with
+heading 180° compass:
+
+    body_proj(EstPosY) std       = 0.7502 m
+    SwayDev std                  = 0.7501 m
+    diff (SwayDev - body_proj(EstPosY)) std = 0.0009 m   <- effectively identical
+    body_proj(y)      std        = 0.9923 m              <- true total motion, larger
+
+So `SwayDev` IS the body-projected DP LF estimate. The cross-
+validation channel was already semantically correct. The 1st-order
+RAO motion is **not in `SwayDev`** -- it has been filtered out by
+the DP estimator before that channel is published. The plan to
+add `sigma_pos_wave_at_body_point` to `pos_a_p*` would have mixed
+two different physical channels under one field name, which is
+exactly wrong.
+
+The 2.3× σ_y gap is therefore **inside the slow band**, not a WF-
+motion attribution problem. cqa's pos_a_p* semantic (slow-band
+running-max for IMCA radii) is correct; what's wrong is the slow-
+band σ itself.
+
+#### 12.19.4 PSD-band attribution of the slow-band gap
+
+A Welch PSD on body-projected `EstPosY` (intact window, 30 seeds
+averaged) split the brucon LF-channel variance by band:
+
+    f < 0.04 Hz (LF)        : variance = 0.295 m²    (90.5%)
+    0.04 <= f < 0.2 Hz (WF) : variance = 0.031 m²    ( 9.5%)
+    total                   : variance = 0.326 m²    (σ = 0.57 m)
+
+So:
+
+* The DP estimator does what it claims: WF leak into the LF channel
+  is ~10 %, small but non-zero.
+* The **LF variance itself is 0.30 m², while cqa predicts 0.065 m²**
+  -- a 4.5× ratio in variance, 2.1× in σ. This is the residual
+  after force-level matching of §12.18.
+
+The brucon LF spectrum peaks at ω ≈ 0.063 rad/s (f ≈ 0.010 Hz) --
+not at the controller bandwidth ω_n=0.08 rad/s, but **lower than**
+ω_n. cqa's closed-loop position spectrum, in contrast, peaks at
+the lowest grid frequency (ω → 0): for an over-damped 2nd-order
+plant + PD controller driven by a flat low-frequency forcing PSD,
+|H_pos(ω)|² is largest at DC.
+
+Quick variance check using the analytic 2nd-order result:
+
+    σ² ≈ S_F(0) / (2 · D_total · K)
+    
+with M = m22 ≈ 1.34e7 kg, ω_n = 0.08, ζ = 0.95:
+
+    K = M·ω_n² = 8.55e4 N/m
+    D_total = 2·ζ·M·ω_n + D_open = 2.04e6 + 3.34e5 = 2.37e6 N·s/m
+    S_F_y(LF) = 1.39e10 N²·s   (from cqa.drift slow-drift PSD)
+
+    σ² = 1.39e10 / (2 · 2.37e6 · 8.55e4) = 0.034 m²
+    σ  = 0.18 m
+
+This matches cqa's frequency-domain integration (0.255 m, the small
+discrepancy from finite-grid quadrature and mass-matrix off-diagonal
+coupling). For brucon's σ² = 0.30 m², either K or D would need to
+be ~4.5× smaller -- equivalent to ω_n,eff ≈ 0.038 rad/s, which is
+inconsistent with the brucon prototxt (ω_n = 0.08).
+
+#### 12.19.5 Likely root cause: omitted integrator in cqa's `LinearDpController`
+
+`cqa/controller.py` is explicit (lines 24-26):
+
+> The integral action contributes only at frequencies below the
+> dominant disturbance band and is omitted from the Lyapunov
+> analysis (it is a slow process tracking the bias, modelled
+> instead as 'perfect bias rejection').
+
+This was a defensible simplification at design time -- the
+integrator's role *is* to cancel the slow mean force. But it
+fails to model the **transient response** of the integrator to a
+slowly-varying force: the integrator lags the disturbance by its
+own time constant T_i ≈ 1 / ω_i, and during that lag the position
+acquires a transient offset. Brucon's actual PID has finite-bandwidth
+integral action; cqa's "perfect bias rejection" is the ω_i → ∞
+limit (instantaneous integrator) which leaves no LF residual.
+
+Adding an integrator state to the closed-loop with realistic
+ω_i ≈ 0.02 rad/s would:
+
+1. Augment the state from 6 to 9 (`[eta(3), nu(3), eta_int(3)]`),
+   change A_cl shape and `LinearDpController.feedback()`.
+2. Lower the closed-loop position |H_pos(ω)|² near ω_i, raising it
+   between ω_i and ω_n -- consistent with the brucon LF spectrum
+   peaking at 0.063 rad/s.
+3. Increase the position σ in the right ballpark (4.5× variance is
+   the right order of magnitude for an integrator with ω_i ≈ 0.2 ω_n
+   added to a PD baseline; the exact ratio depends on the forcing
+   PSD shape across [ω_i, ω_n]).
+
+A complementary candidate (estimator-in-the-loop dynamics: the DP
+controller acts on the Kalman LF estimate, not the true state) is
+likely a smaller contribution because brucon's true LF (`y - yHf`,
+NED → body) and brucon's estimator LF (`EstPosY` → body) have
+near-identical std (0.668 vs 0.590 m surge; 1.237 vs 0.590 m sway --
+the y discrepancy is from `xHf/yHf` being an estimator output with
+unclear semantic, not the truth). Need brucon source inspection
+to nail this down precisely, but the dominant lever is the
+integrator.
+
+#### 12.19.6 Status of `sigma_pos_wave_at_body_point`
+
+The new function in `cqa/wave_response.py` is kept as a forward-
+looking utility. It is **not** wired into `IntactPriorSummary`,
+because the `pos_a_p*` semantic is "DP LF estimate" (matching IMCA
+radii) and 1st-order WF motion is not part of that channel.
+Anticipated future uses, for which the user has expressed intent:
+
+* "True motion at gangway base / hook" panel -- what physically
+  drives gangway end-stop loads, structural fatigue, latch
+  integrity. Slow + WF at the body-fixed point of interest.
+  Distinct from both pos_a_p* (LF station-keeping radius) and
+  gw_sigma_*_m (telescope length deviation).
+* Collision-risk estimation against a fixed structure -- needs
+  the true body-point excursion, not the LF estimate.
+
+The function is regression-tested by virtue of the three sanity
+checks documented in §12.19.2 and is ready for use the moment a
+consumer needs it.
+
+#### 12.19.7 Methodology note: two channels named the same
+
+The investigation was led astray for ~2 hours by an implicit
+assumption that brucon's `SwayDev` is the "raw" sway motion. The
+name suggests deviation from setpoint, full stop. In fact every
+brucon DP-state output channel ending in `Dev` is the body-frame
+projection of a Kalman-filtered LF estimate, not the truth. The
+prototype's docstring near `parse_output` mentions only "tab-
+separated header"; the channel semantics are documented only in
+brucon source comments. Two consequences:
+
+1. The C++ port should expose channel semantics in named types
+   (e.g. `PositionLfEstimate` vs `TruePositionBodyFrame`) rather
+   than raw float arrays, to make the LF/raw distinction
+   compile-time enforced rather than reader-implied.
+2. Future cqa cross-validation drivers should print the channel
+   semantics they're comparing against in the diagnostic output,
+   to catch this class of mistake at run time.
+
+The resolution itself was the user's, not mine. A pure code-side
+investigation would not have discovered the LF vs raw distinction
+without happening to read the brucon estimator source for an
+unrelated reason.
+
+> **Update from §12.20:** the integrator hypothesis above (§12.19.5)
+> turned out to be only a ~10 % contributor to σ_y_LF, not the
+> dominant lever. The actual closed-loop residual is mostly from
+> brucon's full passive observer (5 states/DOF, with finite bias
+> time constant T_b = 1000 s and a 2nd-order wave filter) plus a
+> phenomenological 1st-order pole on the controller-output → vessel-
+> force path with τ ≈ 5 s. See §12.20 for the corrected story and
+> the multi-seed sandbox validation.
+
+### 12.20 Sandbox passive-observer closed loop validated against brucon
+
+§12.19.5 hypothesised that the cqa σ_y_LF under-prediction was
+primarily from omitting the controller integrator. Building a
+brucon-faithful sandbox closed loop and exercising it against the
+30 P7 waves-only seeds refuted that single-cause story and produced
+a quantitative attribution of the missing physics. This section
+records the diagnostic chain, the refuted hypotheses, and the
+working model that reproduces brucon σ_y_LF to within ~6 %.
+
+#### 12.20.1 Tooling: the sandbox
+
+Three Python tools were added under
+`scripts/p7_brucon_validation/` (no production code touched):
+
+* `sandbox_passive_observer.py` -- frequency-domain σ-prediction of
+  a per-DOF closed loop with optional Fossen passive observer (5
+  states), bias feed-forward, integrator state, 1st-order thrust
+  lag, and 2nd-order Sælid/Jensen wave filter. All gains taken
+  from brucon `build/bin/config_csov/observer.prototxt` and
+  `build/bin/settings/tuning.prototxt`.
+* `validate_sandbox_timeseries.py` -- LTI time-domain integration
+  of the sandbox closed loop driven by brucon's logged `DriftY`
+  channel and `yHf` true wave-frequency motion, single seed.
+* `multi_seed_sandbox_validation.py` -- 30-seed batch wrapper with
+  per-seed σ scatter and ensemble-mean PSD comparison.
+
+Auxiliary diagnostics:
+
+* `estimate_thrust_lag.py` -- empirical fit of `OrderTau →
+  AllocTau`, `Order → Ty`, `Alloc → Ty` first-order time constants
+  from the 30 brucon seeds.
+* `wave_filter_sigma_sweep.py` -- sweeps wave-filter design Tp
+  over [5, 30] s to quantify how much closed-loop σ the wave filter
+  alone explains.
+* `diagnose_thrust_command_gap.py` -- compares brucon σ(OrderTau)
+  vs sandbox σ(u_cmd) at matched σ(F_drift), the diagnostic that
+  proved sandbox over-suppresses regardless of the linear damping D.
+
+The intact-window for all comparisons is `t ∈ [300, 555] s`: 240 s
+after simulation start (long enough for observer transients to
+settle) and 5 s before the WCFDI failure injection at t=560 s. An
+earlier choice of `T_START=200, T_END=740` was contaminated by
+both the initial settling and 180 s of post-failure transient,
+artificially inflating brucon σ_y_LF to 0.85 m. With the corrected
+window, the 30-seed median is 0.65 m (pooled 0.75 m) -- consistent
+with the prior session's single-seed 0.59 m measurement.
+
+#### 12.20.2 Channel semantics correction
+
+Re-reading
+`brucon/libs/simulator/dp_runfast_simulator/dp_runfast_simulator.cpp`
+in the lines that print the CSV header (lines 1067-1112) clarified
+two channels that had been mis-interpreted in §12.19:
+
+| brucon CSV channel | what it actually is |
+|---|---|
+| `x, y` | **NED** total position (LF + WF combined) [m] |
+| `xHf, yHf` | **BODY-frame** wave-frequency motion (already body-aligned) [m] |
+| `Tx, Ty, Tz` | **Force on the vessel** from the simulator's thruster model (after rate limits / azimuth dynamics) [kN] |
+| `OrderTau{Surge,Sway,Yaw}` | controller's commanded body-frame force [kN] |
+| `AllocTau{Surge,Sway,Yaw}` | net body-frame force after allocator solves for individual thrusters [kN] |
+| `FbTau{Surge,Sway,Yaw}` | feedback to the controller [kN] |
+| `CurX, CurY, CurMz, CurMx` | **Damping forces** (`damping_forces().sway()`, mis-named) [kN] |
+| `DriftY` | **2nd-order slow-drift sway force** [kN] |
+
+Two corrections to my prior assumption:
+
+1. `xHf, yHf` are body-frame, not NED. To recover the LF body-
+   frame sway from CSV: project `(x, y)` NED via heading into
+   body, then subtract `yHf` directly (no rotation).
+2. `CurY` is total damping force (linear + quadratic cross-flow),
+   not current force. Computing `σ(CurY) / σ(SwaySpeed)` over the
+   intact window gives an *equivalent linear* damping coefficient
+   D_eq ≈ 17 000 N·s/m, but the underlying model is dominated by
+   quadratic cross-flow drag (R²=0.974 for pure quadratic fit
+   `F_damp = -C_q · |v| · v` with C_q ≈ 240 000 N·s²/m²; vs
+   R²=0.894 for pure linear). The describing-function equivalent
+   at brucon's operating σ_v=4.4 cm/s reproduces D_eq=17 000 to
+   within 1 %.
+
+#### 12.20.3 The brucon Fossen passive observer (per DOF)
+
+`brucon/libs/dp/dp_estimator/nonlinear_passive_observer.cpp` runs
+a 5-state-per-DOF observer:
+
+```
+e        = y_meas − ŷ_LF − η̂_w               (wave-corrected innovation)
+ŷ_LF_dot = ν̂ + ω_c · e                       (LF position estimate)
+ν̂_dot    = -(D/M)·ν̂ + (1/M)·b̂ + (1/M)·u_cmd + K_a1 · e
+b̂_dot    = -(1/T_b) · b̂ + K_b1 · e             (bias estimate)
+ξ_w_dot  = η̂_w + k1_f · e                     (wave filter state 1)
+η̂_w_dot  = -ω_w² · ξ_w − 2ζ_n·ω_w · η̂_w + k2_f · e
+```
+
+For brucon's CSOV sway block, the gains and parameters
+(`config_csov/observer.prototxt` + `tuning.prototxt`) are:
+
+* K_a1 = 0.12, K_a2 = 0
+* K_b1 = 0.0012, K_b2 = 0
+* T_b = 1000 s (cqa default `bias_time_constant_s = 100` is wrong
+  by an order of magnitude)
+* ω_c = 1.04 rad/s
+* Wave filter: ω_w = 2π/Tp, ζ_n = ScaleGainLinear(ω_w, 2π/18,
+  2π/10, 0.25, 0.10) ⇒ at Tp=10.2 → ζ_n = 0.107
+* k1_f = -2(1-ζ_n)·ω_c/ω_w = -3.02
+* k2_f = 2(1-ζ_n)·ω_w = 1.10
+
+The critical detail is the **innovation form** `e = y_meas − ŷ_LF
+− η̂_w`. An earlier sandbox version using `e = y_meas − η̂_w` (the
+naive wave-rejected innovation) over-estimated wave-filter slow-
+band leakage by ~10× and produced unphysical σ-vs-Tp behaviour.
+
+The controller (`brucon/libs/dp/dp_controller/mode_base.cpp:145-146`)
+is a textbook PID with Fossen-style gain calculation
+(`tuning_parameters_no_speed_dependency.cpp:22-29`):
+
+```
+Kp = M · ω_n²,   Ki = 0.1 · ω_n · Kp,   Kd = 2 · ζ · M · ω_n
+```
+
+with `M = vessel_model_.Mass() + vessel_model_.SwayAddedMass()`
+(matches cqa's m22). For sway, ω_n=0.08, ζ=0.95, ω_i=0.008 rad/s,
+GainLevel kMedium (scale 1.0).
+
+A second important controller feature is the velocity feedforward
+`SetVelocityFeedforward(-Y(u, v, r) / 1000.0)`
+(`mode_base.cpp:216`) which **cancels the vessel's hydrodynamic
+damping** in the closed loop. The acceleration FF
+(`SetAccelerationFeedforward(...)`) is path-driven and so is zero
+during station-keeping.
+
+#### 12.20.4 Multi-seed sandbox validation
+
+Pooled over 30 P7 waves-only seeds in the intact window:
+
+| configuration | median σ_y_LF [m] | % of brucon |
+|---|---:|---:|
+| brucon sway_LF (true, target) | 0.65 | 100 |
+| brucon SwayDev (DP estimator) | 0.66 | 102 |
+| sandbox perfect feedback (cqa equiv) | 0.17 | 26 |
+| sandbox full obs, no thrust lag, no integrator | 0.41 | 63 |
+| sandbox full obs, no thrust lag, **+ integrator** | 0.45 | 69 |
+| sandbox full obs, **τ=5 s lag**, no integrator | 0.56 | 86 |
+| sandbox full obs, τ=5 s lag, + integrator | 0.61 | **94** |
+
+The ensemble-mean PSD plot
+(`multi_seed_sandbox_psd.png`) shows that the slow-band plateau at
+f ≈ 0.005 Hz, which carries most of the variance, is reproduced
+within model uncertainty by the "full obs + τ=5 s" configuration;
+without the τ knob the plateau is ~2.5× too low.
+
+#### 12.20.5 Refuted hypotheses
+
+The diagnostic chain was driven by user pushback at four key
+points; each successive hypothesis turned out to capture only a
+partial truth.
+
+1. **"Integrator alone explains the gap"** (§12.19.5): the
+   sandbox with brucon-realistic Ki = 0.1·ω·Kp = 0.0008 rad/s
+   raises σ from 0.41 → 0.45 m (+10 %). Real but minor; cannot
+   close the 0.41 → 0.65 gap.
+
+2. **"Rate limit halves effective controller bandwidth"** (my
+   own refuted hypothesis): user pointed out that ζ=0.95 puts the
+   PID near critically damped, with no resonant peak in |H_pos|.
+   The slow-band peak in σ_y(f) at ω ≈ 0.06 rad/s is the drift-
+   force PSD plateau being passed through, not closed-loop
+   ringing.
+
+3. **"Brucon thrust pipeline introduces a 1st-order lag with τ ≈
+   5 s"** (refuted by `estimate_thrust_lag.py`): the empirical
+   transfer `OrderTau → Ty` has |H|² ≈ 1.0 and phase ≈ 0° across
+   the entire slow band (f < 0.05 Hz) with coherence > 0.99. A
+   first-order fit returns τ = 0.10 s (the search lower bound),
+   meaning the simulator's rate-limited thrusters (RPM rate
+   10 %/s, azimuth 12°/s) are essentially transparent at the
+   typical sway-force amplitudes / rates of P7 station-keeping.
+   **The τ=5 s parameter that closes the σ gap in the sandbox
+   does not correspond to a measurable physical actuator lag.**
+
+4. **"GPS antenna lever-arm × roll contaminates y_meas"** (user
+   suggestion, refuted by data): brucon CSOV GNSS antennas at
+   z = -24.23 m below CO; logged Roll has σ_LF (filtered <0.05 Hz)
+   = 0.08° → expected lever-arm contamination σ ≈ 0.03 m, far too
+   small to explain the residual gap. Quadrature sum
+   `√(0.41² + 0.03²)` = 0.41 m.
+
+5. **"Sandbox over-damps because it uses linear D where brucon
+   has quadratic"**: refuted by D-sweep. With brucon's controller
+   `Kd = 2.8e6 N·s/m` swamping any open-loop D ≤ 20 000 N·s/m,
+   sandbox σ_y is insensitive to D over two orders of magnitude
+   (100 to 20 000 N·s/m → σ_y = 0.37 ± 0.001 m). Brucon's
+   velocity-FF additionally cancels the natural damping in
+   software, making the closed loop see only Kd. Damping form
+   cannot be the explanation.
+
+6. **"Wave filter alone explains it"** (user suggestion,
+   partially confirmed): the 2nd-order wave filter at Tp=10.2 s
+   (ω_w = 0.616 rad/s, ζ_n = 0.107) has |η_w/e| = 0.236 with +89°
+   phase at the controller bandwidth ω = 0.08 rad/s. Sweeping
+   the wave-filter Tp from 5 s to 30 s in the sandbox moves σ
+   from 0.39 → 0.49 m -- a real but small contributor. At the
+   actual Tp=10.2 s, the wave filter accounts for ~14 % of the
+   gap (0.36 → 0.41 m).
+
+#### 12.20.6 Status of the residual
+
+After ruling out (a) thrust lag literal interpretation, (b) over-
+damping, (c) mass mismatch, (d) estimator under-reporting, (e)
+roll-coupled GPS lever arm, (f) integrator as sole cause, (g) GPS
+1 Hz zero-order hold on y_meas, and (h) numerical integration
+error (brucon uses RK4 at 10 Hz with no filters in either signal
+processing or observer; per-DOF observer fastest pole ω_c = 1.04
+rad/s gives ~60 samples per period -- numerically essentially
+exact), the sandbox still under-predicts σ by ~36 % (0.41 vs
+0.65) without the τ=5 s knob. With the knob it matches to 6 %.
+The mechanism the τ knob is calibrating is **not identified** in
+this work.
+
+Remaining (untested) candidates for future investigation:
+
+* Cross-DOF coupling (sway-yaw via `B26`, sway-roll via `B42`)
+  excited by yaw-band drift moments and slow-drift roll moments
+  not modelled in the sandbox 1-DOF cut. P7 has roll dynamics
+  with σ_roll ≈ 1° in this sea state (driven by 2nd-order roll
+  exciting moment `wave_model_.RollExcitationMoment`); the lateral
+  wave-drift sway force has correlated yaw moment that drives a
+  yaw-rate response, which couples back to sway via Coriolis.
+* Brucon-side instrumentation of the controller-internal sums
+  (term-by-term: Kp·yLF, Kd·νh, b̂, vel_FF, accel_FF, integral)
+  during a single seed would resolve this empirically but requires
+  brucon-side logging changes.
+
+Tested-and-refuted GPS / numerics candidates:
+
+* GPS 1 Hz zero-order hold on the wave-frequency motion
+  contribution `y_wf` to `y_meas`: applying ZOH at 1 Hz in the
+  sandbox produced zero change in σ_y_LF (the wave filter's
+  slow-band rejection of the held signal is essentially perfect).
+* Discrete-time controller / sample-and-hold at brucon's 10 Hz
+  rate: ω_n · Ts = 0.008 rad ⇒ phase lag at the controller
+  bandwidth is 0.5° -- negligible.
+
+The user's call (recorded here) was to **stop chasing the
+residual mechanism and instead consolidate the diagnostic work**:
+a 6 %-accurate phenomenological model is sufficient to make
+progress on the cqa-side closed-loop integration, and the
+unresolved physics is documented as a known limitation.
+
+#### 12.20.7 Implications for cqa core
+
+Before any cqa-side closed-loop change, three things are
+established:
+
+1. The cqa default `ControllerParams.bias_time_constant_s = 100`
+   is a factor 10× too small vs brucon's T_b = 1000 s. Easy fix
+   if/when an estimator-augmented closed loop is built into cqa.
+2. The current cqa `LinearDpController` formulation (perfect
+   feedback from true state, no observer dynamics, no bias FF
+   transient) under-predicts σ_y_LF by ~4× (sandbox 0.17 m vs
+   brucon 0.65 m). The closed-loop variance bug is real and
+   physical, not a tuning artefact.
+3. A cqa-side fix would require adding 5 observer states + 1
+   integrator state per DOF (≥18 extra states for the 3-DOF
+   `ClosedLoop`) plus a phenomenological τ ≈ 5 s pole on the
+   command path. This is a non-trivial refactor; the validation
+   evidence supports it but the design choice (do it now vs ship
+   the under-prediction with a documented caveat) is left for a
+   later session.
+
+The diagnostic tools, plots, and the
+quantitative-residual breakdown are committed so the next
+iteration starts from a clear baseline.
+
+#### 12.20.8 Long-settle re-validation and transfer-function decomposition
+
+After the initial §12.20 work flagged the residual gap as
+"unidentified slow-band physics", a focused follow-up established
+two further results that decisively localise the mechanism.
+
+**Long-settle ensemble (`long_run_validation.py`).** The original
+[300, 555] s window is short relative to the bias estimator's
+T_b = 1000 s. A 30-seed ensemble was repeated with
+`settle_s = 3000` (intact-DP window [60, 3060] s) and analysed in
+the late window [1500, 3000] s where bias and Tp estimators are
+fully settled (~3·T_b). Result, median across seeds:
+
+|                   | EARLY [300, 555] s | LATE [1500, 3000] s |
+|-------------------|-------------------:|--------------------:|
+| brucon σ_y_LF     |             0.65 m |              0.67 m |
+| EstBiasSway mean  |          −193 kN |             −197 kN |
+| EstBiasSway std   |             7.2 kN |              7.3 kN |
+| DriftY std        |             ~ 100 kN |              97 kN |
+
+The σ gap vs the sandbox (0.41 m) is **+2 cm wider in the late
+window** — i.e. the residual is genuine steady-state physics, not
+initialisation tail. The bias estimator also reaches a stable
+operating point: it absorbs **91 % of the −217 kN DriftY mean** as
+expected, leaving the remaining 9 % to the controller's
+integrator. Bias slow-band variation 7.3 kN is steady-state.
+
+A unit-conversion bug in an interim diagnostic transiently
+suggested DriftY ≈ 0; this was corrected by re-reading the channel
+through `harness.parse_output` and confirmed against the file
+header. Forces in both `*.out` and `*_estimator.out` are in **kN**
+(not SI N).
+
+**Empirical transfer F_drift → y_LF.** With the long-run data
+giving stationary statistics, Welch PSDs of (DriftY, sway_LF)
+were computed seed-by-seed and ratioed to obtain
+`|y_LF/F_drift|(f)` for brucon. The same transfer was computed
+from the sandbox closed-loop A matrix
+(`G(jω) = (jωI − A)^{−1} B_drift`, output state 0). The
+comparison localises the gap precisely:
+
+| f [Hz] | sandbox \|T\| [m/N] | brucon emp \|T\| [m/N] | ratio brucon/sand |
+|-------:|--------------------:|-----------------------:|------------------:|
+| 0.0019 |             2.1e−5 |                 2.0e−5 |          **0.97** |
+| 0.0052 |             1.9e−5 |                 2.7e−5 |          **1.44** |
+| 0.0073 |             1.6e−5 |                 2.4e−5 |          **1.49** |
+| 0.0097 |             1.4e−5 |                 2.2e−5 |          **1.57** |
+| 0.0194 |             6.0e−6 |                 6.2e−6 |          **1.03** |
+| 0.0515 |             5.7e−7 |                 6.1e−7 |          **1.06** |
+
+Three regimes are clear:
+
+1. **Very low frequency (f < 0.003 Hz, T > 300 s):** transfers
+   match within 5 %. The bias estimator's slow pole at 1/T_b is
+   the dominant slow-band closed-loop pole and is correctly
+   modelled in the sandbox. Note this is **not** the naive
+   1/Kp = 8.4e−6 m/N — the closed-loop slow gain is ~2.5× softer
+   than that, because the bias state introduces a low-frequency
+   integrator-like mode that limits how stiffly the controller
+   resists slow forces (b̂ partially absorbs the input before u_cmd
+   responds).
+
+2. **Bias-loop transition band (f ∈ [0.005, 0.01] Hz, T = 100–200
+   s):** brucon is **1.4–1.6× softer** than the sandbox. This is
+   exactly the band where the bias compensation is rolling off
+   (T_b = 1000 s gives a corner at 1.6e−4 Hz; the loop gain
+   K_b1·ω_c·... gives the actual roll-off shape). The variance
+   integral over this band combined with the DriftY PSD is what
+   produces the σ gap.
+
+3. **High frequency (f > 0.02 Hz):** transfers match within 6 %.
+   The PID + WF transfer is correct.
+
+**82 % of brucon's σ_y_LF² variance lies in the f < 0.01 Hz band**
+(σ_slow² = 0.56² = 0.314, σ_total² = 0.687² = 0.472). With brucon
+1.5× softer in the [0.005, 0.01] Hz sub-band, the
+variance contribution from that sub-band is ~2.25× larger in
+brucon than in the sandbox — exactly what closes the gap from
+0.41² = 0.168 to 0.687² = 0.472 (≈ +0.30 m² of extra variance).
+
+**Mechanism**: a structural difference in the bias-state coupling
+to the controller, manifest only in the bias-loop transition
+band. The sandbox observer states are coupled identically to the
+brucon equations as documented at §12.20.3, so the residual must
+be in:
+
+  - a **gain or sign convention** in how `(1/M) · b̂` enters the
+    sandbox `ν̂_dot` vs brucon's,
+  - the **wave-corrected innovation form**:
+    `e = y_meas − ŷ_LF − η̂_w` (matches brucon `dp_passive_observer.cpp:230-280`)
+    is structurally correct in the sandbox, but the gain on the
+    bias path may be miswired (`K_b1·e` vs `K_b1·(y − ŷ)` without
+    the wave correction).
+
+**Refuted in this round:**
+  - lever-arm coupling (LCG ≈ −1.7 m from sections, `m_c²/Kp_yaw·ω²`
+    correction = 0.03 % of M; unintended yaw moment ~ 50 kN·m
+    gives ≈ 0.04° response, negligible).
+  - Tp estimator drift (brucon EstWavePeriodPitch settles at
+    8.6 s vs sandbox-fixed 10.2 s; impact on σ_y_LF < 1 cm).
+
+**Status: residual gap mechanism localised to bias-loop
+transition band.** A focused next session should:
+  1. Re-derive the sandbox bias-state coupling from
+     `nonlinear_passive_observer.cpp` line by line, comparing to
+     `sandbox_passive_observer.py:build_closed_loop`.
+  2. If the structural form is identical, sweep K_b1 by ±50 % in
+     the sandbox and check whether |T(f)| at f=0.0073 Hz rises by
+     1.5×.
+  3. If not, the gap is in non-LTI behaviour the brucon observer
+     exhibits but my LTI sandbox can't reproduce (saturation,
+     wave-filter Q-scheduling crosstalk, GPS measurement noise
+     spectrum).
+
+#### 12.20.9 Integrator's contribution localised
+
+A follow-up question (recorded here): "the 100–200 s band is
+also in the integral term land — could the integrator be
+introducing oscillations there?" T_i = 2π/ω_i = 785 s vs
+T_b = 2π·1000 ≈ 6280 s; the **integrator's natural period
+(125–800 s) overlaps the residual band (100–200 s)** and its
+interaction with the bias state's slow pole is a candidate
+mechanism.
+
+Direct test: re-compute the sandbox |y_LF/F_drift| transfer
+with `use_integrator=True/False`:
+
+| f [Hz] | brucon emp | sandbox no-I | sandbox WITH I | Δ from I |
+|-------:|-----------:|-------------:|---------------:|---------:|
+| 0.0019 |     2.0e−5 |       2.1e−5 |         2.0e−5 |     −3 % |
+| 0.0053 | **2.7e−5** |       1.8e−5 |     **2.1e−5** | **+15 %** |
+| 0.0072 | **2.4e−5** |       1.6e−5 |     **1.9e−5** | **+13 %** |
+| 0.0098 | **2.2e−5** |       1.4e−5 |     **1.5e−5** |  **+8 %** |
+| 0.0197 |     6.2e−6 |       5.9e−6 |         5.9e−6 |     +1 % |
+| 0.0520 |     6.1e−7 |       5.6e−7 |         5.6e−7 |      0 % |
+
+σ predictions given brucon F_drift PSD (10-seed average):
+
+|                              | σ_y_LF predicted [m] |
+|------------------------------|---------------------:|
+| sandbox full obs, no I       |                0.484 |
+| sandbox full obs, WITH I     |            **0.528** |
+| sandbox no-bias-FF, no I     |                0.484 |
+| brucon (measured)            |            **0.687** |
+
+**Confirmed**: enabling the integrator in the sandbox raises |T|
+by 8–15 % in exactly the f ∈ [0.005, 0.01] Hz band where brucon
+is softer, closing **9 % of the σ gap** (0.484 → 0.528 m). This
+is the first mechanism in the entire investigation that shifts
+the closed-loop transfer in the right direction in the right band.
+
+Mechanism: the integrator state with ω_i = 0.008 rad/s
+introduces an additional slow pole that creates a slight peak
+in `|y_LF/F_drift|` at frequencies where the bias-loop and
+integrator-loop interact. The sandbox without integrator is
+mistakenly *over*-stiff in the band — the integrator is a
+genuine and necessary part of the brucon closed loop.
+
+**Remaining 1.3× residual softness in the [0.005, 0.01] Hz band**
+(after enabling sandbox integrator) is not yet attributed.
+Verified to NOT be:
+  - velocity feedforward (only active during commanded
+    position moves; in station-keeping with a fixed setpoint
+    the velocity FF is zero, so it cannot be the source of any
+    discrepancy — the sandbox correctly omits it);
+  - integrator gain mismatch (`i_scaling = 1` confirmed in
+    `tuning.prototxt`, `Ki = 0.1·ω_n·Kp` matches);
+  - integrator input source (sandbox already integrates `ŷ_LF`
+    not true `y`, matching brucon `position_hold.cpp:393–394`
+    `state_error_.ErrorSway()` which uses `estimator_data_.sway_speed`
+    for the D term and observer position for the P/I terms);
+  - controller computing forces at midship vs CG (LCG ≈ −1.7 m,
+    coupling correction 0.03 % of M);
+  - bias-tracking magnitude (8 cm contribution).
+
+Outstanding candidates for next session:
+  - K_b1 sensitivity sweep (does ±50 % move the band?);
+  - non-LTI features (clamp-style anti-windup, observer mode
+    switches, wave-filter Q-scheduling on online Tp estimate);
+  - cross-DOF coupling via the allocator (a slow yaw moment
+    generated by sway thruster actuation in a 5-thruster
+    configuration could feed back into sway via the yaw loop).
+

@@ -257,7 +257,15 @@ def _build_intact_prior_at_forecast(
     cl = ClosedLoop.build(vessel, controller)
 
     wind_model = WindForceModel(wp=wp, loa=vp.loa)
-    S_wind = npd_wind_gust_force_psd(wind_model, Vw, theta_rel)
+    if Vw > 1e-9:
+        S_wind = npd_wind_gust_force_psd(wind_model, Vw, theta_rel)
+    else:
+        # No mean wind => NPD spectrum is undefined (Vw_mean appears
+        # with a negative power) and the gust force PSD is identically
+        # zero. Use a constant zero PSD callable so the Lyapunov sum
+        # stays well-defined.
+        def S_wind(_w):
+            return np.zeros((3, 3))
 
     if rao_table is not None:
         S_drift = slow_drift_force_psd_newman_pdstrip(

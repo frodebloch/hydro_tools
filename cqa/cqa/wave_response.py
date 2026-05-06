@@ -316,9 +316,202 @@ def sigma_L_wave_multimodal(
     return float(np.sqrt(var_total))
 
 
+@dataclass(frozen=True)
+class PositionWaveResult:
+    """1st-order wave-frequency horizontal position response at a body point.
+
+    Returned by :func:`sigma_pos_wave_at_body_point`. Mirrors
+    :class:`WaveLengthResult` but for the two horizontal components
+    (body-frame x = surge-at-point, body-frame y = sway-at-point) of
+    the position of a body-fixed point. The dp_base point is the
+    intended use, but any body-frame point works.
+
+    Fields
+    ------
+    sigma_x_wave_m, sigma_y_wave_m : 1-sigma WF position deviation
+        at the requested body point, per axis [m].
+    omega : (n_omega,) integration grid [rad/s].
+    integrand_x, integrand_y : (n_omega,) one-sided position PSDs
+        |c6_axis . H_6dof|^2 * S_eta * spreading_weights, summed over
+        the directional spread. Variance recovery:
+        sigma_axis^2 = trapezoid(integrand_axis, omega).
+    nu0_x, nu0_y : zero-up-crossing rate of the WF position spectrum
+        per axis [Hz]. Use as the wave-band ``nu_0`` input to a
+        multi-band running-max formula.
+    q_x, q_y : Vanmarcke spectral bandwidth of the WF position
+        spectrum per axis (in (0, 1]). Use as the wave-band ``q``
+        input to a multi-band running-max formula.
+    beta_deg, beta_deg_samples, spread_weights, Hs, Tp : same
+        meaning as in :class:`WaveLengthResult`.
+    """
+
+    sigma_x_wave_m: float
+    sigma_y_wave_m: float
+    omega: np.ndarray
+    integrand_x: np.ndarray
+    integrand_y: np.ndarray
+    nu0_x: float
+    nu0_y: float
+    q_x: float
+    q_y: float
+    beta_deg: float
+    beta_deg_samples: np.ndarray
+    spread_weights: np.ndarray
+    Hs: float
+    Tp: float
+
+
+def sigma_pos_wave_at_body_point(
+    body_point: tuple[float, float, float],
+    rao_table: RaoTable,
+    Hs: float,
+    Tp: float,
+    theta_wave_rel: float,
+    gamma: float = 3.3,
+    omega_grid: Optional[np.ndarray] = None,
+    spreading: Optional[SeaSpreading] = None,
+    spectrum: WaveSpectrumKind = "bretschneider",
+) -> PositionWaveResult:
+    """1st-order wave-frequency body-frame position std dev at a body point.
+
+    For a body-fixed point ``r_b = (x_b, y_b, z_b)`` (relative to the
+    pdstrip RAO body origin), the horizontal-plane position of the
+    point in the body frame at small motion is
+
+        eta_x_at_point = xi_surge + z_b * xi_pitch - y_b * xi_yaw
+        eta_y_at_point = xi_sway  - z_b * xi_roll  + x_b * xi_yaw
+
+    so the per-axis sensitivity 6-vectors are
+
+        c6_x = [1, 0, 0, 0, z_b, -y_b]
+        c6_y = [0, 1, 0, -z_b, 0, x_b]
+
+    and the variance is the standard frequency-domain quadrature
+
+        sigma_axis^2 = sum_k w_k * integral
+                                 |c6_axis . H_6dof(omega, beta_bar + phi_k)|^2
+                                 * S_eta(omega) d omega.
+
+    This is the position-axis analogue of :func:`sigma_L_wave`. Use it
+    to populate the wave-frequency band of the vessel-base position
+    excursion in :class:`IntactPriorSummary`.
+
+    Parameters
+    ----------
+    body_point : 3-tuple ``(x_b, y_b, z_b)``, body-frame coordinates of
+        the point of interest, relative to the pdstrip RAO body origin
+        (the same convention as ``cfg.gangway.base_position_body``). For
+        the dp_base point pass ``cfg.gangway.base_position_body``. For
+        the vessel CG pass ``(0, 0, 0)`` (the pdstrip origin is at the
+        vessel reference point used elsewhere in cqa).
+    rao_table : 6-DOF RAO table (typically from load_pdstrip_rao()).
+    Hs, Tp : significant wave height [m] and peak period [s].
+    theta_wave_rel : MEAN relative wave direction [rad], cqa convention.
+    gamma : JONSWAP peakedness (ignored for spectrum='bretschneider').
+    omega_grid : optional integration grid [rad/s].
+    spreading : directional-spreading model. Default cos-2s, s=4
+        (matches brucon WaveSpectrum cos^n n=2).
+    spectrum : wave-elevation PSD shape. Default 'bretschneider'
+        (matches brucon vessel_simulator default).
+
+    Returns
+    -------
+    :class:`PositionWaveResult`.
+
+    Notes
+    -----
+    * Independence assumption between WF and slow-drift bands.
+      Combining sigma_*_wave_m with the slow-band sigma from the
+      closed-loop covariance assumes the two bands are statistically
+      independent. This is good to within a few percent for realistic
+      DP setups: the slow-drift forcing PSD lives at omega < 0.05
+      rad/s, while the 1st-order RAO sees significant power only at
+      omega > 0.3 rad/s; cross-spectral leakage between the two is
+      negligible.
+    * For dp_base near the centerline (small y_b), the dominant term
+      in c6_y is the sway DOF; for dp_base far from the centerline,
+      the yaw lever-arm term grows and beam-on motion gets a small
+      yaw-RAO contribution.
+    """
+    x_b, y_b, z_b = (float(c) for c in body_point)
+
+    omega = _default_omega_grid(rao_table) if omega_grid is None else np.asarray(omega_grid, dtype=float)
+    if spreading is None:
+        spreading = SeaSpreading()
+
+    angles_rel, w_dir = spreading_quadrature(spreading, theta_wave_rel)
+    beta_deg_mean = cqa_theta_rel_to_pdstrip_beta_deg(theta_wave_rel)
+    beta_deg_samples = np.array(
+        [cqa_theta_rel_to_pdstrip_beta_deg(a) for a in angles_rel]
+    )
+
+    # Body-point position 6-vectors (see derivation in docstring).
+    c6_x = np.array([1.0, 0.0, 0.0, 0.0,  z_b, -y_b])
+    c6_y = np.array([0.0, 1.0, 0.0, -z_b, 0.0,  x_b])
+
+    S_eta = wave_elevation_psd(omega, Hs, Tp, kind=spectrum, gamma=gamma)
+
+    integrand_x = np.zeros_like(omega)
+    integrand_y = np.zeros_like(omega)
+    var_x = 0.0
+    var_y = 0.0
+    for w_k, beta_k in zip(w_dir, beta_deg_samples):
+        H_k = evaluate_rao(rao_table, omega, beta_k)         # (n_omega, 6) complex
+        proj_x = H_k @ c6_x                                   # (n_omega,) complex
+        proj_y = H_k @ c6_y
+        i_x = (np.abs(proj_x) ** 2) * S_eta
+        i_y = (np.abs(proj_y) ** 2) * S_eta
+        integrand_x += w_k * i_x
+        integrand_y += w_k * i_y
+        var_x += w_k * float(np.trapezoid(i_x, omega))
+        var_y += w_k * float(np.trapezoid(i_y, omega))
+
+    sigma_x = float(np.sqrt(max(var_x, 0.0)))
+    sigma_y = float(np.sqrt(max(var_y, 0.0)))
+
+    # Spectral-moment-derived nu_0 and Vanmarcke q for each axis.
+    # For one-sided PSD S(omega) [unit^2 / (rad/s)],
+    #   m_n = integral S(omega) * omega^n d omega,
+    #   nu_0 (zero-up-crossing rate, [Hz]) = (1/(2 pi)) * sqrt(m_2 / m_0),
+    #   epsilon^2 = 1 - m_1^2 / (m_0 m_2)  (spectral bandwidth),
+    #   q (Vanmarcke) = sqrt(1 - m_1^2 / (m_0 m_2))  (in [0, 1]).
+    def _moments_nu_q(S: np.ndarray) -> tuple[float, float]:
+        m0 = float(np.trapezoid(S, omega))
+        if m0 <= 0.0:
+            return 0.0, 1.0
+        m1 = float(np.trapezoid(S * omega, omega))
+        m2 = float(np.trapezoid(S * omega ** 2, omega))
+        nu0 = (1.0 / (2.0 * np.pi)) * np.sqrt(max(m2 / m0, 0.0))
+        eps2 = max(1.0 - (m1 ** 2) / max(m0 * m2, 1e-300), 0.0)
+        q = float(np.sqrt(min(eps2, 1.0)))
+        return float(nu0), q
+
+    nu0_x, q_x = _moments_nu_q(integrand_x)
+    nu0_y, q_y = _moments_nu_q(integrand_y)
+
+    return PositionWaveResult(
+        sigma_x_wave_m=sigma_x,
+        sigma_y_wave_m=sigma_y,
+        omega=omega,
+        integrand_x=integrand_x,
+        integrand_y=integrand_y,
+        nu0_x=nu0_x,
+        nu0_y=nu0_y,
+        q_x=q_x,
+        q_y=q_y,
+        beta_deg=beta_deg_mean,
+        beta_deg_samples=beta_deg_samples,
+        spread_weights=w_dir,
+        Hs=float(Hs),
+        Tp=float(Tp),
+    )
+
+
 __all__ = [
     "WaveLengthResult",
+    "PositionWaveResult",
     "cqa_theta_rel_to_pdstrip_beta_deg",
     "sigma_L_wave",
     "sigma_L_wave_multimodal",
+    "sigma_pos_wave_at_body_point",
 ]

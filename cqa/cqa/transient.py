@@ -468,7 +468,13 @@ def wcfdi_transient(
 
     # --- Pre-failure covariance at t = 0- ---
     cl_intact = ClosedLoop.build(vessel, controller)
-    S_wind = npd_wind_gust_force_psd(wind_model, Vw_mean, theta_rel)
+    if Vw_mean > 1e-9:
+        S_wind = npd_wind_gust_force_psd(wind_model, Vw_mean, theta_rel)
+    else:
+        # Vw_mean == 0 -> NPD spectrum is undefined and wind force is
+        # identically zero. Provide a constant zero PSD callable.
+        def S_wind(_w):
+            return np.zeros((3, 3))
     if rao_table is not None:
         from .drift import slow_drift_force_psd_newman_pdstrip
         S_drift = slow_drift_force_psd_newman_pdstrip(
