@@ -100,6 +100,13 @@ class ScenarioSpec:
     post_failure_s: float = 180.0                  # post-WCFDI transient window
     activate_sk_s: float = 60.0                    # vessel held still via SetFixedCourseAndSpeed for this many s
     print_every_steps: int = 1                     # PrintDataLine every N sim steps -> 10 Hz output
+    # Per-run overrides for files in CSOV_CONFIG: filename -> file contents.
+    # When non-empty, run_simulation materialises a shadow config dir of
+    # symlinks pointing at CSOV_CONFIG and overwrites only the listed files,
+    # then passes the shadow dir to RunFastStandalone via -c. This keeps the
+    # global brucon config untouched. The shadow dir lives under the seed's
+    # run_dir so artefacts are self-contained and per-seed reproducible.
+    config_overrides: dict[str, str] = field(default_factory=dict)
 
     @property
     def total_seconds(self) -> float:
@@ -224,10 +231,28 @@ def run_simulation(spec: ScenarioSpec, seed: int, work_dir: Path,
     )
     lua_path.write_text(lua_source)
 
+    # Resolve config dir to use: either the global one, or a per-run shadow
+    # built from symlinks + overrides.
+    if spec.config_overrides:
+        shadow_cfg = run_dir / "config_shadow"
+        shadow_cfg.mkdir(exist_ok=True)
+        for entry in CSOV_CONFIG.iterdir():
+            target = shadow_cfg / entry.name
+            if target.exists() or target.is_symlink():
+                target.unlink()
+            if entry.name in spec.config_overrides:
+                target.write_text(spec.config_overrides[entry.name])
+            else:
+                # symlink the original to keep shadow dir tiny
+                target.symlink_to(entry.resolve())
+        config_to_use = shadow_cfg
+    else:
+        config_to_use = CSOV_CONFIG
+
     # Run with cwd = run_dir so relative output paths in the lua script land here.
     cmd = [
         str(RUNFAST),
-        "-c", str(CSOV_CONFIG),
+        "-c", str(config_to_use),
         "-l", str(lua_path),
         "-r", CSOV_RESPONSE_FILE,
         "--vessel-simulator-config", str(SIMULATOR_CONFIG_DIR),

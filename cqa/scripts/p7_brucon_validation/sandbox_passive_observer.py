@@ -161,7 +161,9 @@ print(f"Wave filter: ω_w = {OMEGA_W:.3f} rad/s, ζ_n = {ZETA_N:.3f}, "
 def build_closed_loop(use_integrator: bool = False, use_bias_ff: bool = True,
                       use_wave_filter: bool = True, use_observer: bool = True,
                       thrust_tau: float = 0.0,
-                      omega_w: float | None = None, zeta_n: float | None = None):
+                      omega_w: float | None = None, zeta_n: float | None = None,
+                      k_b1: float | None = None, k_a1: float | None = None,
+                      t_b: float | None = None):
     """Return (A_cl, B_w_drift, B_wf, C_yLF, C_y) for the closed loop.
 
     use_integrator: enable PI integrator state
@@ -178,6 +180,10 @@ def build_closed_loop(use_integrator: bool = False, use_bias_ff: bool = True,
         omega_w = OMEGA_W
     if zeta_n is None:
         zeta_n = ZETA_N
+    # Observer-gain overrides (default = brucon nominal CSOV sway values)
+    ka1 = KA1 if k_a1 is None else k_a1
+    kb1 = KB1 if k_b1 is None else k_b1
+    tb = T_B if t_b is None else t_b
     k1f = -2.0 * (1.0 - zeta_n) * OMEGA_C / omega_w
     k2f = 2.0 * omega_w * (1.0 - zeta_n)
     # Variables for clarity
@@ -256,19 +262,19 @@ def build_closed_loop(use_integrator: bool = False, use_bias_ff: bool = True,
         A[ivh, ib] += 1.0 / M_SWAY
         # observer-vessel-model uses u_cmd (not u_th)
         _write_u_cmd(ivh, 1.0 / M_SWAY)
-        A[ivh, iy] += KA1
-        A[ivh, ily] += -KA1
+        A[ivh, iy] += ka1
+        A[ivh, ily] += -ka1
         if use_wave_filter:
-            A[ivh, ie] += -KA1
-        B_wf[ivh] = KA1
+            A[ivh, ie] += -ka1
+        B_wf[ivh] = ka1
 
         # b̂_dot = -(1/T_b)·b̂ + K_b1·e
-        A[ib, ib] += -1.0 / T_B
-        A[ib, iy] += KB1
-        A[ib, ily] += -KB1
+        A[ib, ib] += -1.0 / tb
+        A[ib, iy] += kb1
+        A[ib, ily] += -kb1
         if use_wave_filter:
-            A[ib, ie] += -KB1
-        B_wf[ib] = KB1
+            A[ib, ie] += -kb1
+        B_wf[ib] = kb1
 
         if use_wave_filter:
             # ξ_w_dot = η̂_w + k1_f · e
@@ -331,11 +337,18 @@ def drift_psd_omega(omega: np.ndarray) -> np.ndarray:
 
 def state_variance_freqdomain(A: np.ndarray, B: np.ndarray, S_omega,
                               omega: np.ndarray, c: np.ndarray) -> tuple[float, float]:
-    """Return (σ², ω_peak) of output y = c·x driven by white-spectrum
-    input with one-sided PSD S(ω) acting through B.
+    """Return (σ², ω_peak) of output y = c·x driven by an input with
+    one-sided rad/s-native PSD S(ω) acting through B.
 
-    σ² = (1/π) ∫ |H(jω)|² S(ω) dω,  H(jω) = c·(jωI − A)⁻¹·B
-    Convention: one-sided PSD (matches brucon wave_response.cpp).
+    σ² = ∫₀^∞ |H(jω)|² S(ω) dω,  H(jω) = c·(jωI − A)⁻¹·B
+    Convention: one-sided PSD in rad/s, matching cqa.psd /
+    cqa.drift output (verified: ∫ S_eta(ω) dω = Hs²/16 with no /π).
+
+    Earlier versions of this function carried a spurious /π factor
+    that under-predicted σ by √π = 1.77. Removed 2026-05-06 after
+    cross-check against ∫ S_eta = Hs²/16 and against time-domain
+    Welch on a long brucon realisation (nperseg ≥ 2000 → match to
+    0.69 m vs prior buggy 0.40 m).
     """
     n = A.shape[0]
     Hsq = np.zeros_like(omega)
@@ -347,10 +360,7 @@ def state_variance_freqdomain(A: np.ndarray, B: np.ndarray, S_omega,
         except np.linalg.LinAlgError:
             Hsq[k] = np.nan
     integrand = Hsq * S_omega
-    sigma2 = np.trapezoid(integrand, omega) / np.pi
-    # one-sided PSD ⇒ σ² = (1/π) ∫₀^∞ S_xx(ω) dω,
-    # but here S is already the input PSD; H² S is the output PSD.
-    # Cross-check: for white S = S0, σ² = S0/(2π) ∫ |H|² dω = S0·∫₀^∞ |H|²/π dω.
+    sigma2 = np.trapezoid(integrand, omega)
     ω_peak = omega[np.nanargmax(integrand)]
     return sigma2, ω_peak
 
@@ -362,8 +372,8 @@ def main() -> None:
     omega = np.logspace(-3.5, 0.0, 2048)
     print(f"\nDrift PSD at HS={HS:.2f}, TP={TP:.2f}, β={BETA_REL:.0f}°...")
     S_drift = drift_psd_omega(omega)
-    sigma_F = np.sqrt(np.trapezoid(S_drift, omega) / np.pi)
-    print(f"  σ_F_drift_y = {sigma_F/1000:.1f} kN  (one-sided PSD ∫/π)")
+    sigma_F = np.sqrt(np.trapezoid(S_drift, omega))
+    print(f"  σ_F_drift_y = {sigma_F/1000:.1f} kN  (one-sided rad/s PSD ∫ S dω)")
 
     print("\n=== Closed-loop sway σ_y under various models ===")
     print(f"{'model':<55} {'σ_y [m]':>10} {'ω_peak [rad/s]':>16} {'stable':>8}")

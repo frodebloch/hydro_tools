@@ -5,8 +5,11 @@ scripts/*.png
 # outputs, logs (re-run scripts/p7_brucon_validation/*.py to regenerate).
 scripts/p7_brucon_validation/work/
 scripts/p7_brucon_validation/work_long/
+scripts/p7_brucon_validation/work_long_lockedTp/
+scripts/p7_brucon_validation/work_smoke_lockedTp/
 scripts/p7_brucon_validation/*.png
 scripts/p7_brucon_validation/*.pdf
+scripts/p7_brucon_validation/*.log
 
 # pytest / coverage caches
 .pytest_cache/
