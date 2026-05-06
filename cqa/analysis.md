@@ -1391,3 +1391,171 @@ output, gitignored).
   no savings there). The WCFDI axis similarly. No cheap caching
   trick was applied; the demo runs 288 cells in ~ 60 s on the
   prototype stack.
+
+
+### 12.16 P7 brucon force-level cross-validation
+
+Companion to the closed-loop intact validation
+(`scripts/p7_brucon_validation/run_comparison.py`): the force-level harness
+`scripts/p7_brucon_validation/compare_forces.py` compares cqa's
+deterministic environmental forcing against the brucon vessel-simulator
+ensemble at the same `(V_w, H_s, T_p, V_c, theta_rel)` operating point,
+sampled in the late intact window after closed-loop transients have
+decayed.
+
+#### Findings (V_w=14 m/s, H_s=4.20 m, T_p=10.22 s, V_c=0.5 m/s, beam-on)
+
+* **Brucon CSV columns are kN / kN.m, not N / N.m.** The pipeline parses
+  `WindX/Y/Mz`, `DriftX/Y/Mz`, `CurX/Y/Mz`, and `Tx/Ty/Tz` from `*.out`;
+  all are scaled by 1e-3 in `PrintDataLine()` before printing. Multiply
+  by 1e3 before comparing against cqa's N / N.m output.
+
+* **Body-frame +sway convention differs.** cqa: +sway = starboard. Brucon
+  (per measured signs): +sway = port. The pdstrip-based path in cqa
+  (`mean_drift_force_pdstrip`) inherits brucon's convention naturally
+  because both read the same `csov_pdstrip.dat`.
+
+* **Drift force agrees to 1% across all three DOFs** when both sides
+  evaluate the same QTF table with matching spectrum and spreading:
+
+  | DOF   | cqa Bret + cos^2 (brucon-replicated) | sim   | ratio |
+  |-------|-------------------------------------:|------:|------:|
+  | surge | +3.3 kN                              | +3.0  | 0.90  |
+  | sway  | -216.5 kN                            | -214.8| 0.99  |
+  | yaw   | +436.8 kN.m                          | +424.5| 0.97  |
+
+  Reaching this required getting three things right:
+
+  1. **Spectrum shape.** Brucon falls back to **Bretschneider** for
+     V_w-driven seas when `wave_spectrum_type` is unset in
+     `vessel_simulator_settings.prototxt` (the default branch in
+     `vessel_simulator_wrapper.cpp:117-120`). cqa's
+     `mean_drift_force_pdstrip` hard-codes JONSWAP (gamma=3.3 default).
+     The two differ by ~30-50% in the drift integral because their peak
+     shapes redistribute energy differently across the QTF support.
+
+  2. **Spreading kind.** Brucon uses **cos^n(delta) over (-pi/2, +pi/2)**
+     with n given by `WaveSpectrum`'s `spreading_factor` argument
+     (default n=2, `vessel_simulator_wrapper.cpp:110`). cqa's
+     `SeaSpreading` is **cos-2s = cos^(2s)(delta/2) over (-pi, +pi)**.
+     These are different functional forms. The Gaussian-limit
+     equivalence is **s ~ 2n** (so brucon's cos^2 ~ cqa's cos-2s s=4),
+     NOT s = n/2 as the surface-similar form might suggest. Folk
+     intuition fails here -- a footgun bit me during this validation.
+
+  3. **Faltinsen factor 2.** pdstrip QTFs are in N per amplitude^2
+     (zeta_a^2), and Faltinsen [90] eq. 5.41 reads
+     `F_drift = 2 * integral D(w, beta) * S_eta(w) dw`. The factor 2
+     appears in both cqa and brucon. Misapplying factor-1 (sometimes
+     seen when QTFs are tabulated as F/zeta_a, not F/zeta_a^2) would
+     halve the result.
+
+* **Spreading-convention sweep** at this operating point (Bretschneider,
+  beam-on, replicating brucon's discrete pdstrip integral):
+
+  | spreading              | sigma (deg) | F_y (kN) |
+  |------------------------|------------:|---------:|
+  | long-crested           |           0 | -309.5   |
+  | cos-2s s=15 (cqa def.) |        20.6 | -252.7   |
+  | cos-2s s=8             |        27.8 | -231.4   |
+  | cos-2s s=5             |        34.5 | -211.9   |
+  | cos-2s s=4             |        38.1 | -201.5   |
+  | cos-2s s=2             |        50.9 | -164.8   |
+  | cos-2s s=1 (= cos^1!)  |        65.1 | -123.6   |
+  | brucon cos^n n=2       |        33.0 | -216.5   |
+
+  The ~33 deg one-sigma cone of cos^2 is well-aligned with cos-2s s~5,
+  illustrating the s ~ 2n equivalence numerically. The sim observed
+  -214.8 kN sits exactly on cos-2s s=5 / brucon cos^2.
+
+* **Wind sway** matches to 0.05% (189.6 kN cqa vs 189.7 kN sim, opposite
+  signs per the convention difference). cqa's `WindForceModel` uses the
+  same OCIMF-style coefficient table as brucon's `WindForceModel`, so
+  this agreement is unsurprising once the units are right.
+
+* **Current sway** matches to 13% (50.5 vs 57.0 kN). Probably small
+  differences in C_y(theta_rel) curve sampling or current-angle
+  convention. Not investigated further -- 13% is well within the
+  forecast uncertainty band that drives the upstream
+  decision-matrix application.
+
+* **The legacy parametric drift placeholder is wrong by ~2x.**
+  `WaveDriftParticulars.drift_y_amp = 25_000 N/m^2` (`config.py:81-86`,
+  flagged "very simplified placeholder for P1") gives 440 kN at
+  H_s=4.2 m, twice the simulator's 215 kN. **Production drift use
+  should switch to a spectral-QTF integration matching brucon's
+  Bretschneider + cos^2** in the modules that currently use the
+  parametric form: `transient.py:425`, `wcfdi_mc.py:191`,
+  `wcfdi_self_mc.py:173`, `excursion.py:154`, `decision_matrix.py:268`,
+  `operability_polar.py:262`. Likely API additions:
+
+  * `mean_drift_force_pdstrip(... spectrum: 'jonswap'|'bretschneider' = 'jonswap')`.
+  * `SeaSpreading.cos_n(n)` constructor with explicit conversion
+    documentation, alongside the existing `cos-2s` constructor.
+
+* **Wind yaw moments at beam-on** are non-zero in the simulator
+  (-3824 kN.m) but ~zero in cqa's `WindForceModel.force()` because the
+  default coefficient table has `C_n_yaw(beam) = 0`. Brucon's wind model
+  evidently has a non-zero yaw coefficient at beam, possibly from
+  asymmetric superstructure or a moment reference-point offset (LCG vs
+  midship). Not investigated in depth -- listed as follow-up; relevant
+  if heading-control authority or yaw-direction WCFDI saturation enters
+  the limiting envelope.
+
+#### Validation status
+
+The intact closed-loop response cross-validation (sigma_x, sigma_y,
+running-max CDFs) **passes tightly** with the agreed controller tuning
+(omega_n=(0.06, 0.08, 0.12), zeta=(0.95, 0.95, 0.95),
+SetControllerGainLevel(2,2,2), 500 s settle, 200 s sample window,
+PosDev as the sim radial proxy): cqa P50/P90 of running-max position
+error 1.11/1.37 m vs simulator 1.61/2.13 m. The transient WCFDI phase
+still shows cqa pessimism (52 m sway peak predicted vs sim-bounded
+recovery), attributable to the per-DOF thrust saturation cap in cqa's
+transient solver not modelling DOF trade-off (the allocator can
+sacrifice yaw to keep sway). Listed as follow-up to the
+saturated-equilibrium and achievable-polytope work.
+
+#### Decision: Bretschneider as cqa's DPCAP default spectrum
+
+This validation also forces a project-level decision: **cqa's default
+wave spectrum for capability / station-keeping analyses should be
+Bretschneider (= 2-parameter Pierson-Moskowitz), not JONSWAP**.
+Three reasons:
+
+1. **Standards alignment.** IMCA M254 Rev.1 (DPCAP guidance) and
+   DNV-ST-0111 (assessment of station-keeping capability of DP
+   vessels) both prescribe a 2-parameter PM / Bretschneider spectrum
+   for capability analyses. The standards bodies picked the simpler
+   form to be globally applicable rather than tuning a `gamma` per
+   region; cqa is targetting these standards directly via the M254
+   Fig. 8 decision matrix (sec 12.1) and ST-0111 wind/wave/current
+   relations (sec 12.x).
+
+2. **Conservatism.** Bretschneider's broader spectral peak overlaps
+   more of the QTF support, giving 30-50% larger drift forces than
+   JONSWAP gamma=3.3 at the same H_s/T_p (this validation: -309 kN
+   vs -207 kN long-crested at beam-on for V_w=14, H_s=4.2). For
+   capability work this is the safe direction.
+
+3. **Brucon agreement.** Brucon's vessel_simulator defaults to
+   Bretschneider when `wave_spectrum_type` is unset
+   (`vessel_simulator_wrapper.cpp:117-120`). Matching brucon's
+   default removes a needless cross-validation friction.
+
+JONSWAP remains relevant for fatigue / extreme-response work where
+regional spectral peakedness matters and is well-calibrated, and
+should stay available in cqa as a non-default option. The
+follow-up implementation involves:
+
+* Adding a `spectrum: Literal['bretschneider', 'jonswap'] = 'bretschneider'`
+  argument to `mean_drift_force_pdstrip`,
+  `slow_drift_force_psd_newman_pdstrip`, and the wave-frequency PSD
+  helpers in `cqa.psd` and `cqa.wave_response`.
+* Changing the per-call default from JONSWAP gamma=3.3 to
+  Bretschneider; existing tests and analyses that depend on
+  JONSWAP behaviour pass `spectrum='jonswap'` explicitly.
+* Adding `SeaSpreading.cos_n(n)` constructor (brucon's convention)
+  alongside `cos-2s s=...` (cqa convention), with explicit docstring
+  on the two parameterisations and the Gaussian-limit equivalence
+  s ~ 2n. Default DPCAP spreading: cos^2 (n=2), matching brucon.

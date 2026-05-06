@@ -4,6 +4,7 @@ scripts/*.png
 # P7 brucon vessel_simulator validation: per-run lua scripts, simulator
 # outputs, logs (re-run scripts/p7_brucon_validation/*.py to regenerate).
 scripts/p7_brucon_validation/work/
+scripts/p7_brucon_validation/*.png
 
 # pytest / coverage caches
 .pytest_cache/
