@@ -7,7 +7,7 @@ excursion polar vs. relative weather direction.
 See analysis.md in the parent directory for the full feasibility study.
 """
 
-from .config import CqaConfig, OperationalLimits, ControllerParams, csov_default_config
+from .config import CqaConfig, OperationalLimits, ControllerParams, ObserverParams, csov_default_config, wave_filter_zeta_n
 from .vessel import LinearVesselModel, WindForceModel
 from .controller import LinearDpController
 from .psd import (
@@ -32,6 +32,11 @@ from .transient import (
     TransientResult,
     build_augmented_system,
     wcfdi_transient,
+)
+from .observer import (
+    ObserverAugmentedSystem,
+    build_observer_augmented_system,
+    position_state_indices,
 )
 from .gangway import (
     GangwayJointState,
@@ -145,7 +150,9 @@ __all__ = [
     "CqaConfig",
     "OperationalLimits",
     "ControllerParams",
+    "ObserverParams",
     "csov_default_config",
+    "wave_filter_zeta_n",
     "LinearVesselModel",
     "WindForceModel",
     "LinearDpController",
@@ -167,6 +174,9 @@ __all__ = [
     "TransientResult",
     "build_augmented_system",
     "wcfdi_transient",
+    "ObserverAugmentedSystem",
+    "build_observer_augmented_system",
+    "position_state_indices",
     "GangwayJointState",
     "OperabilityResult",
     "rotation_centre_body",

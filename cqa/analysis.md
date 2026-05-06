@@ -2902,3 +2902,69 @@ Files touched this round (uncommitted):
   - `scripts/p7_brucon_validation/tau_mismatch_diagnostic.png`
     (gitignored)
 
+
+#### 12.20.13 Observer-augmented closed loop in cqa core
+
+Following the §12.20.12 sandbox closure, the brucon-aligned
+observer + integrator + thrust-lag augmentation is now part of
+cqa proper as `cqa.observer`. The new module exports:
+
+  - `ObserverParams` (in `cqa.config`): per-DOF observer gains
+    sourced from `config_csov/observer.prototxt` (surge/sway K_a1
+    = 0.12, K_b1 = 0.0012; heading K_a1 = 0.20, K_b1 = 0.002;
+    common ω_c = 1.04 rad/s, T_b = 1000 s).
+  - `wave_filter_zeta_n(Tp)` (in `cqa.config`): brucon
+    `ScaleGainLinear` schedule for the wave-filter notch
+    damping ζ_n ∈ [0.10, 0.25] over Tp ∈ [10, 18] s.
+  - `ObserverAugmentedSystem`: 24-state (or 27 with PI integrator)
+    block-diagonal-in-DOF linearisation with state ordering
+    `[eta, nu, b̂, τ̂_thr, ŷ_LF, ν̂, ξ_w, η̂_w, (I)]`.
+  - `build_observer_augmented_system(vessel, controller, observer,
+    Tp, T_thr, include_integrator)`: assembles A, B_w, B_wf.
+  - `position_state_indices(aug=None)`: convenience block index map.
+
+Validation in `tests/test_observer.py`:
+
+  - At HS=4.20 m, Tp=10.22 s, β=90° (the §12.20 brucon test sea
+    state), the cqa observer-aug at csov_default tuning predicts:
+    | T_thr [s] | σ_eta_e [m] | vs sandbox | vs brucon 0.69 m |
+    |---|--:|--:|--:|
+    | T_thr [s] | cqa σ_eta_e [m] | sandbox σ_y [m] | vs brucon 0.69 m |
+    |---|--:|--:|--:|
+    | 0 (limit)         | 0.696 | 0.640 |  +1.0 % |
+    | 2.0 (calib)       | 0.736 | 0.699 |  +6.7 % |
+    | 5.0 (cfg default) | 0.812 | 0.845 | +17.7 % |
+
+  - For comparison, the bare 6-state PD-only closed loop (no
+    observer, no integrator, no thrust lag) predicts σ ≈ 0.25 m
+    (−64 %); the pre-existing 12-state `AugmentedSystem` (PI +
+    thrust lag, no observer) predicts σ ≈ 0.46 m (−33 %). The
+    observer alone contributes ~0.30 m of σ — it is the dominant
+    physical mechanism the prior cqa core was missing, not the
+    integrator (~2 cm) or the wave filter (~6 cm), confirming the
+    §12.20.10–12 conclusions inside cqa proper.
+
+The 8 unit tests cover: ζ_n schedule endpoints, state-layout
+arithmetic, A-matrix Hurwitz stability across Tp ∈ {6, 10, 14,
+18} s, block-diagonality in DOF when off-diagonal mass/damping
+gains vanish, σ_y match against brucon at the §12.20 test sea
+state (csov_default within 20 %, T_thr=2 s calibration within
+10 %), `position_state_indices` layout with and without the PI
+integrator, and the zero-drift / zero-σ sanity check.
+
+Known limitations carried forward (do not block this commit):
+
+  - Only the brucon `use_tau_feedback: false` mode is modelled
+    (commanded τ feeds the observer's velocity equation, not the
+    measured feedback τ). §12.20.5 verified this is the relevant
+    mode for `config_csov`.
+  - `B_wf` (the wave-frequency excitation channel into the
+    augmented system) is constructed but not yet wired into a
+    public combined LF + WF covariance pipeline; only σ_eta_e
+    (LF estimate, the brucon `pos_a_p*` semantic) is exposed by
+    the validation tests.
+  - `cqa.operability_polar.excursion_polar` still uses the bare
+    6-state `ClosedLoop`. A follow-up will add an opt-in
+    `use_observer: bool = False` flag; flipping the default to
+    True would change published P1 σ predictions by ~3× and is
+    deferred to a separate decision.

@@ -200,6 +200,80 @@ class ControllerParams:
 
 
 @dataclass
+class ObserverParams:
+    """Brucon-style Fossen passive observer + Saelid/Jensen wave filter gains.
+
+    Per-DOF gains read from `config_csov/observer.prototxt`. CSOV defaults:
+    surge & sway are identical (K_a1 = 0.12, K_b1 = 0.0012); heading uses
+    higher gains (K_a1 = 0.2, K_b1 = 0.002) reflecting tighter heading
+    control. T_b = 1000 s and ω_c = 1.04 rad/s are common to all DOFs and
+    in fact identical to `ControllerParams.bias_time_constant_s` (kept
+    duplicated here so the observer module can be invoked standalone).
+
+    The wave-filter peak frequency ω_w = 2π / Tp is *not* a tuning gain
+    but a sea-state-dependent input. Brucon estimates it on-line from
+    the pitch motion (`EstWavePeriodPitch`) and applies the same value
+    to all 4 controlled DOFs. cqa takes Tp from the operating point and
+    uses it identically across surge/sway/yaw observer blocks.
+
+    The wave-filter notch damping ζ_n is gain-scheduled on ω_w via the
+    brucon `ScaleGainLinear` rule:
+        Tp ≤ 18 s : ζ_n = 0.25
+        Tp ≥ 10 s : ζ_n = 0.10
+        else      : linear interpolation
+    (note `ScaleGainLinear` lo/hi convention: lo gain at low ω_w, hi at
+    high ω_w; for the period grid this inverts to lo gain at long Tp).
+
+    Notation matches brucon `passive_observer.cpp`:
+      e             = y_meas − ŷ_LF − η̂_w        (wave-corrected innovation)
+      ŷ_LF_dot      = ν̂ + ω_c · e
+      ν̂_dot         = (1/M)·(b̂ + u + D·ν̂) + K_a1·e
+      b̂_dot         = -(1/T_b)·b̂ + K_b1·e
+      ξ_w_dot       = η̂_w + k1_f · e
+      η̂_w_dot       = -ω_w² · ξ_w − 2 ζ_n ω_w · η̂_w + k2_f · e
+    with
+      k1_f = -2 (1 − ζ_n) ω_c / ω_w
+      k2_f =  2 (1 − ζ_n) ω_w
+    """
+
+    K_a1_surge: float = 0.12
+    K_a1_sway: float = 0.12
+    K_a1_yaw: float = 0.20
+    K_b1_surge: float = 0.0012
+    K_b1_sway: float = 0.0012
+    K_b1_yaw: float = 0.0020
+    omega_c: float = 1.04           # position wave-filter cutoff [rad/s]
+    bias_time_constant_s: float = 1000.0   # T_b, same as ControllerParams
+
+    @property
+    def K_a1(self) -> tuple[float, float, float]:
+        return (self.K_a1_surge, self.K_a1_sway, self.K_a1_yaw)
+
+    @property
+    def K_b1(self) -> tuple[float, float, float]:
+        return (self.K_b1_surge, self.K_b1_sway, self.K_b1_yaw)
+
+
+def wave_filter_zeta_n(Tp: float) -> float:
+    """Brucon ScaleGainLinear schedule for the wave-filter notch damping.
+
+    Mirrors `dp_estimator_wrapper`-side construction: ζ_n falls from 0.25
+    at long Tp (= low ω_w) to 0.10 at short Tp (= high ω_w), linearly in
+    ω_w over [2π/18, 2π/10] rad/s.
+    """
+    import math
+    omega_w = 2.0 * math.pi / Tp
+    omega_lo, omega_hi = 2.0 * math.pi / 18.0, 2.0 * math.pi / 10.0
+    zeta_lo, zeta_hi = 0.25, 0.10
+    if omega_w <= omega_lo:
+        return zeta_lo
+    if omega_w >= omega_hi:
+        return zeta_hi
+    f = (omega_w - omega_lo) / (omega_hi - omega_lo)
+    return zeta_lo + f * (zeta_hi - zeta_lo)
+
+
+@dataclass
 class CqaConfig:
     vessel: VesselParticulars
     wind: WindParticulars
@@ -209,6 +283,7 @@ class CqaConfig:
     thrust_capability: ThrustCapability = field(default_factory=ThrustCapability)
     operational_limits: OperationalLimits = field(default_factory=OperationalLimits)
     controller: ControllerParams = field(default_factory=ControllerParams)
+    observer: ObserverParams = field(default_factory=ObserverParams)
 
 
 def csov_default_config() -> CqaConfig:
@@ -249,6 +324,7 @@ def csov_default_config() -> CqaConfig:
     thrust_cap = ThrustCapability()
     op_limits = OperationalLimits()
     controller = ControllerParams()
+    observer = ObserverParams()
     return CqaConfig(
         vessel=vessel,
         wind=wind,
@@ -258,4 +334,5 @@ def csov_default_config() -> CqaConfig:
         thrust_capability=thrust_cap,
         operational_limits=op_limits,
         controller=controller,
+        observer=observer,
     )
