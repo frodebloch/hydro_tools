@@ -200,8 +200,10 @@ def sigma_L_wave(
                   Ignored when ``spectrum == 'bretschneider'``.
     omega_grid  : optional custom integration grid [rad/s]; defaults
                   to a 256-point linear grid across the RAO range.
-    spreading   : directional-spreading model. Default: cos-2s, s=15
-                  (DNV-RP-C205 wind-sea typical, ~21 deg one-sigma).
+    spreading   : directional-spreading model. Default: cos-2s, s=4
+                  (DNV-RP-C205 wind-sea range s in 2-10; matches
+                  brucon WaveSpectrum default cos^n n=2 in the
+                  narrow-spread Gaussian-width sense).
                   Pass ``SeaSpreading.long_crested()`` for the
                   single-direction long-crested limit.
     spectrum    : wave-elevation PSD shape. Default
@@ -235,7 +237,7 @@ def sigma_L_wave(
     omega = _default_omega_grid(rao_table) if omega_grid is None else np.asarray(omega_grid, dtype=float)
 
     if spreading is None:
-        spreading = SeaSpreading()  # cos-2s, s=15 default
+        spreading = SeaSpreading()  # cos-2s s=4 (brucon n=2 equivalent)
 
     angles_rel, w_dir = spreading_quadrature(spreading, theta_wave_rel)
     beta_deg_mean = cqa_theta_rel_to_pdstrip_beta_deg(theta_wave_rel)

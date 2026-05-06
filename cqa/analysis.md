@@ -1710,3 +1710,157 @@ validated) and not in vessel mass. Candidates to investigate:
 Roadmap items 14 (PSD-shape diagnostic) and 15 (achievable polytope)
 are the natural follow-ons.
 
+### 12.18 Closing the residual: Newman directional-weight bug + spreading default
+
+§12.17.3 left a residual cqa σ_y over-prediction of ~60 % (0.99 m vs
+brucon 0.61 m) attributed tentatively to "Newman approximation
+overshoot" or related slow-drift PSD shape error. A direct
+time-series comparison of the **drift force itself** (not the closed-
+loop position) collapsed the puzzle into two independent bugs that
+together accounted for the full discrepancy.
+
+#### 12.18.1 Diagnostic: direct DriftY time-series comparison
+
+`scripts/p7_brucon_validation/compare_drift_y_timeseries.py` reads the
+`DriftY` channel from each of the 30 brucon P7 seeds, computes per-
+seed mean / std / decorrelation time / Welch PSD, and overlays them
+against (a) cqa's analytic `slow_drift_force_psd_newman_pdstrip` and
+(b) a cqa-realised time series from that PSD. This is the right
+diagnostic level for testing the Newman approximation in isolation:
+no closed-loop transfer in the way, and brucon's `DriftY` is a
+direct realisation of the *full diagonal QTF* (which is the gold-
+standard reference -- see `wave_response.cpp::CalculateDriftForces`).
+
+The comparison initially showed a 6.6× over-prediction of cqa's
+σ_DriftY (363 kN vs brucon's per-seed median 94 kN) -- much larger
+than could be explained by the closed-loop variance transfer alone
+and well outside any plausible Newman-vs-full-QTF discrepancy in the
+literature. That ruled out the §12.17.3 candidate list and pointed
+to a more basic problem.
+
+#### 12.18.2 Bug 1: Quadratic vs linear directional weighting in Newman PSD
+
+Inspection of `cqa/cqa/drift.py::slow_drift_force_psd_newman_pdstrip`
+revealed the per-direction PSD contributions were accumulated with a
+**linear** weight `w_k`:
+
+```
+G += w_k * G_dir   # WRONG
+```
+
+Brucon's reference implementation realises the Newman force per
+direction (`wave_response.cpp:285-339`) with per-direction wave
+amplitude
+``a_i^k = sqrt(2 * S_η(ω_i) * D(θ_k) * Δθ * Δω)``
+(`wave_response.cpp:444-465`). The Newman expression contains
+`a_i a_m` so each direction contributes a force time series scaling
+linearly in `a^k`, hence its PSD scales as `(a^k)^4 ∝ w_k²`. With
+**independent random phases per direction** (brucon stores a separate
+phase array per direction), the direction-summed PSD is the sum of
+per-direction PSDs, each carrying `w_k²`:
+
+```
+S_F(μ) = sum_k w_k² · 8 ∫ T_k(ω+μ)² S_η(ω) S_η(ω+μ) dω    # CORRECT
+```
+
+The bug was silent in the long-crested limit (single direction with
+`w = w² = 1`) and in the mean drift force (which is linear in
+``a²``, so `w_k¹` is correct; §12.16 mean-force agreement to 1 %
+confirms this). For the cqa default short-crested spreading, the
+over-prediction factor is `1 / (sum w² / sum w¹·sum w¹) = 1 / 0.164
+≈ 6.1×`, matching the observed 6.6× to within sampling noise.
+
+Fix: `cqa/cqa/drift.py:299` `G += w * G_dir` → `G += (w * w) * G_dir`,
+with a docstring block citing the brucon source lines and the
+`a_i a_m` argument.
+
+After the fix:
+- cqa σ_DriftY analytic = 157 kN (was 363 kN)
+- brucon per-seed median = 94 kN
+- residual ratio: 1.67× (still high)
+
+#### 12.18.3 Bug 2: cqa default spreading too narrow vs brucon
+
+Steered by user pushback ("if the realisation does not match the
+mean, splitting in slow / wave bands is barking up the wrong tree"),
+we re-checked the **mean** drift force at the same operating point:
+
+| | cqa F_y | brucon empirical mean | ratio |
+|---|---:|---:|---:|
+| `cos-2s s=15` (PRIOR cqa default) | -253 kN | -215 kN | 1.18× |
+| `cos-2s s=4` (brucon-equivalent)  | -202 kN | -215 kN | 0.94× |
+| `long-crested`                    | -308 kN | -215 kN | 1.43× |
+
+The 17 % mean over-prediction with the prior `s=15` default
+exposed a spreading-width mismatch: brucon's `WaveSpectrum`
+default is `cos²(δ)` over `(-π/2, +π/2)` (i.e. `n=2` in its `cos^n`
+family). Per the Gaussian-width equivalence `s ≈ 2 n` (verified in
+`tests/test_sea_spreading.py::test_cos_n_n2_matches_cos2s_s4_in_one_sigma`),
+cqa cos-2s `s=15` is **substantially narrower** than brucon's `n=2`
+and over-concentrates wave energy on the beam-on direction where
+`D_y(ω, β=90°)` peaks.
+
+Fix: change cqa default `SeaSpreading.s` from 15 to **4**, anchored
+to (i) the DNV-RP-C205 cos-2s wind-sea range `s ∈ 2-10`
+(Mitsuyasu et al. 1975), and (ii) Gaussian-width equivalence with
+brucon's `cos²(δ)` and DNV-ST-0111 wind-sea practice. The prior
+docstring claim that "s=15 is DNV-RP-C205 wind-sea typical" was
+not anchored to a specific paragraph and sits at the swell-ish end
+of the canonical range. This change is propagated to docstrings
+(`drift.py`, `wave_response.py`, `time_series_realisation.py`,
+`sea_spreading.py`) and to `tests/test_sea_spreading.py`,
+`tests/test_wave_response.py`, `tests/test_drift.py`.
+
+#### 12.18.4 Final closure at P7 (both fixes applied)
+
+`scripts/p7_brucon_validation/compare_drift_y_timeseries.py`:
+
+| | brucon (n=30) | cqa | ratio |
+|---|---:|---:|---:|
+| mean DriftY            | -215 kN | -202 kN | 0.94× |
+| σ DriftY (analytic)    | 94 kN   | 99.7 kN | **1.06×** |
+| σ DriftY (realised)    | 94 kN   | 92.0 kN | **0.98×** |
+| T_decorr               | 2.7 s   | 2.5 s   | 0.95× |
+| σ²·T (low-freq budget) | -       | -       | **1.07×** |
+
+`scripts/p7_brucon_validation/run_comparison.py` closed-loop:
+
+| | brucon (sim, ensemble) | cqa | diff |
+|---|---:|---:|---:|
+| std(sway) per seed   | 0.59 m   | -            | (cqa P50/P90 implies σ ≈ 0.55 m) |
+| P50 \|pos\|          | 1.48 m   | 1.31 m       | -0.17 m  |
+| P90 \|pos\|          | 2.03 m   | 1.60 m       | -0.43 m  |
+
+cqa is now within sampling noise on force level and mildly
+**under**-predicts the closed-loop quantiles -- the opposite side of
+the prior 60 % over-prediction. Plausible source of the residual
+under: cqa's stationary-Gaussian Lyapunov path doesn't capture
+non-Gaussian tail content from non-stationary wind / finite-sample
+extreme-value sampling that brucon's time-domain ensemble does.
+For an operability-feasibility tool this level of agreement is a
+green light to proceed.
+
+#### 12.18.5 Methodology note: when realisations diverge, check the mean first
+
+The bug-finding sequence is worth recording. The §12.17.3 candidate
+list (Newman overshoot, yaw lever arm, closed-loop bandwidth) was
+informed but speculative; what actually closed the gap was
+
+1. Compare the *force* directly (not the position), because the
+   closed-loop transfer obscures everything;
+2. Decompose the gap into mean and variance, because the mean is
+   linear in `a²` and exposes spreading errors that the squared
+   variance also inherits;
+3. Trust the brucon source as the reference and trace the discrepancy
+   back to the cqa expression term-by-term, in particular the
+   per-direction quadrature weights.
+
+Step 2 was the user's, and was decisive. A band-split analysis of
+DriftY into slow vs wave components -- the natural-looking next
+move -- would have been a wild goose chase: brucon's `DriftY` is the
+full QTF realisation, not 1st-order excitation, so it has no wave-
+band content for the Newman PSD to fail to model. The mean-vs-σ
+decomposition cleanly separated the two independent root causes
+that were each contributing roughly half of the σ over-prediction
+on a log scale.
+

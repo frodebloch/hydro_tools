@@ -129,11 +129,13 @@ def mean_drift_force_pdstrip(
     gamma : JONSWAP peak-enhancement factor. Ignored when
         ``spectrum == 'bretschneider'``.
     n_omega : number of points on the linear quadrature grid.
-    spreading : directional-spreading model. Default: cos-2s, s=15
-        (DNV-RP-C205 wind-sea typical, ~21 deg one-sigma equivalent).
+    spreading : directional-spreading model. Default: cos-2s, s=4
+        (DNV-RP-C205 wind-sea range s in 2-10; chosen to match
+        brucon ``WaveSpectrum`` default of cos^n(delta) n=2 in the
+        narrow-spread Gaussian-width sense, s ~= 2 n).
         Pass ``SeaSpreading.long_crested()`` for the single-direction
-        long-crested limit. Pass ``SeaSpreading.cos_n(2)`` to match
-        brucon ``WaveSpectrum`` defaults.
+        long-crested limit. Pass ``SeaSpreading.cos_n(2)`` for an
+        explicit brucon-equivalent invocation.
     spectrum : wave-elevation PSD shape. Default
         ``'bretschneider'`` (IMCA / DNV-ST-0111 / brucon
         vessel_simulator default). Pass ``'jonswap'`` for the
@@ -161,7 +163,7 @@ def mean_drift_force_pdstrip(
     from .wave_response import cqa_theta_rel_to_pdstrip_beta_deg
 
     if spreading is None:
-        spreading = SeaSpreading()  # cos-2s, s=15
+        spreading = SeaSpreading()  # cos-2s s=4 (brucon n=2 equivalent)
 
     # Build directional quadrature in cqa-theta_rel space, then convert
     # each sample to its pdstrip beta. Spread is applied symmetrically
@@ -202,11 +204,13 @@ def slow_drift_force_psd_newman_pdstrip(
     ----------
     rao_table, Hs, Tp, gamma : as :func:`mean_drift_force_pdstrip`.
     theta_wave_rel : mean wave direction (rad, cqa convention).
-    spreading : directional-spreading model. Default: cos-2s, s=15
-        (DNV-RP-C205 wind-sea typical, ~21 deg one-sigma equivalent).
+    spreading : directional-spreading model. Default: cos-2s, s=4
+        (DNV-RP-C205 wind-sea range s in 2-10; chosen to match
+        brucon ``WaveSpectrum`` default of cos^n(delta) n=2 in the
+        narrow-spread Gaussian-width sense, s ~= 2 n).
         Pass ``SeaSpreading.long_crested()`` for the single-direction
-        long-crested limit. Pass ``SeaSpreading.cos_n(2)`` to match
-        brucon ``WaveSpectrum`` defaults.
+        long-crested limit. Pass ``SeaSpreading.cos_n(2)`` for an
+        explicit brucon-equivalent invocation.
     n_omega : quadrature points on the omega grid for the inner
         Newman integral.
     spectrum : wave-elevation PSD shape. Default ``'bretschneider'``
@@ -231,15 +235,37 @@ def slow_drift_force_psd_newman_pdstrip(
     ``S_eta(omega) D(phi)`` with D normalised to integrate to 1. Each
     direction sample contributes its own diagonal-QTF cross-spectrum;
     we accumulate the weighted sum
-        S_F,ij(mu) = sum_k w_k * [8 integral T_i(omega+phi_k)
-                                          * T_j(omega+phi_k)
-                                          * S_a S_b d omega]
+        S_F,ij(mu) = sum_k w_k^2 * [8 integral T_i(omega+phi_k)
+                                            * T_j(omega+phi_k)
+                                            * S_a S_b d omega]
     which gives a full-rank 3x3 PSD.
+
+    Why w_k^2 (not w_k)?
+        Brucon's reference implementation (libs/dp/vessel_model/
+        wave_response.cpp::CalculateDriftForces, lines 285-339) realises
+        the slow-drift force per direction via Newman as
+            F_k(t) = sum_{i,m} a_i^k a_m^k T_i T_m
+                              cos((w_i - w_m) t + phi_i^k - phi_m^k),
+        with per-direction wave amplitude
+            a_i^k = sqrt(2 * S_eta(w_i) * D(theta_k) * dtheta * dw)
+        (wave_response.cpp:444-465) and INDEPENDENT random phases per
+        direction. The total force F(t) = sum_k F_k(t) then has a
+        per-direction PSD scaling as (a^k)^4, i.e. quadratic in the
+        directional weight w_k = D(theta_k) * dtheta. Hence the sum of
+        independent per-direction PSDs carries w_k^2.
+
+        The earlier w_k weighting silently agreed with brucon only in
+        the long-crested limit (single direction, w=w^2=1). For
+        cos-2s s=15 spreading (cqa's PRIOR default; current default
+        is now s=4), sum(w)=1 but sum(w^2)=0.164, so the buggy
+        formula over-predicted the slow-drift force PSD by ~6x
+        (verified empirically against 30 brucon seeds at the P7
+        operating point: cqa sigma_DriftY = 363 kN vs brucon ~94 kN).
     """
     from .wave_response import cqa_theta_rel_to_pdstrip_beta_deg
 
     if spreading is None:
-        spreading = SeaSpreading()  # cos-2s, s=15
+        spreading = SeaSpreading()  # cos-2s s=4 (brucon n=2 equivalent)
 
     # Build directional quadrature in cqa-theta_rel space, then convert
     # each sample to its pdstrip beta. Spread is symmetric in either
@@ -296,7 +322,10 @@ def slow_drift_force_psd_newman_pdstrip(
                 T_outer = np.einsum("ki,kj->kij", T, T)                  # (n_valid, 3, 3)
                 integrand = 8.0 * T_outer * spec_prod[:, None, None]
                 G_dir = np.trapezoid(integrand, o_grid, axis=0)          # (3, 3)
-                G += w * G_dir
+                # Quadratic directional weight: see docstring. Per-
+                # direction PSDs add (independent random phases per
+                # direction in brucon), and each scales as a^4 ~ w^2.
+                G += (w * w) * G_dir
 
             # Symmetrise to suppress numerical asymmetry from the
             # einsum / quadrature; the analytical S_F is symmetric.

@@ -13,10 +13,13 @@ from cqa import SeaSpreading, cos_2s_norm_const, spreading_quadrature
 # ---------------------------------------------------------------------------
 
 
-def test_default_spreading_is_cos_2s_s15():
+def test_default_spreading_is_cos_2s_s4():
+    """Default cos-2s s=4 matches brucon WaveSpectrum cos^n n=2 in
+    the Gaussian-width-equivalent sense (s ~= 2 n), and lies within
+    the DNV-RP-C205 wind-sea range s in 2-10."""
     s = SeaSpreading()
     assert s.kind == "cos_2s"
-    assert s.s == 15.0
+    assert s.s == 4.0
     assert s.n_dir == 31
 
 
@@ -90,10 +93,10 @@ def test_cos_2s_narrows_as_s_increases():
 
 def test_cos_2s_s15_effective_sigma():
     """Compute the second moment from our quadrature. For cos-2s with
-    s=15 the analytic one-sigma is about 20.6 deg (closer to swell
-    than wind-sea). DNV-RP-C205 Table 3-9 maps s=15 to wind-sea-ish
-    spread; matching brucon's CSOV defaults is more important than the
-    exact number."""
+    s=15 the analytic one-sigma is about 20.6 deg (close to swell).
+    s=15 is NOT the cqa default (cqa default is s=4 to align with
+    brucon n=2); this test exercises the quadrature in a narrow-
+    spread regime where it matters most for accuracy."""
     spread = SeaSpreading(kind="cos_2s", s=15.0, n_dir=201)
     angles, w = spreading_quadrature(spread, theta_bar_rad=0.0)
     var = float(np.sum(w * angles ** 2))
@@ -128,11 +131,11 @@ def test_cos_n_quadrature_weights_sum_to_one():
 def test_cos_n_n2_matches_cos2s_s4_in_one_sigma():
     """Gaussian-limit equivalence: cos^n is approximately cos_2s with
     s ~= 2 n in the narrow-spread limit. brucon's default n=2 thus
-    approximates cqa cos_2s s=4 (broader than the cqa default s=15).
+    approximates cqa cos_2s s=4, which is also the cqa default.
 
     Verify by comparing the second moments from both quadratures
-    against each other, not against any external reference -- that
-    locks the equivalence relation we documented in the docstring.
+    against each other -- this locks the equivalence relation we
+    documented in the docstring.
     """
     a_n, w_n = spreading_quadrature(SeaSpreading.cos_n(2.0, n_dir=201))
     var_n = float(np.sum(w_n * a_n ** 2))

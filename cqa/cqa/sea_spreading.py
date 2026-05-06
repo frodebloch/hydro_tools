@@ -13,7 +13,11 @@ Two standard models are provided:
   * **cos-2s** (DNV-RP-C205, Mitsuyasu 1975):
         D(phi; s) = (Gamma(s+1)^2 / (2 pi Gamma(2s+1))) * 2^(2s-1) * cos(phi/2)^(2s)
     for |phi| <= pi, zero elsewhere. Larger ``s`` => narrower spread.
-    Typical values: s = 10-25 for wind sea, s = 25-75 for swell.
+    Typical wind-sea range: s = 2 - 10 (Mitsuyasu et al. 1975, DNV
+    RP-C205 Sec. 3.5.8.4). The cqa default s=4 is chosen to match
+    brucon's WaveSpectrum default of cos^n(delta) with n=2 in the
+    narrow-spread Gaussian-width sense (s ~= 2 n), which is also
+    consistent with DNV-ST-0111 wind-sea practice.
 
   * **Wrapped Gaussian** (parametric variance):
         D(phi; sigma) ~ N(0, sigma^2), wrapped to [-pi, pi].
@@ -47,8 +51,12 @@ class SeaSpreading:
     Attributes
     ----------
     kind : "cos_2s" | "gaussian" | "cos_n"
-    s : cosine-2s exponent (used when kind == "cos_2s"). Default 15
-        (DNV-RP-C205 wind-sea typical; ~21 deg one-sigma equivalent).
+    s : cosine-2s exponent (used when kind == "cos_2s"). Default 4
+        (DNV-RP-C205 wind-sea range s in 2-10; chosen to match brucon
+        WaveSpectrum default cos^n(delta) n=2 via the narrow-spread
+        Gaussian-width equivalence s ~= 2 n). Force-level cross-
+        validation against brucon at the P7 operating point shows mean
+        and std drift force matching to ~6 percent at this spreading.
     sigma_deg : wrapped-Gaussian one-sigma (used when kind ==
         "gaussian").
     n : cos^n exponent over (-pi/2, +pi/2) (used when kind == "cos_n").
@@ -57,13 +65,13 @@ class SeaSpreading:
         4th argument ``spreading_factor``). brucon's default for the
         CSOV simulator is n = 2 (i.e. cos^2). The Gaussian-limit
         equivalence with cos-2s is ``s ~= 2 n``: brucon cos^2 has the
-        same one-sigma width as cqa cos_2s s=4 (NOT s = n/2).
+        same one-sigma width as cqa cos_2s s=4.
     n_dir : number of quadrature angles. 31 is enough for trapezoidal
         accuracy at the 1 % level on smooth integrands.
     """
 
     kind: Literal["cos_2s", "gaussian", "cos_n"] = "cos_2s"
-    s: float = 15.0
+    s: float = 4.0
     sigma_deg: float = 25.0
     n: float = 2.0
     n_dir: int = 31
@@ -86,10 +94,10 @@ class SeaSpreading:
         Equivalence with the cqa default ``cos_2s``: in the narrow-spread
         Gaussian limit both functions give the same one-sigma width when
         ``s ~= 2 n``. So cos^2 (brucon default) approximates cos_2s s=4,
-        broader than the cqa default of s=15. This explains the
-        force-level cross-validation finding that the cqa default
-        spreading is much narrower than brucon's; force-level parity
-        with brucon requires ``SeaSpreading.cos_n(2)``.
+        which is also the cqa default. ``SeaSpreading()`` and
+        ``SeaSpreading.cos_n(2)`` therefore give force levels matching
+        brucon to within sampling noise (verified at the P7 operating
+        point: mean and std drift force agree to ~6 percent).
         """
         return cls(kind="cos_n", n=float(n), n_dir=int(n_dir))
 

@@ -219,7 +219,7 @@ def test_short_crested_reduces_beam_sea_sway_drift(rao_table):
     )
     short_c = mean_drift_force_pdstrip(
         rao_table, Hs=3.0, Tp=9.0, theta_wave_rel=np.pi / 2.0,
-    )  # default cos-2s s=15
+    )  # default cos-2s s=4
     assert abs(short_c[1]) < abs(long_c[1])
 
 
@@ -232,7 +232,7 @@ def test_short_crested_psd_diagonal_smaller_than_long_crested(rao_table):
     )
     S_short = slow_drift_force_psd_newman_pdstrip(
         rao_table, Hs=2.5, Tp=9.0, theta_wave_rel=np.pi / 2.0,
-    )  # default cos-2s s=15
+    )  # default cos-2s s=4
     G_long = S_long(0.0)
     G_short = S_short(0.0)
     # Sway-sway diagonal must be smaller under spreading.

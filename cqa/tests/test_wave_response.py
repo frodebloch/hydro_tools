@@ -279,7 +279,7 @@ def test_short_crested_reduces_beam_sea_sigma_L_wave(rao_table, cfg, joint):
                           theta_wave_rel=np.pi / 2,
                           spreading=SeaSpreading.long_crested())
     short_c = sigma_L_wave(joint, cfg, rao_table, Hs=2.5, Tp=8.0,
-                           theta_wave_rel=np.pi / 2)  # default cos-2s s=15
+                           theta_wave_rel=np.pi / 2)  # default cos-2s s=4
     assert short_c.sigma_L_wave < long_c.sigma_L_wave, (
         f"short-crested ({short_c.sigma_L_wave:.3f}) should be smaller "
         f"than long-crested ({long_c.sigma_L_wave:.3f}) at beam sea"
@@ -290,8 +290,9 @@ def test_short_crested_reduces_beam_sea_sigma_L_wave(rao_table, cfg, joint):
     assert rel > 0.05, f"expected >5 % reduction, got {rel:.3%}"
 
 
-def test_short_crested_default_is_cos_2s_s15(rao_table, cfg, joint):
-    """Sanity: default spreading is cos-2s, s=15 (DNV wind-sea)."""
+def test_short_crested_default_is_cos_2s_s4(rao_table, cfg, joint):
+    """Sanity: default spreading is cos-2s s=4 (matches brucon
+    cos^n n=2 in the Gaussian-width sense)."""
     res = sigma_L_wave(joint, cfg, rao_table, Hs=2.5, Tp=8.0,
                        theta_wave_rel=np.pi / 2)
     # Default n_dir = 31.

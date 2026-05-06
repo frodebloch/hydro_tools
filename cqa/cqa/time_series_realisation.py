@@ -284,7 +284,8 @@ def realise_wave_motion_6dof(
     omega_grid : optional (N_om,) strictly-increasing [rad/s]. May be
         non-uniform; per-bin widths are computed from midpoint
         differences. Default: 128 linear points across the RAO range.
-    spreading : SeaSpreading. Default cos-2s s=15 (DNV-RP-C205).
+    spreading : SeaSpreading. Default cos-2s s=4 (DNV-RP-C205,
+        brucon n=2 equivalent).
     gamma : JONSWAP peakedness. Default 3.3. Ignored when
         ``spectrum == 'bretschneider'``.
     spectrum : wave-elevation PSD shape. Default ``'bretschneider'``
