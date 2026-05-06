@@ -145,12 +145,16 @@ def _build_disturbance_psd_funcs(
     theta_rel: float,
     sigma_Vc: float = 0.1,
     tau_Vc: float = 600.0,
+    rao_table: "RaoTable | None" = None,
 ) -> tuple[list[Callable[[float], np.ndarray]], np.ndarray]:
     """Return (S_F_funcs, tau_env) at the operating point.
 
     Mirrors the construction in `wcfdi_transient` so the self-MC
     drives the ODE with the same PSDs and the same mean force as the
-    linearised predictor.
+    linearised predictor. ``rao_table``, when supplied, switches both
+    the mean drift force and the slow-drift PSD to the spectral
+    pdstrip path (matches brucon to ~1 % at force level); when
+    ``None`` (default) the legacy parametric path is used.
     """
     vp = cfg.vessel
     wp = cfg.wind
@@ -168,19 +172,33 @@ def _build_disturbance_psd_funcs(
     )
     F_wind = wind_model.force(Vw_mean, theta_rel)
     F_curr = current_model.force(Vc, theta_rel)
-    F_drift = np.array(
-        [
-            wd.drift_x_amp * Hs ** 2 * np.cos(theta_rel),
-            wd.drift_y_amp * Hs ** 2 * np.sin(theta_rel),
-            wd.drift_n_amp * Hs ** 2 * np.sin(2.0 * theta_rel),
-        ]
-    )
+    if rao_table is not None:
+        from .drift import (
+            mean_drift_force_pdstrip,
+            slow_drift_force_psd_newman_pdstrip,
+        )
+        F_drift = mean_drift_force_pdstrip(
+            rao_table, Hs=Hs, Tp=Tp, theta_wave_rel=theta_rel,
+        )
+    else:
+        F_drift = np.array(
+            [
+                wd.drift_x_amp * Hs ** 2 * np.cos(theta_rel),
+                wd.drift_y_amp * Hs ** 2 * np.sin(theta_rel),
+                wd.drift_n_amp * Hs ** 2 * np.sin(2.0 * theta_rel),
+            ]
+        )
     tau_env = F_wind + F_curr + F_drift
 
     S_wind = npd_wind_gust_force_psd(wind_model, Vw_mean, theta_rel)
-    S_drift = slow_drift_force_psd_newman(
-        (wd.drift_x_amp, wd.drift_y_amp, wd.drift_n_amp), Hs, Tp, theta_rel
-    )
+    if rao_table is not None:
+        S_drift = slow_drift_force_psd_newman_pdstrip(
+            rao_table, Hs=Hs, Tp=Tp, theta_wave_rel=theta_rel,
+        )
+    else:
+        S_drift = slow_drift_force_psd_newman(
+            (wd.drift_x_amp, wd.drift_y_amp, wd.drift_n_amp), Hs, Tp, theta_rel
+        )
     if Vc > 1e-9:
         dFdVc = 2.0 * F_curr / Vc
     else:
@@ -324,6 +342,7 @@ def wcfdi_self_mc(
     seed=None,
     progress_cb: Optional[Callable[[int, int], None]] = None,
     return_realisations: bool = False,
+    rao_table: "RaoTable | None" = None,
 ) -> WcfdiSelfMcResult:
     """Run the time-domain self-MC at a single operating point.
 
@@ -347,6 +366,12 @@ def wcfdi_self_mc(
         ``WcfdiSelfMcResult.eta_realisations`` holds the full
         ``(n_realisations, n_t, 3)`` ensemble (default False to keep
         the result lightweight).
+    rao_table : optional pdstrip RAO table. When supplied, both the
+        linearised reference (``wcfdi_transient``) and the self-MC
+        force assembly use the spectral pdstrip drift path; when
+        ``None`` (default) the legacy parametric drift coefficients
+        from ``cfg.wave_drift`` are used. Pass ``rao_table`` for any
+        validation work against brucon ``vessel_simulator``.
 
     Returns
     -------
@@ -356,7 +381,7 @@ def wcfdi_self_mc(
     lin = wcfdi_transient(
         cfg, Vw_mean=Vw_mean, Hs=Hs, Tp=Tp, Vc=Vc, theta_rel=theta_rel,
         scenario=scenario, t_end=t_end, n_t=n_t,
-        sigma_Vc=sigma_Vc, tau_Vc=tau_Vc,
+        sigma_Vc=sigma_Vc, tau_Vc=tau_Vc, rao_table=rao_table,
     )
     eta_mean_lin = lin.eta_mean.copy()           # (n_t, 3)
     eta_std_lin = lin.eta_std.copy()             # (n_t, 3)
@@ -384,7 +409,7 @@ def wcfdi_self_mc(
 
     S_F_funcs, tau_env = _build_disturbance_psd_funcs(
         cfg, Vw_mean, Hs, Tp, Vc, theta_rel,
-        sigma_Vc=sigma_Vc, tau_Vc=tau_Vc,
+        sigma_Vc=sigma_Vc, tau_Vc=tau_Vc, rao_table=rao_table,
     )
 
     # Intact deterministic steady state (warm-up target).
@@ -548,6 +573,7 @@ def wcfdi_self_mc_matrix(
     t_warm: float = 600.0,
     seed: Optional[int] = 0,
     progress_cb: Optional[Callable[[int, int, str], None]] = None,
+    rao_table: "RaoTable | None" = None,
 ) -> WcfdiSelfMcMatrix:
     """Run the validation matrix Vw_grid x theta_grid x alpha_grid.
 
@@ -580,6 +606,7 @@ def wcfdi_self_mc_matrix(
                     n_realisations=n_realisations,
                     t_end=t_end, n_t=n_t, t_warm=t_warm,
                     seed=(seed, k) if seed is not None else None,
+                    rao_table=rao_table,
                 )
                 cells.append(WcfdiSelfMcMatrixCell(
                     Vw_mean=float(Vw), theta_rel=float(th), alpha=float(a),

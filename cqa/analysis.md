@@ -1602,3 +1602,111 @@ follow-up implementation involves:
   default spectrum, since the slow-drift PSD energy distribution
   (and hence the saturated-equilibrium / bistability transition)
   shifts noticeably with gamma at the relevant T_p.
+
+### 12.17 Spectral drift in `wcfdi_transient` and brucon-aligned added mass
+
+Two related closed-loop-fidelity improvements made on top of the §12.16
+force-level cross-validation. Neither closes the residual closed-loop
+intact P50/P90 gap by itself; both are physically required regardless,
+and §12.17.3 records the surprising direction of the residual that they
+expose.
+
+#### 12.17.1 Spectral drift opt-in for `wcfdi_transient` / `wcfdi_self_mc`
+
+`wcfdi_transient` and the supporting `_build_disturbance_psd_funcs`
+(used by `wcfdi_self_mc` / `wcfdi_self_mc_matrix`) gained an optional
+`rao_table` kwarg. When supplied, the **mean drift force** uses
+`mean_drift_force_pdstrip` and the **slow-drift force PSD** uses
+`slow_drift_force_psd_newman_pdstrip`, both integrating the same
+pdstrip QTF table that brucon's `MeanDriftForces()` uses (and that
+§12.16 validated to ~1 % at force level). When `rao_table=None`
+(default), the parametric `WaveDriftParticulars` path is preserved
+verbatim for backwards compatibility.
+
+Motivation: at the P7 validation point (V_w=14, H_s=4.20, T_p=10.22,
+beam-on), the parametric `WaveDriftParticulars` for CSOV gave **+441 kN
+sway drift** (wrong sign, ~2x magnitude vs the spectral path's
+**-216 kN** that matched brucon to 1 %), and `drift_n_amp = 0` so the
+yaw-drift channel was missing entirely.
+
+#### 12.17.2 Brucon-aligned added-mass fractions
+
+cqa's `surge_added_mass_frac=0.05`, `sway_added_mass_frac=0.80`,
+`yaw_added_inertia_frac=0.30` were heuristic typical-OSV values. We
+ported brucon's section-integrated added-mass calculation
+(`libs/dp/vessel_model/vessel_coefficients.cpp::AddedMass::A11/A22/A66`,
+including the Lewis-form section coefficient
+`SectionAddedMassCoefficient`) to Python and applied it to the brucon
+CSOV `vessel_data.prototxt` section table at design draft 6.50 m. The
+resulting fractions:
+
+| | typical (was) | brucon-derived (now) | total cqa/brucon |
+|---|---:|---:|---:|
+| `surge_added_mass_frac` | 0.05 | **0.060** | M11 0.99 |
+| `sway_added_mass_frac` | 0.80 | **0.671** | M22 1.00 |
+| `yaw_added_inertia_frac` | 0.30 | **0.620** | M66 1.00 |
+
+Total M11/M22/M66 (rigid + added) match brucon to within ~1 %.
+Rigid-body yaw inertia uses the brucon default `r66 = L/4` in both
+codes, so cqa's existing `VesselParticulars.yaw_inertia` is unchanged.
+
+#### 12.17.3 Closed-loop residual after both fixes
+
+| | parametric drift | spectral drift | + mass aligned |
+|---|---:|---:|---:|
+| cqa P50 \|pos\| (m) | 1.11 | 2.93 | 3.09 |
+| cqa P90 \|pos\| (m) | 1.37 | 3.55 | 3.75 |
+| brucon P50 \|pos\| (m) | 1.61 | 1.56 | 1.46 |
+| brucon P90 \|pos\| (m) | 2.13 | 2.02 | 2.27 |
+| cqa stationary σ_y (m) | 0.38 | 0.92 | 0.99 |
+| brucon ensemble median σ_y | ≈0.64 | 0.64 | 0.61 |
+| cqa decorrelation T_y (s) | 237 | 39 | 39 |
+
+The previously-claimed 31-36 % cqa under-prediction was an artefact of
+two cancelling errors in the parametric path:
+
+1. The 680 kN sway drift coefficient over-cooked the mean load enough
+   to **saturate** `cap_immediate` after WCFDI, producing a spurious
+   ~52 m post-failure peak excursion. With the spectral path's truthful
+   13 kN sway / 461 kN.m yaw, the surviving thrusters absorb the load
+   and there is no mean-level transient kick. The closed-loop comparison
+   subtracts a per-seed offset before comparing P50/P90 (see
+   `run_comparison.py:314-315`), which masked this in the headline
+   numbers.
+2. The parametric path had `drift_n_amp = 0`, so yaw slow-drift PSD was
+   identically zero. The spectral path produces nonzero yaw slow-drift,
+   which couples into gangway-tip y via the lever arm, **plus** a much
+   richer broadband sway slow-drift PSD that collapses the
+   decorrelation time from 237 s to 39 s, inflating the extreme-value
+   quantile over a 1800 s operating window.
+
+After both fixes, **cqa now over-predicts σ_y by ~60 %**
+(0.99 m vs brucon 0.61 m). This is in the *opposite* direction of the
+old apparent under-prediction. The mass alignment alone moved σ_y from
+0.92 to 0.99 m, contradicting the naive σ² ∝ 1/M³ heuristic; the
+closed-loop transfer cancels enough of the mass dependence (because
+K_p, K_d are scaled with M to maintain ω_n) that mass is not the
+dominant variance lever.
+
+The remaining 60 % over-prediction is therefore in the **slow-drift
+PSD shape** itself, not in the force-level magnitudes (which §12.16
+validated) and not in vessel mass. Candidates to investigate:
+
+* **Newman approximation overshoot.** `slow_drift_force_psd_newman_pdstrip`
+  uses Newman's S_FF(w) = 8 |D(w_carrier)|^2 ∫ S_η(w)^2 dw with a single
+  carrier frequency. The full 2nd-order QTF at low difference
+  frequencies can be substantially smaller (Pinkster 1980), particularly
+  in beam seas where mean drift is large.
+* **Yaw slow-drift / lateral coupling.** With `drift_n_amp = 0` the
+  parametric path missed yaw slow-drift entirely. A direct test is to
+  zero the yaw column of `slow_drift_force_psd_newman_pdstrip`'s output
+  and re-run; the σ_y delta attributes the lever-arm contribution.
+* **Closed-loop bandwidth.** The simulator's `omega_n_sway = 0.08 rad/s`
+  was used in cqa, but brucon's actual realised closed-loop bandwidth
+  may differ due to thrust-allocation lag / commanded-vs-realised
+  thrust transfer that cqa does not currently model in the *intact*
+  variance path (only post-WCFDI).
+
+Roadmap items 14 (PSD-shape diagnostic) and 15 (achievable polytope)
+are the natural follow-ons.
+

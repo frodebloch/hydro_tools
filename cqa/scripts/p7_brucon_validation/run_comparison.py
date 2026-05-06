@@ -62,6 +62,11 @@ from cqa.gangway import GangwayJointState
 from cqa.transient import wcfdi_transient, WcfdiScenario
 from cqa.decision_matrix import _build_intact_prior_at_forecast
 from cqa.sea_state_relations import pm_hs_from_vw, pm_tp_from_vw
+from cqa.rao import load_pdstrip_rao
+
+# Path to the brucon CSOV pdstrip RAO+QTF table; same file used by
+# compare_forces.py for the spectral-drift force-level cross-check.
+PDSTRIP_PATH = "/home/blofro/src/brucon/build/bin/vessel_simulator_config/csov_pdstrip.dat"
 
 
 # ----------------------------------------------------------------------
@@ -157,6 +162,15 @@ def main() -> None:
     print("\n[cqa] building intact prior + WCFDI transient ...")
     cfg, joint = setup_cqa()
 
+    # Load brucon's pdstrip RAO+QTF table so cqa uses the *same* mean-drift
+    # and slow-drift PSD as the simulator. Without this, cqa falls back to
+    # parametric WaveDriftParticulars which for CSOV yield wrong sign and
+    # missing yaw-drift (see analysis.md sec.12.16). This was the suspected
+    # root cause of the closed-loop intact P50/P90 under-prediction and the
+    # post-failure runaway-vs-recovery mismatch.
+    print(f"  loading RAO+QTF from {PDSTRIP_PATH}")
+    rao = load_pdstrip_rao(PDSTRIP_PATH)
+
     # Convert relative compass direction to cqa convention:
     # cqa theta_rel = direction the weather comes *into* the vessel,
     # 0 = head-on, +pi/2 = from starboard (beam to starboard).
@@ -169,10 +183,10 @@ def main() -> None:
         cfg, joint,
         Vw=VW, Hs=HS, Tp=TP, Vc=VC,
         theta_rel=theta_rel,
-        rao_table=None,                 # use built-in PM drift coefficients
+        rao_table=rao,                  # spectral pdstrip drift (matches brucon)
         sigma_Vc=0.1, tau_Vc=600.0,
         T_op_s=T_OP_S, quantile_p=0.90,
-        omega_grid=None, use_pm_for_drift=True,
+        omega_grid=None, use_pm_for_drift=False,
     )
 
     scenario = WcfdiScenario(
@@ -215,6 +229,7 @@ def main() -> None:
         sigma_Vc=0.1, tau_Vc=600.0,
         t_end=spec.post_failure_s,
         n_t=int(spec.post_failure_s / SIM_DT) + 1,
+        rao_table=rao,
     )
     cqa_dt = time.time() - t_cqa_start
     print(f"  cqa pipeline ran in {cqa_dt:.2f} s")

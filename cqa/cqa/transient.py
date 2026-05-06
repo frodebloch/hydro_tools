@@ -360,6 +360,7 @@ def wcfdi_transient(
     tau_Vc: float = 600.0,
     t_end: float = 200.0,
     n_t: int = 401,
+    rao_table: Optional["RaoTable"] = None,
 ) -> TransientResult:
     """Predict the post-WCFDI mean trajectory + covariance envelope.
 
@@ -370,6 +371,26 @@ def wcfdi_transient(
     Controller / observer tuning (`omega_n`, `zeta`, `T_b`, `T_thr`)
     defaults to ``cfg.controller`` (single source of truth shared with
     the WCFDI MC and the intact-prior pipeline).
+
+    Drift force model
+    -----------------
+    When ``rao_table`` is supplied, the **mean drift force** and the
+    **slow-drift force PSD** are evaluated by integrating the
+    pdstrip-resolved diagonal QTF against the Bretschneider
+    wave-elevation spectrum (the spectral path -- this is what
+    ``mean_drift_force_pdstrip`` and
+    ``slow_drift_force_psd_newman_pdstrip`` provide, and what brucon's
+    ``MeanDriftForces()`` matches to ~1 % at force level; see analysis
+    section 12.16). When ``rao_table is None`` (default for
+    backwards compatibility), the legacy parametric path is used:
+    ``F_drift_i = drift_i_amp * Hs^2 * trig_i(theta)`` with the
+    coefficients from ``cfg.wave_drift``. The parametric coefficients
+    are *frequency-integrated* and ignore Tp dependence; they can be
+    seriously wrong (wrong sign, factor-of-2 magnitude) for sea states
+    far from their implicit calibration point. **Pass ``rao_table`` for
+    any cqa-vs-brucon validation work or any forecast-grid evaluation
+    that sweeps Tp.** The legacy path remains available for offline
+    analyses where no pdstrip data is loaded.
 
     The result's ``info`` dict carries a ``bistability_risk_score``
     (per-DOF and scalar): the maximum over time of
@@ -419,14 +440,27 @@ def wcfdi_transient(
     )
     F_wind = wind_model.force(Vw_mean, theta_rel)
     F_curr = current_model.force(Vc, theta_rel)
-    # Mean drift force (proportional to Hs^2):
-    F_drift = np.array(
-        [
-            wd.drift_x_amp * Hs ** 2 * np.cos(theta_rel),
-            wd.drift_y_amp * Hs ** 2 * np.sin(theta_rel),
-            wd.drift_n_amp * Hs ** 2 * np.sin(2.0 * theta_rel),
-        ]
-    )
+    # Mean drift force.
+    if rao_table is not None:
+        # Spectral path: integrate pdstrip diagonal QTF against
+        # Bretschneider wave-elevation spectrum (matches brucon
+        # MeanDriftForces() to ~1 % at force level).
+        from .drift import mean_drift_force_pdstrip
+        F_drift = mean_drift_force_pdstrip(
+            rao_table, Hs=Hs, Tp=Tp, theta_wave_rel=theta_rel,
+        )
+    else:
+        # Parametric fallback: F_drift_i = drift_i_amp * Hs^2 * trig_i(theta).
+        # Frequency-integrated coefficients; ignores Tp dependence and may
+        # be seriously wrong for sea states far from the implicit
+        # calibration point. See docstring above.
+        F_drift = np.array(
+            [
+                wd.drift_x_amp * Hs ** 2 * np.cos(theta_rel),
+                wd.drift_y_amp * Hs ** 2 * np.sin(theta_rel),
+                wd.drift_n_amp * Hs ** 2 * np.sin(2.0 * theta_rel),
+            ]
+        )
     tau_env = F_wind + F_curr + F_drift
 
     # --- Pre-failure mean steady state at t = 0- ---
@@ -435,9 +469,15 @@ def wcfdi_transient(
     # --- Pre-failure covariance at t = 0- ---
     cl_intact = ClosedLoop.build(vessel, controller)
     S_wind = npd_wind_gust_force_psd(wind_model, Vw_mean, theta_rel)
-    S_drift = slow_drift_force_psd_newman(
-        (wd.drift_x_amp, wd.drift_y_amp, wd.drift_n_amp), Hs, Tp, theta_rel
-    )
+    if rao_table is not None:
+        from .drift import slow_drift_force_psd_newman_pdstrip
+        S_drift = slow_drift_force_psd_newman_pdstrip(
+            rao_table, Hs=Hs, Tp=Tp, theta_wave_rel=theta_rel,
+        )
+    else:
+        S_drift = slow_drift_force_psd_newman(
+            (wd.drift_x_amp, wd.drift_y_amp, wd.drift_n_amp), Hs, Tp, theta_rel
+        )
     if Vc > 1e-9:
         dFdVc = 2.0 * F_curr / Vc
     else:

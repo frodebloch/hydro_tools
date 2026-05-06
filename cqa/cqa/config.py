@@ -25,10 +25,16 @@ class VesselParticulars:
     # Linearised hydrodynamic parameters at zero forward speed.
     # Added mass / inertia are stored as fractions of rigid-body values for
     # convenience; production code will pull these from the brucon section
-    # integration. Defaults are typical for full-form OSV/CSOV hulls.
-    surge_added_mass_frac: float = 0.05
-    sway_added_mass_frac: float = 0.80
-    yaw_added_inertia_frac: float = 0.30
+    # integration. Defaults are sourced from porting brucon's section
+    # integration + Lewis-form added-mass algorithm
+    # (libs/dp/vessel_model/vessel_coefficients.cpp::AddedMass::A11/A22/A66
+    # with section_cy from SectionAddedMassCoefficient) and applying it to
+    # the CSOV `vessel_data.prototxt` section table at design draft 6.50 m.
+    # The resulting M11/M22/M66 totals match brucon to within ~1 % for the
+    # CSOV. See analysis.md sec.12.17.
+    surge_added_mass_frac: float = 0.060
+    sway_added_mass_frac: float = 0.671
+    yaw_added_inertia_frac: float = 0.620
 
     # Linear damping coefficients in body frame (zero-forward-speed approximation).
     # Units: surge/sway in N s/m, yaw in N m s / rad.
