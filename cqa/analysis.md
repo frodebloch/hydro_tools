@@ -3040,14 +3040,95 @@ Validation in `tests/test_observer.py` (6 new tests):
     σ_y_WF_bare = ∫ |RAO_sway|² S_η dω. At the §12.20 sea state
     with csov_default and T_thr=2 s: σ_y_LF ≈ 0.67 m,
     σ_y_WF_bare ≈ 0.69 m on the CG-referenced sway RAO, so
-    σ_y_quad_direct ≈ 0.96 m and σ_y_total ≈ 1.01 m. The earlier
-    chat-quoted "sandbox σ_y_total ≈ 0.71 m" referred to a
-    body-base or otherwise-reduced output and is NOT directly
-    comparable to the CG-referenced complex sway RAO used here;
-    σ_y_total ≈ 1.01 m is consistent with the bare-RAO check.
+    σ_y_quad_direct ≈ 0.96 m and σ_y_total ≈ 1.01 m. See
+    §12.20.15 below for the reconciliation against the brucon
+    empirical breakdown (σ_y_total_body = 0.89 m, σ_y_LF = 0.69 m,
+    σ_y_WF = 0.54 m); the cqa pipeline composition is correct
+    but the input RAO sway response is over-predicted by ~28 %
+    relative to brucon's `yHf = y_first_order_wave()`, so cqa
+    σ_y_total comes out +13 % high vs brucon (conservative).
 
 This closes the original sandbox-vs-cqa pipeline gap noted at the
 end of §12.20.13: the public cqa-core API can now produce both
 σ_y_LF (matches the brucon `pos_a_p*` semantic, i.e. what the DP
 shows the operator) and σ_y_total (matches the operational "what
 hits the turbine" semantic for collision / gangway risk).
+
+#### 12.20.15 σ_y_total reconciliation against brucon empirical
+
+Following §12.20.14, ran the brucon `pwo_lockedTp` ensemble
+(30 seeds, late window [1500, 3000] s, HS=4.20 m, Tp=10.22 s,
+β=90°) through the same body-frame projection used by
+`long_run_locked_tp_validation.get_brucon_sway_lf` to extract
+the three reference σ figures separately:
+
+  - σ_y_total_body  = std(y_body)         = **0.893 m**
+  - σ_y_LF_body     = std(y_body - yHf)   = **0.691 m**  ← the
+    "0.69 m brucon" figure used in §12.20 (matches the brucon
+    `pos_a_p*` semantic).
+  - σ_y_WF          = std(yHf)            = **0.536 m**
+
+with sqrt(σ_y_LF² + σ_y_WF²) = 0.874 ≈ σ_y_total_body, confirming
+that y_LF_body and yHf are statistically uncorrelated at this
+sea state (as expected from the Fossen passive observer's wave
+filter doing its job: the LF channel y_LF rejects the WF content
+that yHf carries).
+
+Comparison to cqa pipeline outputs at the same point
+(csov_default tuning, T_thr=2 s sandbox calibration, full
+cqa.observer.total_position_psd stack):
+
+  | quantity           | cqa pipeline | brucon empirical | error |
+  |--------------------|-------------:|-----------------:|------:|
+  | σ_y_LF             |       0.74 m |          0.69 m  |  +7 % |
+  | σ_y_WF (bare RAO)  |       0.69 m |          0.54 m  | +28 % |
+  | σ_y_total          |       1.01 m |          0.89 m  | +13 % |
+
+σ_y_LF is reproduced well; σ_y_total is dominated by the σ_y_WF
+over-prediction (0.69 vs 0.54). The σ_y_WF over-prediction
+already appears in the **bare** `∫ |RAO_sway|² S_η dω` integral
+on the pdstrip CG-referenced sway RAO at β=90°, so it is **not
+a bug in `cqa.observer.total_position_psd`**; it is a RAO /
+spectrum modelling question:
+
+  - Spectral shape: switching from PM (γ=1, the cqa default for
+    `wave_elevation_psd`) to JONSWAP γ=3.3 actually moves σ_y_WF
+    *up* slightly (0.69 → 0.72 m), so γ choice is not the
+    explanation.
+  - Reference-point: brucon's `yHf = vessel_simulator->y_first_order_wave()`
+    is computed at the simulator's "first-order wave reference
+    point", which is not necessarily the CG. A reduced-RAO at a
+    body point further forward (smaller sway lever arm under
+    yaw RAO) would naturally give a smaller σ. The expected
+    correction is `H_sway_at_pt = H_sway_CG + r_x · H_yaw`,
+    where r_x is the longitudinal offset from CG; with brucon's
+    yaw RAO at Tp ~ 10 s and a ~10 m offset this can shift
+    σ_y_WF by O(20-30 %).
+  - Underlying RAO definition: pdstrip's complex 6-DOF position
+    RAO at CG vs brucon's `WaveResponse::CalculateLinearResponse`
+    output. Cross-checking these two against a known sea-trial
+    point or against pdstrip's own time-domain reconstruction
+    is a separate workstream.
+
+For now, the take-away is:
+
+  - **σ_y_LF cqa is well-validated** against brucon (within 7 %
+    at csov_default with T_thr=2 s sandbox calibration).
+  - **σ_y_total cqa is +13 % over-predicted**, attributable to
+    a (separate, RAO-modelling) +28 % over-prediction in σ_y_WF.
+    For the operability polar this is a *conservative* error
+    direction (predicting a larger footprint => earlier amber/red
+    => tighter operating window).
+  - The §12.20.14 test
+    `test_total_position_psd_sigma_y_total_brucon_cross_check`
+    passes at ±15 % vs the **direct quadrature** sqrt(LF²+WF²)
+    upper bound (0.96 m vs cqa 1.01 m, +5 %), confirming the
+    cqa pipeline composition is correct; the residual is
+    entirely in the input WF RAO model.
+  - A body-point RAO projection helper for cqa.observer is
+    deferred until there is a concrete operational use case
+    (e.g. the operability polar wanting to score y_total at the
+    vessel base or gangway pedestal rather than at CG); when
+    that is needed, add `H_pos_at_body_point(rao, r_offset)` to
+    `cqa.wave_response` and pass the projected RAO into
+    `total_position_psd`'s S_eta_w_func.
