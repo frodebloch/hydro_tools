@@ -76,7 +76,7 @@ from .gangway import (
     telescope_sensitivity,
     telescope_sensitivity_6dof,
 )
-from .psd import jonswap_psd
+from .psd import jonswap_psd, wave_elevation_psd, WaveSpectrumKind
 from .rao import RaoTable, evaluate_rao
 from .sea_spreading import SeaSpreading, spreading_quadrature
 from .wave_response import cqa_theta_rel_to_pdstrip_beta_deg
@@ -257,6 +257,7 @@ def realise_wave_motion_6dof(
     omega_grid: Optional[np.ndarray] = None,
     spreading: Optional[SeaSpreading] = None,
     gamma: float = 3.3,
+    spectrum: WaveSpectrumKind = "bretschneider",
 ) -> np.ndarray:
     """6-DOF wave-frequency body motion realisation at the body origin.
 
@@ -284,7 +285,10 @@ def realise_wave_motion_6dof(
         non-uniform; per-bin widths are computed from midpoint
         differences. Default: 128 linear points across the RAO range.
     spreading : SeaSpreading. Default cos-2s s=15 (DNV-RP-C205).
-    gamma : JONSWAP peakedness. Default 3.3.
+    gamma : JONSWAP peakedness. Default 3.3. Ignored when
+        ``spectrum == 'bretschneider'``.
+    spectrum : wave-elevation PSD shape. Default ``'bretschneider'``
+        (IMCA / DNV-ST-0111 / brucon vessel_simulator default).
 
     Returns
     -------
@@ -309,8 +313,9 @@ def realise_wave_motion_6dof(
         spreading = SeaSpreading()
     angles_rel, w_dir = spreading_quadrature(spreading, theta_wave_rel)
 
-    # JONSWAP elevation PSD on the grid.
-    S_eta = jonswap_psd(omega_grid, Hs=Hs, Tp=Tp, gamma=gamma)  # (N_om,)
+    # Wave-elevation PSD on the grid (Bretschneider by default; JONSWAP
+    # opt-in via ``spectrum='jonswap'``).
+    S_eta = wave_elevation_psd(omega_grid, Hs=Hs, Tp=Tp, kind=spectrum, gamma=gamma)  # (N_om,)
 
     xi = np.zeros((6, N_t))
     for j, theta_j in enumerate(angles_rel):

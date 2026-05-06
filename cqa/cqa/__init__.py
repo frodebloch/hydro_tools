@@ -14,6 +14,9 @@ from .psd import (
     npd_wind_gust_force_psd,
     slow_drift_force_psd_newman,
     current_variability_force_psd,
+    bretschneider_psd,
+    jonswap_psd,
+    wave_elevation_psd,
 )
 from .closed_loop import (
     ClosedLoop,
@@ -149,6 +152,9 @@ __all__ = [
     "npd_wind_gust_force_psd",
     "slow_drift_force_psd_newman",
     "current_variability_force_psd",
+    "bretschneider_psd",
+    "jonswap_psd",
+    "wave_elevation_psd",
     "ClosedLoop",
     "lyapunov_position_covariance",
     "state_covariance_freqdomain",

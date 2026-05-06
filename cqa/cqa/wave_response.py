@@ -90,7 +90,7 @@ import numpy as np
 
 from .config import CqaConfig
 from .gangway import GangwayJointState, telescope_sensitivity_6dof
-from .psd import jonswap_psd
+from .psd import jonswap_psd, wave_elevation_psd, WaveSpectrumKind
 from .rao import RaoTable, evaluate_rao
 from .sea_spreading import SeaSpreading, spreading_quadrature
 
@@ -184,6 +184,7 @@ def sigma_L_wave(
     gamma: float = 3.3,
     omega_grid: Optional[np.ndarray] = None,
     spreading: Optional[SeaSpreading] = None,
+    spectrum: WaveSpectrumKind = "bretschneider",
 ) -> WaveLengthResult:
     """1st-order wave-frequency telescope-length std dev for one sea state.
 
@@ -196,12 +197,17 @@ def sigma_L_wave(
     theta_wave_rel : MEAN relative wave direction [rad], cqa convention
                      (0 = head, +pi/2 = from port).
     gamma       : JONSWAP peakedness. Default 3.3 (DNV-RP-C205 mean).
+                  Ignored when ``spectrum == 'bretschneider'``.
     omega_grid  : optional custom integration grid [rad/s]; defaults
                   to a 256-point linear grid across the RAO range.
     spreading   : directional-spreading model. Default: cos-2s, s=15
                   (DNV-RP-C205 wind-sea typical, ~21 deg one-sigma).
                   Pass ``SeaSpreading.long_crested()`` for the
                   single-direction long-crested limit.
+    spectrum    : wave-elevation PSD shape. Default
+                  ``'bretschneider'`` (IMCA / DNV-ST-0111 / brucon
+                  vessel_simulator default). Pass ``'jonswap'`` for
+                  the peakier DNV-RP-C205 spectrum.
 
     Returns
     -------
@@ -238,7 +244,7 @@ def sigma_L_wave(
     )
 
     c6 = telescope_sensitivity_6dof(joint, cfg.gangway)  # (6,) real
-    S_eta = jonswap_psd(omega, Hs, Tp, gamma)            # (n_omega,)
+    S_eta = wave_elevation_psd(omega, Hs, Tp, kind=spectrum, gamma=gamma)  # (n_omega,)
 
     integrand_total = np.zeros_like(omega)
     var_total = 0.0
@@ -279,26 +285,31 @@ def sigma_L_wave_multimodal(
     sea_states: Iterable[Tuple[float, float, float, float]],
     omega_grid: Optional[np.ndarray] = None,
     spreading: Optional[SeaSpreading] = None,
+    spectrum: WaveSpectrumKind = "bretschneider",
 ) -> float:
     """Sigma_L_wave summed in quadrature over multiple sea states.
 
     Each sea state in ``sea_states`` is a tuple
-    ``(Hs, Tp, theta_wave_rel, gamma)`` with theta in radians. Components
-    are assumed mutually independent (typical assumption for wind-sea
-    + distinct swell), so variances add:
+    ``(Hs, Tp, theta_wave_rel, gamma)`` with theta in radians. The
+    ``gamma`` per-component is **only used when ``spectrum=='jonswap'``**;
+    for the default ``'bretschneider'`` it is ignored (the tuple shape
+    is preserved for backwards compatibility). Components are assumed
+    mutually independent (typical assumption for wind-sea + distinct
+    swell), so variances add:
 
         sigma_L_wave_total^2 = sum_i sigma_L_wave_i^2.
 
-    The same ``spreading`` model is applied to every component;
-    use multiple calls + manual quadrature sum if components need
-    different spreading.
+    The same ``spreading`` and ``spectrum`` are applied to every
+    component; use multiple calls + manual quadrature sum if components
+    need different spreading or spectra.
 
     Returned value is metres.
     """
     var_total = 0.0
     for Hs, Tp, theta, gamma in sea_states:
-        res = sigma_L_wave(joint, cfg, rao_table, Hs, Tp, theta, gamma=gamma,
-                           omega_grid=omega_grid, spreading=spreading)
+        res = sigma_L_wave(joint, cfg, rao_table, Hs=Hs, Tp=Tp, theta_wave_rel=theta,
+                           gamma=gamma, omega_grid=omega_grid, spreading=spreading,
+                           spectrum=spectrum)
         var_total += res.sigma_L_wave ** 2
     return float(np.sqrt(var_total))
 

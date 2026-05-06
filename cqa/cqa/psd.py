@@ -28,10 +28,23 @@ applied as B_w W B_w^T at the slow-frequency input.
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import Callable, Literal
 import numpy as np
 
 from .vessel import WindForceModel
+
+
+# Wave-elevation spectrum kind used by all downstream consumers
+# (1st-order RAO variance, Newman slow-drift PSD, mean drift force,
+# time-domain realisation). 'bretschneider' is the IMCA / DNV-ST-0111
+# operability standard (a 2-parameter PM-family spectrum with no
+# peak-enhancement); it is implemented exactly as ``jonswap_psd`` with
+# ``gamma = 1.0``. 'jonswap' uses ``gamma = 3.3`` by default
+# (DNV-RP-C205 fetch-limited mean), peakier than Bretschneider --
+# more conservative for QTF integrals when ``T_p`` is at or above the
+# QTF peak (typical wind-sea range), less conservative for very short
+# T_p; see analysis.md section 12.16 for the per-T_p comparison.
+WaveSpectrumKind = Literal["bretschneider", "jonswap"]
 
 
 # ---------------------------------------------------------------------------
@@ -126,6 +139,52 @@ def jonswap_psd(omega: np.ndarray, Hs: float, Tp: float, gamma: float = 3.3) -> 
     return out
 
 
+def bretschneider_psd(omega: np.ndarray, Hs: float, Tp: float) -> np.ndarray:
+    """Single-sided Bretschneider wave-elevation spectrum [m^2 / (rad/s)].
+
+    Bretschneider (1959) is the IMCA / DNV-ST-0111 reference operability
+    spectrum, a 2-parameter PM-family form with no peak enhancement.
+    It is mathematically identical to the JONSWAP form with
+    ``gamma = 1`` (the peak-enhancement multiplier ``gamma^r`` collapses
+    to 1, the normalisation ``A_gamma = 1 - 0.287 ln(1) = 1``):
+
+        S(omega) = (5/16) * Hs^2 * omega_p^4 / omega^5
+                   * exp(-1.25 (omega_p / omega)^4)
+
+    Implemented as a thin wrapper around :func:`jonswap_psd` with
+    ``gamma = 1.0`` so the two paths share the same code (and the
+    equivalence is enforced numerically). Consumers that want
+    spectrum-agnostic behaviour should call :func:`wave_elevation_psd`
+    with the ``kind`` kwarg.
+    """
+    return jonswap_psd(omega, Hs, Tp, gamma=1.0)
+
+
+def wave_elevation_psd(
+    omega: np.ndarray,
+    Hs: float,
+    Tp: float,
+    kind: WaveSpectrumKind = "bretschneider",
+    gamma: float = 3.3,
+) -> np.ndarray:
+    """Dispatch to :func:`bretschneider_psd` or :func:`jonswap_psd`.
+
+    ``gamma`` is ignored for ``kind == 'bretschneider'``. Default kind
+    is Bretschneider, matching brucon's ``vessel_simulator`` default
+    (see ``vessel_simulator_wrapper.cpp`` -- the ``WaveSpectrum`` ctor
+    branch when ``wave_spectrum_type`` is unset in
+    ``vessel_simulator_settings.prototxt``) and the IMCA/DNV-ST-0111
+    operability conventions.
+    """
+    if kind == "bretschneider":
+        return jonswap_psd(omega, Hs, Tp, gamma=1.0)
+    if kind == "jonswap":
+        return jonswap_psd(omega, Hs, Tp, gamma=gamma)
+    raise ValueError(
+        f"Unknown wave spectrum kind: {kind!r} (expected 'bretschneider' or 'jonswap')"
+    )
+
+
 def slow_drift_force_psd_newman(
     drift_amp: tuple[float, float, float],
     Hs: float,
@@ -133,6 +192,7 @@ def slow_drift_force_psd_newman(
     theta_rw: float,
     gamma: float = 3.3,
     spreading_std_deg: float = 25.0,
+    spectrum: WaveSpectrumKind = "bretschneider",
 ) -> Callable[[np.ndarray], np.ndarray]:
     """Newman-approximation slow-drift force PSD.
 
@@ -162,7 +222,7 @@ def slow_drift_force_psd_newman(
 
     # Pre-compute the wave-spectrum self-correlation integral I = int S_eta^2 d omega.
     omega_grid = np.linspace(0.05, 4.0, 4000)
-    S_eta = jonswap_psd(omega_grid, Hs, Tp, gamma)
+    S_eta = wave_elevation_psd(omega_grid, Hs, Tp, kind=spectrum, gamma=gamma)
     I = np.trapezoid(S_eta ** 2, omega_grid)
     S0 = 8.0 * I
 

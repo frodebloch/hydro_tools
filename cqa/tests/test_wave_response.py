@@ -147,11 +147,14 @@ def test_sigma_L_wave_matches_explicit_quadrature(rao_table, cfg, joint):
     integrate with trapezoid; compare to the function output.
 
     Use long-crested to make the explicit single-direction quadrature
-    apples-to-apples with the function output.
+    apples-to-apples with the function output. Pin spectrum='jonswap'
+    so the explicit ``jonswap_psd(..., 3.3)`` reference matches the
+    dispatcher path inside ``sigma_L_wave``.
     """
     Hs, Tp, theta = 2.0, 8.0, np.pi / 2
     res = sigma_L_wave(joint, cfg, rao_table, Hs=Hs, Tp=Tp, theta_wave_rel=theta,
-                      spreading=SeaSpreading.long_crested())
+                      spreading=SeaSpreading.long_crested(),
+                      spectrum="jonswap")
     # Re-evaluate from primitives.
     from cqa.psd import jonswap_psd
     omega = res.omega
@@ -173,10 +176,12 @@ def test_sigma_L_wave_matches_explicit_quadrature(rao_table, cfg, joint):
 def test_multimodal_independent_components_add_in_quadrature(rao_table, cfg, joint):
     """Two identical sea states summed in quadrature => sqrt(2) * single."""
     Hs, Tp, theta = 2.0, 8.0, np.pi / 2
-    single = sigma_L_wave(joint, cfg, rao_table, Hs=Hs, Tp=Tp, theta_wave_rel=theta)
+    single = sigma_L_wave(joint, cfg, rao_table, Hs=Hs, Tp=Tp, theta_wave_rel=theta,
+                          spectrum="jonswap")
     duo = sigma_L_wave_multimodal(
         joint, cfg, rao_table,
         sea_states=[(Hs, Tp, theta, 3.3), (Hs, Tp, theta, 3.3)],
+        spectrum="jonswap",
     )
     assert np.isclose(duo, np.sqrt(2.0) * single.sigma_L_wave, rtol=1e-12)
 

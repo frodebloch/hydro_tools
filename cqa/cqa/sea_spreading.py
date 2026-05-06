@@ -46,18 +46,26 @@ class SeaSpreading:
 
     Attributes
     ----------
-    kind : "cos_2s" | "gaussian"
+    kind : "cos_2s" | "gaussian" | "cos_n"
     s : cosine-2s exponent (used when kind == "cos_2s"). Default 15
         (DNV-RP-C205 wind-sea typical; ~21 deg one-sigma equivalent).
     sigma_deg : wrapped-Gaussian one-sigma (used when kind ==
         "gaussian").
+    n : cos^n exponent over (-pi/2, +pi/2) (used when kind == "cos_n").
+        This is the **brucon** wave_spectrum convention (see
+        ``vessel_simulator_wrapper.cpp`` -- ``WaveSpectrum`` ctor's
+        4th argument ``spreading_factor``). brucon's default for the
+        CSOV simulator is n = 2 (i.e. cos^2). The Gaussian-limit
+        equivalence with cos-2s is ``s ~= 2 n``: brucon cos^2 has the
+        same one-sigma width as cqa cos_2s s=4 (NOT s = n/2).
     n_dir : number of quadrature angles. 31 is enough for trapezoidal
         accuracy at the 1 % level on smooth integrands.
     """
 
-    kind: Literal["cos_2s", "gaussian"] = "cos_2s"
+    kind: Literal["cos_2s", "gaussian", "cos_n"] = "cos_2s"
     s: float = 15.0
     sigma_deg: float = 25.0
+    n: float = 2.0
     n_dir: int = 31
 
     @classmethod
@@ -67,6 +75,23 @@ class SeaSpreading:
         Use this to recover the long-crested limit deterministically.
         """
         return cls(kind="gaussian", sigma_deg=0.0, n_dir=1)
+
+    @classmethod
+    def cos_n(cls, n: float = 2.0, n_dir: int = 31) -> "SeaSpreading":
+        """brucon-style ``cos^n(delta)`` spreading over (-pi/2, +pi/2).
+
+        Use this constructor to match brucon ``WaveSpectrum`` behaviour
+        bit-for-bit. brucon's CSOV simulator default is n = 2 (cos^2).
+
+        Equivalence with the cqa default ``cos_2s``: in the narrow-spread
+        Gaussian limit both functions give the same one-sigma width when
+        ``s ~= 2 n``. So cos^2 (brucon default) approximates cos_2s s=4,
+        broader than the cqa default of s=15. This explains the
+        force-level cross-validation finding that the cqa default
+        spreading is much narrower than brucon's; force-level parity
+        with brucon requires ``SeaSpreading.cos_n(2)``.
+        """
+        return cls(kind="cos_n", n=float(n), n_dir=int(n_dir))
 
 
 def cos_2s_norm_const(s: float) -> float:
@@ -134,6 +159,18 @@ def spreading_quadrature(
         phi = np.linspace(-3.0 * sigma, 3.0 * sigma, n)
         D = np.exp(-(phi ** 2) / (2.0 * sigma ** 2))
         w = D
+    elif spreading.kind == "cos_n":
+        # brucon convention: D(phi) ~ cos^n(phi) for |phi| <= pi/2,
+        # zero outside. The normalisation constant cancels under the
+        # final renormalise-to-1 step below; we only need the shape.
+        phi = np.linspace(-np.pi / 2.0, np.pi / 2.0, n)
+        # cos at +/- pi/2 is exactly 0 -- safe to raise to a positive power.
+        D = np.cos(phi) ** float(spreading.n)
+        dphi = phi[1] - phi[0]
+        trap = np.full(n, dphi)
+        trap[0] *= 0.5
+        trap[-1] *= 0.5
+        w = D * trap
     else:
         raise ValueError(f"Unknown spreading kind: {spreading.kind!r}")
 

@@ -104,3 +104,92 @@ def test_cos_2s_s15_effective_sigma():
 def test_unknown_kind_raises():
     with pytest.raises(ValueError):
         spreading_quadrature(SeaSpreading(kind="bogus", n_dir=11))  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# brucon-style cos^n spreading
+# ---------------------------------------------------------------------------
+
+
+def test_cos_n_classmethod_constructs_kind_cos_n():
+    s = SeaSpreading.cos_n(2.0)
+    assert s.kind == "cos_n"
+    assert s.n == 2.0
+
+
+def test_cos_n_quadrature_weights_sum_to_one():
+    angles, w = spreading_quadrature(SeaSpreading.cos_n(2.0, n_dir=51))
+    assert np.isclose(w.sum(), 1.0)
+    # Support is +/- pi/2 (brucon convention).
+    assert np.isclose(angles.min(), -np.pi / 2.0)
+    assert np.isclose(angles.max(),  np.pi / 2.0)
+
+
+def test_cos_n_n2_matches_cos2s_s4_in_one_sigma():
+    """Gaussian-limit equivalence: cos^n is approximately cos_2s with
+    s ~= 2 n in the narrow-spread limit. brucon's default n=2 thus
+    approximates cqa cos_2s s=4 (broader than the cqa default s=15).
+
+    Verify by comparing the second moments from both quadratures
+    against each other, not against any external reference -- that
+    locks the equivalence relation we documented in the docstring.
+    """
+    a_n, w_n = spreading_quadrature(SeaSpreading.cos_n(2.0, n_dir=201))
+    var_n = float(np.sum(w_n * a_n ** 2))
+    sigma_n_deg = float(np.degrees(np.sqrt(var_n)))
+
+    a_s, w_s = spreading_quadrature(SeaSpreading(kind="cos_2s", s=4.0, n_dir=201))
+    var_s = float(np.sum(w_s * a_s ** 2))
+    sigma_s_deg = float(np.degrees(np.sqrt(var_s)))
+
+    # Within 20% of each other (Gaussian-limit equivalence is asymptotic;
+    # at n=2 the support of cos_n is +/- pi/2 while cos_2s is +/- pi,
+    # so neither is in the strict narrow-spread regime where the
+    # equivalence is tight; observed sigma_cos_n=2 ~= 32.5 deg vs
+    # sigma_cos_2s_s4 ~= 38.1 deg, ~15% off).
+    assert abs(sigma_n_deg - sigma_s_deg) / sigma_s_deg < 0.20
+
+
+# ---------------------------------------------------------------------------
+# Bretschneider / wave_elevation_psd dispatcher
+# ---------------------------------------------------------------------------
+
+
+def test_bretschneider_psd_equals_jonswap_gamma_one():
+    """Bretschneider is the gamma=1 limit of the JONSWAP form -- the
+    ``A_gamma = 1 - 0.287 ln(gamma)`` normalisation collapses to 1
+    and ``gamma^r`` is identically 1."""
+    from cqa.psd import bretschneider_psd, jonswap_psd
+    omega = np.linspace(0.05, 4.0, 4000)
+    Hs, Tp = 2.0, 8.0
+    S_bret = bretschneider_psd(omega, Hs, Tp)
+    S_jon1 = jonswap_psd(omega, Hs, Tp, gamma=1.0)
+    # Same code path via the wrapper -- bit-for-bit identical.
+    assert np.array_equal(S_bret, S_jon1)
+
+
+def test_bretschneider_zero_moment_matches_Hs_squared_over_16():
+    """For Bretschneider, m_0 = integral S(omega) d omega = Hs^2 / 16
+    (DNV-RP-C205 Table 3-1)."""
+    from cqa.psd import bretschneider_psd
+    omega = np.linspace(0.05, 4.0, 8000)
+    Hs, Tp = 3.0, 9.0
+    m0 = float(np.trapezoid(bretschneider_psd(omega, Hs, Tp), omega))
+    # ~1.5% slack to account for low-omega truncation at omega = 0.05.
+    assert abs(m0 - Hs ** 2 / 16.0) / (Hs ** 2 / 16.0) < 0.02
+
+
+def test_wave_elevation_psd_dispatcher_matches_named_calls():
+    from cqa.psd import wave_elevation_psd, jonswap_psd, bretschneider_psd
+    omega = np.linspace(0.05, 4.0, 1024)
+    Hs, Tp = 2.5, 7.5
+    assert np.array_equal(
+        wave_elevation_psd(omega, Hs, Tp, kind="bretschneider"),
+        bretschneider_psd(omega, Hs, Tp),
+    )
+    assert np.array_equal(
+        wave_elevation_psd(omega, Hs, Tp, kind="jonswap", gamma=3.3),
+        jonswap_psd(omega, Hs, Tp, gamma=3.3),
+    )
+    with pytest.raises(ValueError):
+        wave_elevation_psd(omega, Hs, Tp, kind="bogus")  # type: ignore[arg-type]

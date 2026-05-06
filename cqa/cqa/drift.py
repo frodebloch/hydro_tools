@@ -86,7 +86,7 @@ from __future__ import annotations
 from typing import Callable, Tuple
 import numpy as np
 
-from .psd import jonswap_psd
+from .psd import jonswap_psd, wave_elevation_psd, WaveSpectrumKind
 from .rao import RaoTable, evaluate_drift
 from .sea_spreading import SeaSpreading, spreading_quadrature
 
@@ -115,6 +115,7 @@ def mean_drift_force_pdstrip(
     gamma: float = 3.3,
     n_omega: int = 256,
     spreading: SeaSpreading | None = None,
+    spectrum: WaveSpectrumKind = "bretschneider",
 ) -> np.ndarray:
     """Mean wave-drift force/moment in vessel body axes.
 
@@ -125,12 +126,19 @@ def mean_drift_force_pdstrip(
     theta_wave_rel : MEAN wave direction relative to vessel,
         **cqa convention** (rad): 0 = head, +pi/2 = port beam,
         +pi = following.
-    gamma : JONSWAP peak-enhancement factor.
+    gamma : JONSWAP peak-enhancement factor. Ignored when
+        ``spectrum == 'bretschneider'``.
     n_omega : number of points on the linear quadrature grid.
     spreading : directional-spreading model. Default: cos-2s, s=15
         (DNV-RP-C205 wind-sea typical, ~21 deg one-sigma equivalent).
         Pass ``SeaSpreading.long_crested()`` for the single-direction
-        long-crested limit.
+        long-crested limit. Pass ``SeaSpreading.cos_n(2)`` to match
+        brucon ``WaveSpectrum`` defaults.
+    spectrum : wave-elevation PSD shape. Default
+        ``'bretschneider'`` (IMCA / DNV-ST-0111 / brucon
+        vessel_simulator default). Pass ``'jonswap'`` for the
+        peakier DNV-RP-C205 spectrum (more conservative for QTF
+        integrals when T_p is at or above the QTF peak).
 
     Returns
     -------
@@ -163,7 +171,7 @@ def mean_drift_force_pdstrip(
     angles_rel, w_dir = spreading_quadrature(spreading, theta_wave_rel)
 
     omega = _default_omega_grid(rao_table, n_omega)
-    S_eta = jonswap_psd(omega, Hs, Tp, gamma)
+    S_eta = wave_elevation_psd(omega, Hs, Tp, kind=spectrum, gamma=gamma)
 
     F = np.zeros(3, dtype=np.float64)
     for theta_k, w_k in zip(angles_rel, w_dir):
@@ -186,6 +194,7 @@ def slow_drift_force_psd_newman_pdstrip(
     gamma: float = 3.3,
     spreading: SeaSpreading | None = None,
     n_omega: int = 256,
+    spectrum: WaveSpectrumKind = "bretschneider",
 ) -> Callable[[np.ndarray], np.ndarray]:
     """Build a callable S_F(mu) -> (3, 3) slow-drift force PSD matrix.
 
@@ -196,9 +205,13 @@ def slow_drift_force_psd_newman_pdstrip(
     spreading : directional-spreading model. Default: cos-2s, s=15
         (DNV-RP-C205 wind-sea typical, ~21 deg one-sigma equivalent).
         Pass ``SeaSpreading.long_crested()`` for the single-direction
-        long-crested limit.
+        long-crested limit. Pass ``SeaSpreading.cos_n(2)`` to match
+        brucon ``WaveSpectrum`` defaults.
     n_omega : quadrature points on the omega grid for the inner
         Newman integral.
+    spectrum : wave-elevation PSD shape. Default ``'bretschneider'``
+        (IMCA / DNV-ST-0111 / brucon vessel_simulator default). Pass
+        ``'jonswap'`` for the peakier DNV-RP-C205 spectrum.
 
     Returns
     -------
@@ -238,7 +251,7 @@ def slow_drift_force_psd_newman_pdstrip(
     n_dir = angles_rel.size
 
     omega_grid = _default_omega_grid(rao_table, n_omega)
-    S_eta_grid = jonswap_psd(omega_grid, Hs, Tp, gamma)
+    S_eta_grid = wave_elevation_psd(omega_grid, Hs, Tp, kind=spectrum, gamma=gamma)
 
     # Pre-evaluate D_i(omega, beta_dir) on the omega grid for each
     # direction sample. Shape (n_dir, n_omega, 3).
@@ -262,7 +275,7 @@ def slow_drift_force_psd_newman_pdstrip(
             o_grid = omega_grid[valid]
             o_shift = omega_shift[valid]
             S_a = S_eta_grid[valid]
-            S_b = jonswap_psd(o_shift, Hs, Tp, gamma)
+            S_b = wave_elevation_psd(o_shift, Hs, Tp, kind=spectrum, gamma=gamma)
             spec_prod = S_a * S_b              # (n_valid,)
 
             G = np.zeros((3, 3), dtype=np.float64)
