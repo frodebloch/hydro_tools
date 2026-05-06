@@ -6,14 +6,27 @@ Control: tau = -K x   with K = [Kp, Kd]
 Closed loop: x_dot = A_cl x + B_w w,   A_cl = A - B K
 
 Two equivalent ways to compute the steady-state state covariance P from a
-disturbance with one-sided force PSD S_F(omega) [N^2/(rad/s)]:
+disturbance with one-sided rad/s-native force PSD S_F(omega) [N^2/(rad/s)]:
 
 (a) Frequency-domain integration:
-        P = (1/pi) * integral_0^inf  H(omega) S_F(omega) H(omega)^H d omega
+        P = integral_0^inf  H(omega) S_F(omega) H(omega)^H d omega
     with H(omega) = (j*omega*I - A_cl)^{-1} B_w.
 
-(b) Lyapunov equation, approximating S_F as locally white in the closed-loop band:
-        A_cl P + P A_cl^T + B_w (pi * S_F_avg) B_w^T = 0.
+(b) Lyapunov equation, approximating S_F as locally white in the
+    closed-loop band with intensity W [N^2 s/rad]:
+        A_cl P + P A_cl^T + B_w W B_w^T = 0.
+
+PSD convention note (see also `cqa.psd`):
+  - We use one-sided rad/s-native PSDs throughout: variance of any
+    output y(t) = c^T x is sigma_y^2 = integral_0^inf S_y(omega) d omega
+    with no leading 1/pi factor. This matches `cqa.psd.wave_elevation_psd`
+    and `cqa.drift.slow_drift_force_psd_newman_pdstrip`, both of which
+    are verified directly: integral_0^inf S_eta(omega) d omega = Hs^2/16.
+  - The two-sided convention (defined for -inf < omega < inf) carries a
+    1/(2 pi) under the integral sign; the one-sided convention is twice
+    that, integrated only over [0, inf), so no pi appears. Don't import
+    a /pi from textbook formulas without first confirming whether the
+    quoted PSD is one- or two-sided.
 
 We provide (a) as the primary path because it is numerically robust against
 spectra with strong frequency dependence (e.g. NPD wind gust). (b) is kept

@@ -166,7 +166,13 @@ class ControllerParams:
                                           slow-drift band).
       omega_n_yaw          = 0.05 rad/s.
       zeta                 = 0.9 (over-damped DP, standard).
-      T_b                  = 100 s (bias-estimator time constant).
+      T_b                  = 1000 s (bias-estimator time constant; matches
+                                     brucon's `passive_observer.cpp`
+                                     `T_b_default = 1000 s`. Earlier 100 s
+                                     default was a misreading; verified
+                                     against config_csov/observer.prototxt
+                                     and against §12.20 sandbox closure
+                                     of the σ_y_LF gap to brucon).
       T_thr                = 5 s   (1st-order thruster lag).
 
     Setting `omega_n` and `zeta` here ensures that the WCFDI MC, the
@@ -181,7 +187,7 @@ class ControllerParams:
     zeta_surge: float = 0.9
     zeta_sway: float = 0.9
     zeta_yaw: float = 0.9
-    bias_time_constant_s: float = 100.0   # T_b
+    bias_time_constant_s: float = 1000.0   # T_b (brucon passive_observer default)
     thruster_time_constant_s: float = 5.0  # T_thr
 
     @property

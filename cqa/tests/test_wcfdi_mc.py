@@ -221,8 +221,13 @@ def test_full12_mode_returns_nonzero_aug_columns():
             f"rel_err={rel_err}"
         )
         # And the singular-mode empirical std should still be tiny in
-        # absolute terms (within an order of magnitude of analytical).
-        assert col_std[worst_idx] < 10.0 * max(sigmas_analytical[worst_idx], 1e-12), (
+        # absolute terms (within ~20x of analytical). The tolerance is
+        # loose because the singular mode's analytical sigma is
+        # dominated by eigendecomposition noise on a 1e-30-conditioned
+        # P12 (the brucon-aligned T_b=1000 s makes the bias-loop pole
+        # 10x slower, exacerbating the conditioning); the per-DOF
+        # comparison there is just a sanity guard against blow-up.
+        assert col_std[worst_idx] < 20.0 * max(sigmas_analytical[worst_idx], 1e-12), (
             f"Singular-mode empirical std exploded: col_std={col_std} "
             f"sigmas_analytical={sigmas_analytical}"
         )
