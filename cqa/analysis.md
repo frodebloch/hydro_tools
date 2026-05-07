@@ -3132,3 +3132,285 @@ For now, the take-away is:
     that is needed, add `H_pos_at_body_point(rao, r_offset)` to
     `cqa.wave_response` and pass the projected RAO into
     `total_position_psd`'s S_eta_w_func.
+
+### 12.21 From validated σ-prediction to live operability nowcast
+
+With §12.20 closing the σ-prediction validation loop (LF +7 %,
+total +13 % conservative against the brucon `pwo_lockedTp`
+ensemble), the next P7 deliverable is to put the validated model
+to work on **measured** vessel state in real time, not on a
+forecast sea state. This section maps what is already built,
+identifies the actual gaps, and locks the next build step.
+
+#### 12.21.1 Architecture decision: measure σ, model only for what-ifs
+
+After discussing several variants (full directional sea-state
+inversion, parametric HS/Tp/β fit from response PSDs, hybrid
+forecast-prior + measurement update), the agreed architecture
+is the simplest one that delivers the operator-facing IMCA M254
+Fig 8 traffic light:
+
+  - **Live truth source**: measured σ of the operationally-
+    limited quantities (body-frame position relative to turbine,
+    heading, gangway telescope length). Direct measurement —
+    no RAO, no spectrum, no inversion. Robust to anything the
+    model cannot capture (drift bias, current, multimodal seas,
+    hull fouling, controller retune, thruster failures).
+
+  - **Model for counter-factuals only**: when the operator asks
+    "what if thruster X fails" or "what if I change heading",
+    run `cqa.observer.total_position_psd` for the counter-
+    factual configuration, scaled per DOF by
+    `k_dof = σ_measured / σ_model_intact` so the intact
+    prediction matches reality by construction. Differences
+    between scenarios (intact → WCFDI, intact → heading-shift)
+    are then trustworthy even if the absolute model prediction
+    carries the +13 % bias of §12.20.15.
+
+  - **Sea-state estimation deferred**: not required for the
+    nowcast. Kept open as a future hybrid track (forecast HS/Tp/β
+    as prior, refined against measured response PSDs) for
+    capabilities that need a directional spectrum (multi-vessel
+    coordination, body points without MRU, forecast hand-off).
+    Module boundaries are designed to admit it later without
+    disturbing the measurement-first live loop.
+
+  - **Onboard signals consumed by the prototype**: GPS/INS
+    position relative to the turbine (x_body, y_body), gyro
+    heading ψ, gangway telescope length L(t). MRU at CG is
+    available; pedestal MRU typically is not (DP does not
+    have access to the gangway MRU on most installations).
+
+#### 12.21.2 What is already built (and was missing from session memory)
+
+A pre-existing module `cqa.online_estimator` (1182 lines, 60
+passing tests on synthetic data) implements Option B at a more
+sophisticated level than the naive `np.std(window)` that was
+on the table:
+
+  - **`BayesianSigmaEstimator`** — sliding-window InvGamma
+    posterior on σ² with a Bartlett effective-sample-size
+    correction. Conjugate update on a ring buffer with O(1)
+    per-sample push and incremental Σx² book-keeping. Posterior
+    parameters are
+        α = α₀ + N_eff/2
+        β = β₀ + S_eff/2
+    with `S_eff = Σx² · (N_eff / N_raw)` and
+    `N_eff = N_raw · dt / max(dt, T_decorr)`. The conjugate
+    prior degrades gracefully to the prior mean as N_eff → 0,
+    so the posterior is well-defined from sample 0.
+
+  - **`SigmaPosterior`** — InvGamma summary (mean, median,
+    equal-tail credible interval at user-specified level, both
+    in σ² and σ space).
+
+  - **`PosteriorHealth` + `compose_validity_badge`** — five
+    cheap runtime diagnostics covering the assumptions baked
+    into the InvGamma posterior:
+      A1 stationarity (`halves_sigma_ratio` of in-window first
+         and second halves)
+      A2 zero-mean (`|sample_mean|/σ_post` — primary indicator;
+         catches DP integral / observer bias not yet converged,
+         persistent low-frequency disturbance, setpoint drift)
+      A3 Gaussian marginals (`kurtosis_excess` — flags slamming,
+         saturation)
+      A4 ESS warmth (`n_eff` ≥ threshold)
+      A5 prior-data tension (whether the prior σ falls inside
+         the posterior credible interval — flags model-data
+         mismatch but only ever escalates to WARMING; data wins)
+    Composed by `compose_validity_badge` into a single per-
+    channel `OK / WARMING / UNSETTLED / INVALID` level with
+    site-tunable thresholds.
+
+  - **`combine_radial_posterior`** — combines two per-axis
+    InvGamma posteriors (on `dx`, `dy`) into a radial summary
+    via Monte-Carlo over the joint (assuming
+    `cov(σ_x², σ_y²) = 0`, deferred per online_estimator.py:300).
+    Reports σ_R = √(σ_x² + σ_y²) and E[R] (Hoyt-aware via direct
+    MC of `R = √(X² + Y²)`), credible intervals, and a
+    rotation-invariant 2D `radial_mean_offset_over_sigma`
+    diagnostic that catches systematic 2D drift independent of
+    heading.
+
+  - **`closed_loop_decorrelation_time`** — coarse `1/(ζ ω_n)`
+    fallback for `T_decorr`, kept for diagnostics. Production
+    callers should pass the PSD-derived
+    `T_var = π · ∫ S_X(ω)² dω / m₀²` from
+    `cqa.extreme_value.variance_decorrelation_time_from_psd`
+    (this is the exact Bartlett scale for variance estimation;
+    see online_estimator.py:78-98 for the derivation and a
+    cited 5× error example on the canonical CSOV when the
+    legacy fallback is used naively).
+
+  - **`cqa.signal_processing.bandsplit_lowpass`** — zero-phase
+    Butterworth split (`x_lf, x_wf = bandsplit_lowpass(x, fs,
+    omega_split)`) for separating the gangway telescope signal
+    into its slow band (closed-loop response to wind/drift/
+    current, < ~0.15 rad/s) and wave band (1st-order RAO
+    response, ~0.5–1.0 rad/s). The two bands are >2 octaves
+    apart so a 4th-order Butterworth at ~0.3 rad/s is clean;
+    `x_lf + x_wf == x` exactly by construction. **Offline
+    only** — uses `scipy.signal.filtfilt` (forward then
+    backward), so it requires the full series and is strictly
+    non-causal. The online band-split is a separate design
+    decision (causal IIR with group-delay book-keeping vs
+    complementary Linkwitz-Riley pair vs sliding-window Welch
+    band-power vs trailing filtfilt with latency); deferred
+    until G1 has demonstrated that the offline path closes
+    the validation loop. G1 uses the offline filtfilt directly
+    on brucon CSVs since brucon writes complete time series.
+
+  - **`operator_view.summarise_intact_prior`** — already
+    accepts the live-posterior hooks:
+      `posterior_sigma_radial_m`            — overrides σ on
+        the vessel-position Rice / inverse-Rice channel.
+      `posterior_sigma_telescope_slow_m`    — overrides slow-
+        band σ on the gangway channel.
+      `posterior_sigma_telescope_wave_m`    — overrides WF-
+        band σ on the gangway channel.
+      `posterior_health_*` (×4)             — passes the
+        per-channel A1–A5 diagnostics through to
+        `IntactPriorSummary` for the operator-facing badge.
+    The override mechanism is the textbook "spectral SHAPE
+    from prior, LEVEL from data" decomposition implemented
+    in `cqa.extreme_value.p_exceed_from_psd(..., sigma_override=
+    σ_post, ...)`: nu_0+ and the Vanmarcke q stay model-derived
+    (the spectral shape is what the model is good at), only
+    the variance level is data-conditioned.
+
+  - **`decision_matrix.evaluate_decision_cell`** + 
+    `wcfdi_decision_matrix` — forecast-grid `(slot × heading)`
+    of IMCA M254 Fig 8 traffic lights, combining intact-prior
+    and post-WCFDI panels by worst-of. Built for the forecast
+    case (roadmap 4b); does not yet plumb posterior-σ kwargs
+    through to its `summarise_intact_prior` call.
+
+#### 12.21.3 What is actually missing
+
+With the above on the bench, the real gaps for "put the model
+to work on measured data" are:
+
+  - **G1. Brucon-ensemble end-to-end validation of
+    `BayesianSigmaEstimator`.** The entire estimator stack is
+    tested only on synthetic IID Gaussian / Student-t /
+    sinusoid+offset / variance-ramp signals. We have 60
+    `pwo_lockedTp` brucon seeds with known true
+    σ_y_body = 0.893 m at HS=4.20 m, Tp=10.22 s, β=90°
+    (validation-script semantic, late window [1500, 3000] s).
+    No script feeds those time series into the estimator and
+    confirms the posterior recovers σ within ESS-implied noise.
+    This is the single most important missing piece: it would
+    close Option B end-to-end with simulator-grade data and
+    establish the confidence baseline needed before wiring the
+    posterior into operator-facing decisions. It also exercises
+    the health diagnostics (A2 should flag if the brucon
+    integral / bias loop hasn't fully settled at t=1500 s; A3
+    should be clean for Gaussian wave forcing; A4 should clear
+    once the window contains enough N_eff at the
+    PSD-derived T_var) and the radial composition
+    (combine `BayesianSigmaEstimator` on x_body and y_body into
+    a `RadialPosterior` and check σ_R against
+    sqrt(σ_x_body² + σ_y_body²) from the same seeds).
+
+  - **G2. WCFDI counter-factual calibration hook.**
+    `summarise_for_operator` (the post-WCF panel) accepts no
+    posterior σ. `wcfdi_mc` and `wcfdi_self_mc` always compute
+    σ from the model. There is no `k_dof = σ_measured / σ_model`
+    calibration anywhere in the WCFDI path. The
+    `operability_polar.py:23-37` roadmap calls this **item 4c
+    "Operation case live what-if"** and marks it not-yet-
+    implemented. After G1 lands, this is the natural next
+    build: a thin layer that takes the live `RadialPosterior`
+    + `IntactPriorSummary` from `summarise_intact_prior`,
+    computes per-DOF k from the model's intact σ vs the
+    measured posterior σ, and rescales the WCFDI counter-
+    factual σ before it hits `_imca_traffic`.
+
+  - **G3. `decision_matrix` posterior plumbing.** Once G1 and
+    G2 are in, plumb the same posterior-σ kwargs through
+    `evaluate_decision_cell` → `_build_intact_prior_at_forecast`
+    → `summarise_intact_prior` so the forecast grid can be
+    re-evaluated with the live calibration applied. Mechanical;
+    no design decisions.
+
+  - **G4. Trivial: `ValidityBadge` and `compose_validity_badge`
+    are missing from `cqa.online_estimator.__all__`** despite
+    being part of the public surface and covered by tests.
+
+#### 12.21.4 Recommended next build: G1, brucon-ensemble validation
+
+A new script `cqa/scripts/p7_brucon_validation/online_estimator_brucon_validation.py`
+(mirroring the `long_run_locked_tp_validation.py` pattern):
+
+  1. Reuse the existing `pwo_lockedTp_seed{1000..1029}` 30-seed
+     ensemble (already on disk, already used in §12.20.10).
+     No new brucon runs needed.
+
+  2. For each seed, project (x_ned, y_ned, heading) into body
+     frame using the same convention as
+     `long_run_locked_tp_validation.get_brucon_sway_lf`:
+        y_body = -sin(ψ)·x_ned + cos(ψ)·y_ned
+        x_body =  cos(ψ)·x_ned + sin(ψ)·y_ned
+     (use total heading; the brucon `heading` channel already
+     carries LF+WF). Subtract the per-window mean.
+
+  3. Construct two `BayesianSigmaEstimator`s (one per body
+     axis) with:
+        prior_sigma2  = σ_model² from `axis_psd` at the same
+                        (HS, Tp, β) — this lets A5 fire if the
+                        model and data disagree, which is the
+                        +13 % bias we already documented.
+        prior_strength_n0 = 2.0 (weak; data-dominated by the
+                                  end of the window).
+        T_decorr_s    = `variance_decorrelation_time_from_psd`
+                        on the same axis_psd (NOT the legacy
+                        `closed_loop_decorrelation_time`).
+        window_s      = 1500.0 (the late window from §12.20).
+        dt_s          = brucon sample period (read from the
+                        first two t entries).
+
+  4. Stream the late-window samples through `update(x)` per
+     axis, then query `posterior(credible=0.90)` and
+     `health(...)`, plus `combine_radial_posterior` on the
+     two axes.
+
+  5. Compare per seed:
+        σ_x_post.median  vs  σ_x_body_truth = std(x_body_lw)
+        σ_y_post.median  vs  σ_y_body_truth = std(y_body_lw)
+        σ_R_post.median  vs  sqrt(σ_x²+σ_y²)
+     Aggregate over the 30-seed ensemble: report median
+     posterior σ across seeds and the 5th/95th percentile band.
+
+  6. Acceptance: median posterior σ within ~3 % of brucon
+     truth (the InvGamma posterior is unbiased on the variance,
+     and σ = sqrt(σ²) introduces only an O(1/N_eff) bias which
+     is small at N_eff ≳ 30); per-seed σ within the
+     posterior 90 % credible interval at ≥85 % rate (binomial
+     coverage check).
+
+  7. Health diagnostics: report the median A1–A5 ladder across
+     seeds. Expected: A1 clean (stationary late window), A2
+     clean post-1500 s settle, A3 clean for Gaussian forcing,
+     A4 warm at N_eff ≳ 5, A5 likely WARMING (since the model
+     prior σ is +13 % off the data — exactly what A5 is for).
+
+  8. Companion test in `tests/test_online_estimator.py` (or a
+     new `test_online_estimator_brucon.py` if we want to keep
+     the synthetic-data file pure) that runs a single seed
+     and asserts the posterior recovers brucon truth within
+     the documented tolerance. Guarded on the brucon ensemble
+     directory existing (skip if not, like the existing
+     pdstrip-guarded tests).
+
+  9. Plot: a per-seed scatter of (σ_post median, brucon truth)
+     with the 90 % CI as error bars, plus a histogram of
+     A1–A5 levels across seeds. Saved into the script's
+     work directory (gitignored).
+
+Concrete deliverable: one script + one test + a few-paragraph
+analysis.md §12.21.5 reporting the results. After this lands
+we have demonstrated, end-to-end, that the existing
+`BayesianSigmaEstimator` recovers true σ from simulator-grade
+vessel motion data — which is the foundation of the entire
+Option-B operator panel. G2 (WCFDI calibration) is the
+natural follow-up build after G1 lands.
