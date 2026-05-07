@@ -3603,3 +3603,46 @@ G2 deliverables:
     skipped if brucon ensemble missing).
   - analysis.md §12.21.7 with results table (footprint p95
     prediction error, with vs without calibration).
+
+#### 12.21.6.1 Brucon WCF event survey (the existing ensemble does not exercise the transient)
+
+Step 1 of G2 was a survey of the existing `pwo` 30-seed ensemble
+(`work/pwo_seed*`, `run_comparison_waves_only.py` configuration:
+Hs=4.20 m, Tp=10.22 s, beam-on, no wind/current, settle=500 s,
+post_failure=180 s, failed thrusters = `CSOV_WCF_GROUPS["bus_port"]`
+= Bow1 + PortMP). Findings:
+
+  - **The WCF event is invisible in the response.** Pre-WCF and
+    post-WCF position deviations have indistinguishable statistics:
+    SurgeDev / SwayDev magnitudes overlap completely, post-WCF
+    radial peak (1.6 m) is smaller than the *intact* radial peak
+    (1.7 m) earlier in the run. The 30-seed peak |pos_dev| over
+    [560, 740] s (median 2.0 m, P95 2.8 m) is **all intact-state
+    slow-drift variability**, not a transient.
+  - **No clipping.** `AllocTauSway = OrderTauSway` exactly, both
+    before and after WCF. The 3 surviving thrusters can deliver
+    full demand at the operating point.
+  - **EstBiasSway is excellent.** The estimator output tracks the
+    slowly-varying mean Fy_env beautifully (settled at -200 kN
+    against truth median -214 kN). The bias-estimator-as-tau_env
+    proxy is *validated* by this survey — that part of the G2
+    plumbing will work as designed.
+  - Pre-WCF intact σ in [360, 560] s window (200 s, body frame):
+    σ_x median 0.253 m, σ_y median 0.589 m, σ_ψ median 0.34°.
+    Per-seed σ_y range is 0.32 – 1.36 m (factor 4 spread), good
+    spread for any future calibration validation that needs to
+    track seed-to-seed variability.
+
+**Implication for G2.** The validation can't use the existing `pwo`
+ensemble as-is — without a real post-WCF transient there's nothing
+to predict. We need a harder failure scenario that produces
+saturation-driven excursion. Options:
+  1. More aggressive failure grouping (e.g., entire bus = bus_port +
+     bus_stbd combined).
+  2. Worse environment (add wind + current at the chosen direction).
+  3. Both.
+
+The brucon ensemble re-run is ~25 min on 12 workers per scenario,
+so the cost of trying a couple of scenarios is modest. Pre-empt by
+running a 1-seed smoke test first to confirm the new scenario
+actually clips at WCF.
