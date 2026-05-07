@@ -14,10 +14,13 @@ Truth metric (locked, §12.21.6.2):
     Δradial_peak_per_seed = max_t |(Δsurge, Δsway)|  (body frame, m)
 
 Compared across:
-  * brucon truth (ensemble of 30 seeds, ``pwo`` waves-only ensemble at
-    Hs=4.20, Tp=10.22, beam-on, Bus port WCF at t_WCF=560 s).
+  * brucon truth (ensemble of 30 seeds, ``pwq30`` waves-only ensemble at
+    Hs=4.20, Tp=10.22, β=30° bow-quartering port, Bus port WCF at
+    t_WCF=560 s; the original ``pwo`` beam-on ensemble is also valid
+    when ``TAG`` is switched -- see analysis.md sec.12.21.7-8).
   * cqa raw ``wcfdi_mc`` with operator nominal (Hs=4.20, Tp=10.22,
-    Vw=0, Vc=0, β=π/2). This is built ONCE, the same for every seed.
+    Vw=0, Vc=0, β derived from ``THETA_REL``). This is built ONCE,
+    the same for every seed.
   * cqa ``wcfdi_mc_calibrated`` with per-seed measured σ_lf_body
     (extracted from SurgeDev/SwayDev/HeadingDev over [360, 560) s)
     and per-seed measured tau_env (from estimator EstBias{Surge,Sway,Yaw}
@@ -67,6 +70,7 @@ from __future__ import annotations
 import sys
 import time
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 
@@ -83,12 +87,12 @@ from run_comparison import setup_cqa  # noqa: E402
 
 # ---- ensemble + sea state (matches run_comparison_waves_only.py) ----
 ENSEMBLE_DIR = THIS / "work"
-TAG = "pwo"
+TAG = "pwq30"
 N_SEEDS = 30
 SEED_FIRST = 1000
 HS = 4.19571865443425
 TP = 10.22443464601827
-THETA_REL = np.pi / 2          # β = 90° (beam-on)
+THETA_REL = np.pi / 6          # β = 30° (bow-quartering port)
 VW_NOMINAL = 0.0               # waves-only ensemble
 VC_NOMINAL = 0.0
 T_WCF_S = 560.0                # activate_sk_s 60 + settle_s 500
@@ -117,6 +121,22 @@ N_MC_SAMPLES = 500
 # CalibratedContext; per-DOF duration would be a Phase 2 enhancement
 # (would let yaw decay over 12 s while sway decays over 9 s).
 TAU_LOST_PULSE_SHAPE = "square"
+
+# ---- Phase 2 / sec.12.21.8: closed-loop re-init path ----
+# Instead of an open-loop tau_lost(t) pulse, initialise the post-WCF
+# delivered thrust state x0_post[9:12] with the measured *initial jump*
+# (intact - delivered at t_WCF^+), and let the existing closed-loop
+# K_p/K_d/T_thr machinery produce the amplification naturally as the
+# controller demands more thrust than the lag will yet deliver.
+# When USE_REINIT_PATH is True, the per-seed tau_lost_pre_wcf pulse
+# amplitude is set to zero (no double-counting) and the measured
+# tau_lost_init_jump is passed as tau_thr_post_init_delta.
+USE_REINIT_PATH = False
+# Optional override for the post-WCF thruster lag time constant. None
+# uses the model default (cfg.controller.thruster_time_constant_s,
+# typically 5 s). Brucon empirical T_eff ~12 s -> set to ~12 to match.
+# Sweep this to identify best fit. Default None for first probe.
+T_THR_POST_S: Optional[float] = None
 
 
 def extract_seed_inputs(seed: int):
@@ -215,7 +235,14 @@ def extract_seed_inputs(seed: int):
     t_post = t[mask_post] - T_WCF_S
     delta_surge_post = surge[mask_post] - surge[mask_post][0]
     delta_sway_post = sway[mask_post] - sway[mask_post][0]
-    delta_radial_peak = float(np.max(np.sqrt(delta_surge_post**2 + delta_sway_post**2)))
+    radial = np.sqrt(delta_surge_post**2 + delta_sway_post**2)
+    delta_radial_peak = float(np.max(radial))
+    # Transient window peak (first 60 s post-WCF). The full 180 s peak is
+    # often dominated by late-time stochastic drift in mild operating
+    # points (see analysis.md sec.12.21.8); the WCF transient itself is
+    # captured within ~30-40 s post-failure. Both metrics are reported.
+    mask_60 = t_post <= 60.0
+    delta_radial_peak_60 = float(np.max(radial[mask_60])) if mask_60.any() else delta_radial_peak
 
     return {
         "seed": seed,
@@ -232,6 +259,7 @@ def extract_seed_inputs(seed: int):
         "delta_surge_post": delta_surge_post,
         "delta_sway_post": delta_sway_post,
         "delta_radial_peak": delta_radial_peak,
+        "delta_radial_peak_60": delta_radial_peak_60,
     }
 
 
@@ -240,7 +268,8 @@ def main() -> None:
     print("G2: calibrated_wcfdi brucon-ensemble validation")
     print(f"  ensemble: {ENSEMBLE_DIR}/{TAG}_seed{SEED_FIRST:04d}..")
     print(f"  N seeds : {N_SEEDS}")
-    print(f"  Hs={HS:.3f} m, Tp={TP:.3f} s, beam-on, Vw=Vc=0, Bus port WCF")
+    print(f"  Hs={HS:.3f} m, Tp={TP:.3f} s, β={np.degrees(THETA_REL):.0f}°, "
+          f"Vw=Vc=0, Bus port WCF")
     print(f"  t_WCF   = {T_WCF_S:.0f} s, post window = {T_POST_S:.0f} s")
     print(f"  σ window= {SIGMA_WINDOW} s")
     print("=" * 78)
@@ -345,27 +374,44 @@ def main() -> None:
     t_cqa = raw_lin.t
 
     # --- per-seed calibrated wcfdi_mc ---
-    print(f"\n--- calibrated wcfdi_mc per seed (n={N_MC_SAMPLES} each, "
-          f"tau_lost shape={TAU_LOST_PULSE_SHAPE}, T={TAU_LOST_DURATION_S} s) ---")
+    if USE_REINIT_PATH:
+        print(f"\n--- calibrated wcfdi_mc per seed (n={N_MC_SAMPLES} each, "
+              f"PATH=reinit, T_thr_post={T_THR_POST_S}) ---")
+    else:
+        print(f"\n--- calibrated wcfdi_mc per seed (n={N_MC_SAMPLES} each, "
+              f"PATH=tau_lost {TAU_LOST_PULSE_SHAPE}, T={TAU_LOST_DURATION_S} s) ---")
     print(f"  {'seed':>5} {'σy':>5} {'τFy':>6} {'τMz':>7} "
           f"{'lostFy':>7} {'lostMz':>7} | "
-          f"{'truth_pk':>8} {'raw_pk':>7} {'cal_pk':>7}")
+          f"{'truth_pk':>8} {'raw_pk':>7} {'cal_pk':>7} {'cal_cg60':>8}")
     cal_dsurge_per_seed = []
     cal_dsway_per_seed = []
     cal_pos_peak_p50 = []
+    cal_cg_peaks_60_per_seed = []  # list of (n_mc,) arrays: per-realisation CG peak in [0,60]s
     raw_pos_peak_p50_seed = float(np.median(raw.pos_peak))
     rows = []
     t0 = time.time()
     for r in seeds:
+        if USE_REINIT_PATH:
+            ctx_kwargs = dict(
+                tau_lost_pre_wcf=np.zeros(3),  # disable open-loop pulse
+                tau_lost_pulse_shape=TAU_LOST_PULSE_SHAPE,
+                tau_lost_duration_s=TAU_LOST_DURATION_S,
+                tau_thr_post_init_delta=r["tau_lost_init_jump"],
+                T_thr_post_override_s=T_THR_POST_S,
+            )
+        else:
+            ctx_kwargs = dict(
+                tau_lost_pre_wcf=r["tau_lost_pre_wcf"],
+                tau_lost_pulse_shape=TAU_LOST_PULSE_SHAPE,
+                tau_lost_duration_s=TAU_LOST_DURATION_S,
+            )
         ctx = build_calibrated_context(
             cfg,
             sigma_measured_lf_body=r["sigma_lf_body"],
             tau_env_measured=r["tau_env_meas"],
             Vw_mean=VW_NOMINAL, Hs=HS, Tp=TP, Vc=VC_NOMINAL, theta_rel=THETA_REL,
             sigma_Vc=0.1, tau_Vc=600.0, rao_table=rao,
-            tau_lost_pre_wcf=r["tau_lost_pre_wcf"],
-            tau_lost_pulse_shape=TAU_LOST_PULSE_SHAPE,
-            tau_lost_duration_s=TAU_LOST_DURATION_S,
+            **ctx_kwargs,
         )
         cal = wcfdi_mc_calibrated(
             cfg=cfg, scenario=scenario, joint=joint, ctx=ctx,
@@ -382,21 +428,37 @@ def main() -> None:
         cal_dsway_per_seed.append(dsway)
         cal_p50 = float(np.median(cal.pos_peak))
         cal_pos_peak_p50.append(cal_p50)
+
+        # Per-realisation CG-radial peak (delta-from-WCF, body frame) in
+        # transient window [0, 60] s.  Apples-to-apples with brucon's
+        # truth_peak_60 metric.
+        t_cal = cal.t
+        mask_60_cal = t_cal <= 60.0
+        cg_traj_60 = cal.pos_cg_traj[:, mask_60_cal]  # (n_mc, n_t_60)
+        cg_peaks_60 = np.nanmax(cg_traj_60, axis=1)   # (n_mc,)
+        cal_cg_peaks_60_per_seed.append(cg_peaks_60)
+
         truth_pk = r["delta_radial_peak"]
+        truth_pk_60 = r["delta_radial_peak_60"]
+        cal_cg60_med = float(np.nanmedian(cg_peaks_60))
         print(
             f"  {r['seed']:>5} {r['sigma_lf_body'][1]:>5.2f} "
             f"{r['tau_env_meas'][1]/1e3:>+6.0f} "
             f"{r['tau_env_meas'][2]/1e3:>+7.0f} "
             f"{r['tau_lost_pre_wcf'][1]/1e3:>+7.0f} "
             f"{r['tau_lost_pre_wcf'][2]/1e3:>+7.0f} | "
-            f"{truth_pk:>8.2f} {raw_pos_peak_p50_seed:>7.2f} {cal_p50:>7.2f}"
+            f"{truth_pk:>8.2f} {raw_pos_peak_p50_seed:>7.2f} {cal_p50:>7.2f} "
+            f"{cal_cg60_med:>8.2f}"
         )
         rows.append({
             "seed": r["seed"],
             "truth_peak": truth_pk,
+            "truth_peak_60": truth_pk_60,
             "raw_peak_p50": raw_pos_peak_p50_seed,
             "cal_peak_p50": cal_p50,
             "cal_peak_p95": float(np.quantile(cal.pos_peak, 0.95)),
+            "cal_cg60_p50": cal_cg60_med,
+            "cal_cg60_p95": float(np.nanquantile(cg_peaks_60, 0.95)),
             "sigma_lf_body": r["sigma_lf_body"],
             "tau_env_meas": r["tau_env_meas"],
         })
@@ -440,14 +502,38 @@ def main() -> None:
     print(f"           cal  : {cal_dsw_peak:+.2f} m @ t={cal_dsw_tpk:.1f} s")
 
     print("\n--- per-seed |Δradial|_peak distribution ---")
-    print(f"  truth   median = {np.median(truth_peaks):.2f} m, "
+    truth_peaks_60 = np.array([r["truth_peak_60"] for r in rows])
+    print(f"  truth (full 180 s)    median = {np.median(truth_peaks):.2f} m, "
           f"P95 = {np.quantile(truth_peaks, 0.95):.2f} m")
+    print(f"  truth (transient 60s) median = {np.median(truth_peaks_60):.2f} m, "
+          f"P95 = {np.quantile(truth_peaks_60, 0.95):.2f} m")
     print(f"  raw     median = {raw_peak_p50:.2f} m, P95 = {raw_peak_p95:.2f} m  "
           f"(constant, single ensemble)")
     print(f"  cal P50 median-across-seeds = {np.median(cal_peaks_p50):.2f} m, "
           f"P95-across-seeds = {np.quantile(cal_peaks_p50, 0.95):.2f} m")
     print(f"  cal P95 median-across-seeds = {np.median(cal_peaks_p95):.2f} m, "
           f"P95-across-seeds = {np.quantile(cal_peaks_p95, 0.95):.2f} m")
+
+    # --- pooled per-realisation CG-radial CDF (apples-to-apples vs truth_60) ---
+    # cal_cg_peaks_60_per_seed: list of (n_mc,) arrays.  Pool across all seeds:
+    cal_cg60_pooled = np.concatenate(cal_cg_peaks_60_per_seed)
+    cal_cg60_pooled_finite = cal_cg60_pooled[np.isfinite(cal_cg60_pooled)]
+    print("\n--- per-realisation CG-radial peak in transient window [0,60] s ---")
+    print(f"  truth (1 per seed, N={len(truth_peaks_60)}):")
+    print(f"    P50 = {np.median(truth_peaks_60):.2f} m, "
+          f"P95 = {np.quantile(truth_peaks_60, 0.95):.2f} m, "
+          f"max = {truth_peaks_60.max():.2f} m")
+    print(f"  cal pooled (n_mc x n_seeds = {len(cal_cg60_pooled_finite)}):")
+    print(f"    P50 = {np.median(cal_cg60_pooled_finite):.2f} m, "
+          f"P95 = {np.quantile(cal_cg60_pooled_finite, 0.95):.2f} m, "
+          f"P99 = {np.quantile(cal_cg60_pooled_finite, 0.99):.2f} m, "
+          f"max = {cal_cg60_pooled_finite.max():.2f} m")
+    # Underprediction check: cal P95 should be >= truth P95 (safety bias).
+    truth_p95 = float(np.quantile(truth_peaks_60, 0.95))
+    cal_p95 = float(np.quantile(cal_cg60_pooled_finite, 0.95))
+    ratio = cal_p95 / truth_p95
+    verdict = "PASS" if ratio >= 1.0 else "UNDERPREDICTS"
+    print(f"  cal_P95 / truth_P95 = {ratio:.2f}  [{verdict}]")
 
     # --- plot ---
     try:
@@ -491,25 +577,23 @@ def main() -> None:
         ax.legend(fontsize=8, loc="best")
         ax.grid(alpha=0.3)
 
-        # Bottom-left: pos_peak CDF
+        # Bottom-left: per-realisation CG-radial peak CDF in [0,60]s window
+        # (apples-to-apples: truth = max-of-1 per seed, cal = pooled MC).
         ax = axes[1, 0]
-        sorted_truth = np.sort(truth_peaks)
-        cdf = np.arange(1, len(sorted_truth) + 1) / (len(sorted_truth) + 1)
-        ax.plot(sorted_truth, cdf, "o-", color="black", lw=1.5, ms=5,
-                label=f"brucon truth (N={len(seeds)})")
-        sorted_raw = np.sort(raw.pos_peak)
-        cdf_raw = np.arange(1, len(sorted_raw) + 1) / (len(sorted_raw) + 1)
-        ax.plot(sorted_raw, cdf_raw, color="tab:red", ls="--", lw=1.5,
-                label=f"raw wcfdi_mc (n={len(sorted_raw)})")
-        sorted_cal_p50 = np.sort(cal_peaks_p50)
-        cdf_cal = np.arange(1, len(sorted_cal_p50) + 1) / (len(sorted_cal_p50) + 1)
-        ax.plot(sorted_cal_p50, cdf_cal, "s-", color="tab:blue", lw=1.5, ms=5,
-                label="calibrated P50 (one per seed)")
+        sorted_truth_60 = np.sort(truth_peaks_60)
+        cdf_truth = np.arange(1, len(sorted_truth_60) + 1) / (len(sorted_truth_60) + 1)
+        ax.plot(sorted_truth_60, cdf_truth, "o-", color="black", lw=1.5, ms=5,
+                label=f"brucon truth, [0,60] s (N={len(sorted_truth_60)})")
+        sorted_cal_pooled = np.sort(cal_cg60_pooled_finite)
+        cdf_cal_pooled = (np.arange(1, len(sorted_cal_pooled) + 1)
+                          / (len(sorted_cal_pooled) + 1))
+        ax.plot(sorted_cal_pooled, cdf_cal_pooled, color="tab:blue", lw=1.8,
+                label=f"cal pooled MC, [0,60] s (n={len(sorted_cal_pooled)})")
         ax.axhline(0.5, color="gray", ls=":", alpha=0.5)
         ax.axhline(0.95, color="gray", ls=":", alpha=0.5)
-        ax.set_xlabel("|Δradial|_peak [m]")
+        ax.set_xlabel("|Δradial|_peak (CG, body, transient window) [m]")
         ax.set_ylabel("empirical CDF")
-        ax.set_title("Per-seed peak post-WCF excursion")
+        ax.set_title("Per-realisation peak excursion CDF (truth vs cal)")
         ax.legend(fontsize=8, loc="best")
         ax.grid(alpha=0.3)
 
@@ -536,7 +620,8 @@ def main() -> None:
 
         fig.suptitle(
             f"G2: calibrated wcfdi_mc vs brucon WCF transient (Hs={HS:.2f} m, "
-            f"Tp={TP:.2f} s, β=90°, Vw=Vc=0, Bus port WCF, N={len(seeds)} seeds)",
+            f"Tp={TP:.2f} s, β={np.degrees(THETA_REL):.0f}°, Vw=Vc=0, Bus port WCF, "
+            f"N={len(seeds)} seeds, T_thr_post={T_THR_POST_S})",
             fontsize=11,
         )
         fig.tight_layout(rect=(0, 0, 1, 0.96))

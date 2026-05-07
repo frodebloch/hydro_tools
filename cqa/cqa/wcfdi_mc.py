@@ -86,6 +86,19 @@ class WcfdiMcResult:
     pos_base_traj: np.ndarray      # (N_samples, N_t) |Delta_p_base|(t) [m]
     pos_peak: np.ndarray           # (N_samples,) max over time of |Delta_p_base| [m]
 
+    # CG horizontal radial deviation (vessel body frame), measured RELATIVE
+    # to the post-WCF starting state at t=0:
+    #     pos_cg_traj[i, t] = sqrt((eta_n(t) - eta_n(0))^2
+    #                              + (eta_e(t) - eta_e(0))^2)
+    # This matches the brucon truth metric used in the p7 validation harness:
+    #     delta_radial_peak = max_t sqrt((SurgeDev(t) - SurgeDev(t_WCF))^2
+    #                                    + (SwayDev(t) - SwayDev(t_WCF))^2).
+    # pos_base_* above is in absolute (post-WCF) coordinates and is offset
+    # by psi*(base_x_b, -base_y_b) from CG -- the two quantities serve
+    # different purposes (operator-view base point vs validation comparison).
+    pos_cg_traj: np.ndarray        # (N_samples, N_t) delta-radial-from-WCF [m]
+    pos_cg_peak: np.ndarray        # (N_samples,) max over time of pos_cg_traj [m]
+
     # Linearised baseline for comparison:
     L_mean_linear: np.ndarray      # (N_t,) linearised mean L(t) (deterministic, x0=0)
     L_std_linear: np.ndarray       # (N_t,) linearised 1-sigma envelope width
@@ -366,6 +379,8 @@ def wcfdi_mc(
     operable = np.zeros(n_samples, dtype=bool)
     pos_base_traj = np.zeros((n_samples, n_t))
     pos_peak = np.zeros(n_samples)
+    pos_cg_traj = np.zeros((n_samples, n_t))
+    pos_cg_peak = np.zeros(n_samples)
 
     L_min = cfg.gangway.telescope_min
     L_max = cfg.gangway.telescope_max
@@ -406,6 +421,8 @@ def wcfdi_mc(
             dL_peak_abs[i] = np.nan
             pos_base_traj[i] = np.nan
             pos_peak[i] = np.nan
+            pos_cg_traj[i] = np.nan
+            pos_cg_peak[i] = np.nan
             continue
 
         eta_t = sol.y[0:3, :].T  # (n_t, 3)
@@ -428,6 +445,14 @@ def wcfdi_mc(
         pos_t = np.sqrt(dp_n ** 2 + dp_e ** 2)
         pos_base_traj[i] = pos_t
         pos_peak[i] = float(np.max(pos_t))
+
+        # Body-frame horizontal CG deviation, RELATIVE to t=0 (matches brucon
+        # delta_radial_peak metric: SurgeDev/SwayDev change since t_WCF).
+        d_n = eta_t[:, 0] - eta_t[0, 0]
+        d_e = eta_t[:, 1] - eta_t[0, 1]
+        cg_t = np.sqrt(d_n ** 2 + d_e ** 2)
+        pos_cg_traj[i] = cg_t
+        pos_cg_peak[i] = float(np.max(cg_t))
 
     # Linearised baseline: deterministic mean trajectory + 1-sigma envelope
     # (re-use existing linearised analysis; we just want it for the plot)
@@ -470,6 +495,8 @@ def wcfdi_mc(
         operable=operable,
         pos_base_traj=pos_base_traj,
         pos_peak=pos_peak,
+        pos_cg_traj=pos_cg_traj,
+        pos_cg_peak=pos_cg_peak,
         L_mean_linear=L_mean_linear,
         L_std_linear=L_std_linear,
         info=info,

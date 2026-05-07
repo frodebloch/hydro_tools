@@ -510,3 +510,208 @@ class TestTauLostPulse:
             f"Expected pulse-driven pos_peak median to be much larger than zero-pulse case, "
             f"got {med_zero:.3f} -> {med_pulse:.3f}"
         )
+
+
+class TestPosCgFields:
+    """The pos_cg_* fields expose body-frame CG radial deviation, which is
+    what the brucon p7 validation harness compares against (sqrt(SurgeDev^2
+    + SwayDev^2)).  pos_cg_* and pos_base_* differ by a heading-induced
+    offset because the gangway base is offset from CG."""
+
+    @pytest.fixture
+    def cfg(self):
+        return csov_default_config()
+
+    @pytest.fixture
+    def scenario(self):
+        return WcfdiScenario(
+            alpha=(0.5, 0.5, 0.5),
+            gamma_immediate=0.3,
+            T_realloc=30.0,
+        )
+
+    @pytest.fixture
+    def joint(self, cfg):
+        L0 = 0.5 * (cfg.gangway.telescope_min + cfg.gangway.telescope_max)
+        return GangwayJointState(h=15.0, alpha_g=0.0, beta_g=0.0, L=L0)
+
+    def test_pos_cg_fields_present_and_finite(self, cfg, scenario, joint):
+        """Both fields are populated with finite values and have the
+        expected shapes."""
+        ctx = build_calibrated_context(
+            cfg,
+            sigma_measured_lf_body=[0.3, 0.5, np.deg2rad(0.2)],
+            tau_env_measured=np.array([0.0, -100_000.0, 0.0]),
+            Vw_mean=10.0, Hs=4.0, Tp=10.0, Vc=0.5,
+            theta_rel=np.deg2rad(90.0),
+        )
+        n_samples, n_t = 32, 81
+        res = wcfdi_mc_calibrated(
+            cfg, scenario, joint, ctx,
+            n_samples=n_samples, t_end=80.0, n_t=n_t, rng_seed=7,
+        )
+        assert res.pos_cg_traj.shape == (n_samples, n_t)
+        assert res.pos_cg_peak.shape == (n_samples,)
+        finite_mask = np.isfinite(res.pos_cg_peak)
+        assert finite_mask.sum() > 0.9 * n_samples
+        # Non-negative magnitudes
+        assert np.all(res.pos_cg_traj[finite_mask] >= 0.0)
+        assert np.all(res.pos_cg_peak[finite_mask] >= 0.0)
+        # Peak >= any time-series value (consistency)
+        assert np.all(
+            res.pos_cg_peak[finite_mask]
+            >= res.pos_cg_traj[finite_mask].max(axis=1) - 1e-12
+        )
+
+    def test_pos_cg_starts_at_zero(self, cfg, scenario, joint):
+        """pos_cg_traj is delta-from-WCF radial, so column 0 must be exactly
+        zero per realisation."""
+        ctx = build_calibrated_context(
+            cfg,
+            sigma_measured_lf_body=[0.4, 0.6, np.deg2rad(0.2)],
+            tau_env_measured=np.array([0.0, -50_000.0, 0.0]),
+            Vw_mean=10.0, Hs=4.0, Tp=10.0, Vc=0.5,
+            theta_rel=np.deg2rad(90.0),
+        )
+        res = wcfdi_mc_calibrated(
+            cfg, scenario, joint, ctx,
+            n_samples=32, t_end=80.0, n_t=81, rng_seed=13,
+        )
+        finite = np.isfinite(res.pos_cg_peak)
+        assert np.all(res.pos_cg_traj[finite, 0] == 0.0), (
+            "pos_cg_traj must start at zero per realisation"
+        )
+
+    def test_pos_cg_responds_to_tau_lost_pulse(self, cfg, scenario, joint):
+        """A strong tau_lost pulse should drive pos_cg_peak distribution
+        upward (delta-from-WCF radial grows when the system is kicked)."""
+        ctx_zero = build_calibrated_context(
+            cfg,
+            sigma_measured_lf_body=[0.3, 0.4, np.deg2rad(0.2)],
+            tau_env_measured=np.array([0.0, -50_000.0, 0.0]),
+            Vw_mean=10.0, Hs=4.0, Tp=10.0, Vc=0.5,
+            theta_rel=np.deg2rad(90.0),
+            tau_lost_pre_wcf=np.zeros(3),
+        )
+        ctx_pulse = build_calibrated_context(
+            cfg,
+            sigma_measured_lf_body=[0.3, 0.4, np.deg2rad(0.2)],
+            tau_env_measured=np.array([0.0, -50_000.0, 0.0]),
+            Vw_mean=10.0, Hs=4.0, Tp=10.0, Vc=0.5,
+            theta_rel=np.deg2rad(90.0),
+            tau_lost_pre_wcf=[0.0, 200_000.0, 0.0],
+            tau_lost_pulse_shape="square",
+            tau_lost_duration_s=10.0,
+        )
+        res_zero = wcfdi_mc_calibrated(
+            cfg, scenario, joint, ctx_zero,
+            n_samples=64, t_end=80.0, n_t=81, rng_seed=23,
+        )
+        res_pulse = wcfdi_mc_calibrated(
+            cfg, scenario, joint, ctx_pulse,
+            n_samples=64, t_end=80.0, n_t=81, rng_seed=23,
+        )
+        med_zero = float(np.nanmedian(res_zero.pos_cg_peak))
+        med_pulse = float(np.nanmedian(res_pulse.pos_cg_peak))
+        assert med_pulse > 1.5 * med_zero, (
+            f"Expected pulse-driven pos_cg_peak median to be much larger than "
+            f"zero-pulse case, got {med_zero:.3f} -> {med_pulse:.3f}"
+        )
+
+
+class TestPostWcfReInit:
+    """Phase 2 plumbing: tau_thr_post_init_delta and T_thr_post_override_s
+    on CalibratedContext.  These let the user inject a closed-loop
+    re-initialisation (subtract a delta from the post-WCF initial thrust
+    state) and override the post-WCF thruster lag time constant."""
+
+    @pytest.fixture
+    def cfg(self):
+        return csov_default_config()
+
+    @pytest.fixture
+    def scenario(self):
+        return WcfdiScenario(
+            alpha=(0.5, 0.5, 0.5),
+            gamma_immediate=0.3,
+            T_realloc=30.0,
+            T_thr_post=5.0,
+        )
+
+    @pytest.fixture
+    def joint(self, cfg):
+        L0 = 0.5 * (cfg.gangway.telescope_min + cfg.gangway.telescope_max)
+        return GangwayJointState(h=15.0, alpha_g=0.0, beta_g=0.0, L=L0)
+
+    def _build_ctx(self, cfg, **overrides):
+        kw = dict(
+            sigma_measured_lf_body=[0.2, 0.3, np.deg2rad(0.2)],
+            tau_env_measured=np.array([0.0, -100_000.0, 0.0]),
+            Vw_mean=10.0, Hs=4.0, Tp=10.0, Vc=0.5,
+            theta_rel=np.deg2rad(90.0),
+        )
+        kw.update(overrides)
+        return build_calibrated_context(cfg, **kw)
+
+    def test_default_delta_is_zero(self, cfg):
+        """Default tau_thr_post_init_delta is the zero vector."""
+        ctx = self._build_ctx(cfg)
+        assert np.allclose(ctx.tau_thr_post_init_delta, np.zeros(3))
+        assert ctx.T_thr_post_override_s is None
+
+    def test_init_delta_validates_shape(self, cfg):
+        with pytest.raises((ValueError, TypeError, AssertionError)):
+            self._build_ctx(cfg, tau_thr_post_init_delta=[1.0, 2.0])  # length 2
+
+    def test_init_delta_drives_larger_pos_cg_peak(self, cfg, scenario, joint):
+        """A non-zero tau_thr_post_init_delta perturbs the post-WCF thrust
+        starting state and should yield larger CG peaks."""
+        ctx_zero = self._build_ctx(cfg)
+        ctx_kick = self._build_ctx(
+            cfg,
+            tau_thr_post_init_delta=np.array([0.0, 200_000.0, 0.0]),
+        )
+        res_zero = wcfdi_mc_calibrated(
+            cfg, scenario, joint, ctx_zero,
+            n_samples=48, t_end=80.0, n_t=81, rng_seed=31,
+        )
+        res_kick = wcfdi_mc_calibrated(
+            cfg, scenario, joint, ctx_kick,
+            n_samples=48, t_end=80.0, n_t=81, rng_seed=31,
+        )
+        med_zero = float(np.nanmedian(res_zero.pos_cg_peak))
+        med_kick = float(np.nanmedian(res_kick.pos_cg_peak))
+        assert med_kick > 1.3 * med_zero, (
+            f"Non-zero tau_thr_post_init_delta should increase pos_cg_peak; "
+            f"got {med_zero:.3f} -> {med_kick:.3f}"
+        )
+
+    def test_T_thr_post_override_takes_precedence(self, cfg, scenario, joint):
+        """An explicit ctx.T_thr_post_override_s overrides
+        scenario.T_thr_post.  Larger T_thr_post = slower thruster
+        recovery = larger position excursion under the same kick."""
+        kick = np.array([0.0, 200_000.0, 0.0])
+        ctx_short = self._build_ctx(
+            cfg,
+            tau_thr_post_init_delta=kick,
+            T_thr_post_override_s=2.0,
+        )
+        ctx_long = self._build_ctx(
+            cfg,
+            tau_thr_post_init_delta=kick,
+            T_thr_post_override_s=20.0,
+        )
+        res_short = wcfdi_mc_calibrated(
+            cfg, scenario, joint, ctx_short,
+            n_samples=48, t_end=80.0, n_t=81, rng_seed=37,
+        )
+        res_long = wcfdi_mc_calibrated(
+            cfg, scenario, joint, ctx_long,
+            n_samples=48, t_end=80.0, n_t=81, rng_seed=37,
+        )
+        med_short = float(np.nanmedian(res_short.pos_cg_peak))
+        med_long = float(np.nanmedian(res_long.pos_cg_peak))
+        assert med_long > med_short, (
+            f"Larger T_thr_post should yield larger pos_cg_peak; "
+            f"got T=2s: {med_short:.3f} m, T=20s: {med_long:.3f} m"
+        )

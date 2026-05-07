@@ -215,6 +215,12 @@ class CalibratedContext:
         :func:`cqa.transient._augmented_rhs_post`. Defaults to zeros
         which reproduces the flat-mean behaviour of the original
         calibrated path (analysis.md sec.12.21.6.2).
+
+        SUPERSEDED in §12.21.8 by ``tau_thr_post_init_delta``: the
+        open-loop pulse term cannot reproduce the closed-loop
+        controller-thruster amplification observed in brucon. Kept for
+        backward compatibility and for diagnostic comparison; new
+        callers should use the re-init path.
     tau_lost_pulse_shape : str, default "linear_decay"
         Time profile of the deficit. ``"square"``: constant
         ``tau_lost_pre_wcf`` for ``tau_lost_duration_s``, then zero.
@@ -228,6 +234,29 @@ class CalibratedContext:
         full settle, with the constant-then-decay best fit being
         trapezoidal -- linear_decay over 10 s is a reasonable scalar
         approximation.
+    tau_thr_post_init_delta : (3,) array, default zeros
+        Per-DOF reduction of the **initial post-WCF delivered thrust**,
+        in body-frame (kN, kN, kNm). Applied to ``x0_post[9:12]`` after
+        the existing ``_clip_per_dof(.., cap_immediate)`` step::
+
+            x0_post[9:12] = clip(x_ss_intact[9:12], cap_immediate)
+                            - tau_thr_post_init_delta
+
+        Physical interpretation: the surviving thrusters cannot
+        instantly produce what the failed thrusters were carrying at
+        WCF. The deficit ``tau_thr_post_init_delta`` is then closed
+        through the existing controller / thruster-lag dynamics (Kp,
+        Kd, T_thr), which naturally produces the observed
+        amplification as position drifts and the controller demands
+        more thrust than ``T_thr`` will yet deliver. See
+        analysis.md §12.21.8 for the brucon validation.
+    T_thr_post_override_s : float or None, default None
+        Optional override for the post-WCF thruster lag time constant.
+        When set, the augmented system used for the post-WCF
+        propagation is rebuilt with this ``T_thr``. Default None
+        preserves the model's intact ``T_thr`` (typically 5 s).
+        Brucon empirical T_eff is ~12 s; setting this larger gives a
+        wider transient with more closed-loop amplification.
     """
 
     aug: AugmentedSystem
@@ -244,6 +273,8 @@ class CalibratedContext:
     tau_lost_pre_wcf: np.ndarray = None
     tau_lost_pulse_shape: str = "linear_decay"
     tau_lost_duration_s: float = 5.0
+    tau_thr_post_init_delta: np.ndarray = None
+    T_thr_post_override_s: Optional[float] = None
 
     def __post_init__(self):
         if self.tau_lost_pre_wcf is None:
@@ -262,6 +293,22 @@ class CalibratedContext:
         if self.tau_lost_duration_s < 0:
             raise ValueError(
                 f"tau_lost_duration_s must be non-negative, got {self.tau_lost_duration_s}"
+            )
+        if self.tau_thr_post_init_delta is None:
+            self.tau_thr_post_init_delta = np.zeros(3)
+        else:
+            self.tau_thr_post_init_delta = np.asarray(
+                self.tau_thr_post_init_delta, dtype=float
+            )
+        if self.tau_thr_post_init_delta.shape != (3,):
+            raise ValueError(
+                "tau_thr_post_init_delta must have shape (3,), got "
+                f"{self.tau_thr_post_init_delta.shape}"
+            )
+        if self.T_thr_post_override_s is not None and self.T_thr_post_override_s <= 0:
+            raise ValueError(
+                "T_thr_post_override_s must be positive when set, got "
+                f"{self.T_thr_post_override_s}"
             )
 
     def tau_lost_fn(self, t: float) -> np.ndarray:
@@ -295,6 +342,8 @@ def build_calibrated_context(
     tau_lost_pre_wcf: Optional[Sequence[float]] = None,
     tau_lost_pulse_shape: str = "linear_decay",
     tau_lost_duration_s: float = 5.0,
+    tau_thr_post_init_delta: Optional[Sequence[float]] = None,
+    T_thr_post_override_s: Optional[float] = None,
 ) -> CalibratedContext:
     """Build the calibrated operating-point context.
 
@@ -446,6 +495,11 @@ def build_calibrated_context(
         ),
         tau_lost_pulse_shape=tau_lost_pulse_shape,
         tau_lost_duration_s=tau_lost_duration_s,
+        tau_thr_post_init_delta=(
+            None if tau_thr_post_init_delta is None
+            else np.asarray(tau_thr_post_init_delta, dtype=float).copy()
+        ),
+        T_thr_post_override_s=T_thr_post_override_s,
     )
 
 
@@ -478,11 +532,16 @@ def wcfdi_transient_calibrated(
     P6 = ctx.P6_calibrated
     cl_intact = ctx.cl_intact
 
-    # Apply T_thr_post override if requested
-    if scenario.T_thr_post is not None:
+    # Apply T_thr_post override if requested. Precedence: explicit
+    # context override (CalibratedContext.T_thr_post_override_s, set by
+    # build_calibrated_context) wins over the per-scenario value.
+    T_thr_post = ctx.T_thr_post_override_s
+    if T_thr_post is None:
+        T_thr_post = scenario.T_thr_post
+    if T_thr_post is not None:
         T_b = cfg.controller.bias_time_constant_s
         aug = build_augmented_system(
-            ctx.vessel, ctx.controller, T_b=T_b, T_thr=scenario.T_thr_post
+            ctx.vessel, ctx.controller, T_b=T_b, T_thr=T_thr_post
         )
 
     cap_post = scenario.resolved_cap_post(cfg)
@@ -490,9 +549,17 @@ def wcfdi_transient_calibrated(
 
     cqa_violated = np.abs(tau_env) > cap_post
 
-    # Step force imbalance: clip thruster output to immediate cap.
+    # Step force imbalance: clip thruster output to immediate cap, then
+    # subtract the measured initial delivered-thrust deficit (the
+    # surviving thrusters cannot instantly produce what the failed
+    # thrusters were carrying at WCF). The deficit is closed through
+    # the existing closed-loop (Kp/Kd/T_thr) machinery, which produces
+    # the observed amplification as the controller demands more thrust
+    # than the lag will yet deliver. See analysis.md sec.12.21.8.
     x0_post = x0.copy()
-    x0_post[9:12] = _clip_per_dof(x0[9:12], cap_immediate)
+    x0_post[9:12] = (
+        _clip_per_dof(x0[9:12], cap_immediate) - ctx.tau_thr_post_init_delta
+    )
     delta_tau = x0_post[9:12] - x0[9:12]
 
     cap_fn = lambda t: scenario.cap_at_time(t, cfg)
@@ -597,6 +664,8 @@ def wcfdi_transient_calibrated(
             "tau_lost_pre_wcf": ctx.tau_lost_pre_wcf,
             "tau_lost_pulse_shape": ctx.tau_lost_pulse_shape,
             "tau_lost_duration_s": ctx.tau_lost_duration_s,
+            "tau_thr_post_init_delta": ctx.tau_thr_post_init_delta,
+            "T_thr_post_override_s": ctx.T_thr_post_override_s,
         },
     }
     return TransientResult(
@@ -651,10 +720,13 @@ def wcfdi_mc_calibrated(
     P6 = ctx.P6_calibrated
     P12 = ctx.P12_calibrated
 
-    if scenario.T_thr_post is not None:
+    if scenario.T_thr_post is not None or ctx.T_thr_post_override_s is not None:
         T_b = cfg.controller.bias_time_constant_s
+        T_thr_post = ctx.T_thr_post_override_s
+        if T_thr_post is None:
+            T_thr_post = scenario.T_thr_post
         aug = build_augmented_system(
-            ctx.vessel, ctx.controller, T_b=T_b, T_thr=scenario.T_thr_post
+            ctx.vessel, ctx.controller, T_b=T_b, T_thr=T_thr_post
         )
 
     cap_post = scenario.resolved_cap_post(cfg)
@@ -692,6 +764,8 @@ def wcfdi_mc_calibrated(
     operable = np.zeros(n_samples, dtype=bool)
     pos_base_traj = np.zeros((n_samples, n_t))
     pos_peak = np.zeros(n_samples)
+    pos_cg_traj = np.zeros((n_samples, n_t))
+    pos_cg_peak = np.zeros(n_samples)
 
     L_min = cfg.gangway.telescope_min
     L_max = cfg.gangway.telescope_max
@@ -700,7 +774,10 @@ def wcfdi_mc_calibrated(
     n_failed = 0
     for i in range(n_samples):
         x0_post = x_ss_intact.copy() + delta_x[i]
-        x0_post[9:12] = _clip_per_dof(x0_post[9:12], cap_immediate)
+        x0_post[9:12] = (
+            _clip_per_dof(x0_post[9:12], cap_immediate)
+            - ctx.tau_thr_post_init_delta
+        )
         x0_samples[i] = delta_x[i]
 
         sol = solve_ivp(
@@ -722,6 +799,8 @@ def wcfdi_mc_calibrated(
             dL_peak_abs[i] = np.nan
             pos_base_traj[i] = np.nan
             pos_peak[i] = np.nan
+            pos_cg_traj[i] = np.nan
+            pos_cg_peak[i] = np.nan
             continue
 
         eta_t = sol.y[0:3, :].T
@@ -742,6 +821,14 @@ def wcfdi_mc_calibrated(
         pos_t = np.sqrt(dp_n ** 2 + dp_e ** 2)
         pos_base_traj[i] = pos_t
         pos_peak[i] = float(np.max(pos_t))
+
+        # Body-frame horizontal CG deviation, RELATIVE to t=0 (matches brucon
+        # delta_radial_peak metric: SurgeDev/SwayDev change since t_WCF).
+        d_n = eta_t[:, 0] - eta_t[0, 0]
+        d_e = eta_t[:, 1] - eta_t[0, 1]
+        cg_t = np.sqrt(d_n ** 2 + d_e ** 2)
+        pos_cg_traj[i] = cg_t
+        pos_cg_peak[i] = float(np.max(cg_t))
 
     # Linearised baseline -- now using the calibrated transient.
     lin = wcfdi_transient_calibrated(
@@ -777,6 +864,8 @@ def wcfdi_mc_calibrated(
             "tau_lost_pre_wcf": ctx.tau_lost_pre_wcf,
             "tau_lost_pulse_shape": ctx.tau_lost_pulse_shape,
             "tau_lost_duration_s": ctx.tau_lost_duration_s,
+            "tau_thr_post_init_delta": ctx.tau_thr_post_init_delta,
+            "T_thr_post_override_s": ctx.T_thr_post_override_s,
         },
     }
 
@@ -791,6 +880,8 @@ def wcfdi_mc_calibrated(
         operable=operable,
         pos_base_traj=pos_base_traj,
         pos_peak=pos_peak,
+        pos_cg_traj=pos_cg_traj,
+        pos_cg_peak=pos_cg_peak,
         L_mean_linear=L_mean_linear,
         L_std_linear=L_std_linear,
         info=info,
