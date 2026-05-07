@@ -3646,3 +3646,48 @@ The brucon ensemble re-run is ~25 min on 12 workers per scenario,
 so the cost of trying a couple of scenarios is modest. Pre-empt by
 running a 1-seed smoke test first to confirm the new scenario
 actually clips at WCF.
+
+#### 12.21.6.2 Correction: the WCF transient IS in the existing ensemble (right metric needed)
+
+The §12.21.6.1 survey looked at **raw** post-WCF position
+deviations (absolute body-frame `SurgeDev`, `SwayDev`), not the
+**deviation from the t=WCF instant**. The intact slow-drift
+fluctuation (~0.5–1.5 m peak) was masking the actual transient
+in single-seed plots. The pre-existing
+`p7_waves_only_validation_transient.png` already shows the right
+metric (ensemble-mean of (`SurgeDev(t) − SurgeDev(t_WCF)`,
+`SwayDev(t) − SwayDev(t_WCF)`)) and a substantial transient is
+visible:
+
+  - Ensemble-mean **surge** peaks at **+0.92 m** at t = 37 s post-WCF.
+  - Ensemble-mean **sway** troughs at **−1.42 m** at t = 35 s
+    post-WCF (smaller positive overshoot at t ≈ 116 s).
+  - Per-seed peak |Δradial| (radial deviation since WCF instant):
+    median 2.40 m, P95 3.53 m, range [1.32, 3.95] m.
+
+**The same plot also shows that the existing cqa `wcfdi_transient`
+predicts essentially zero ensemble-mean transient** (red dashed
+line at zero through both panels) and `bistability_risk_score = 0`.
+This is the model gap G2 has to close: brucon shows a clean ~1 m
+deterministic transient, cqa shows nothing.
+
+The mechanism is unambiguous: even without immediate-cap clipping
+(`gamma_immediate * tau_cap` may not bind at this operating point),
+losing 2 thrusters changes the **allocator's** force/moment
+distribution, which the cqa point-mass + bandwidth controller
+abstracts away entirely. The bias-estimator integrator briefly
+loses its corrector gain match against the new effective `B`
+matrix, and the system slips before re-establishing equilibrium.
+This is precisely the regime the Phase 1 `wcfdi_mc_calibrated`
+should capture by injecting the **measured tau_env** (which the
+brucon estimator tracks correctly through the event) into the
+post-WCF propagation.
+
+**Implication for G2.** The existing `pwo` 30-seed ensemble is
+suitable for validation. No re-run needed. The validation metric is
+**ensemble-mean Δsurge(t), Δsway(t) since WCF**, plus per-seed
+peak |Δradial|, compared against:
+  (a) raw `wcfdi_mc` (current behaviour — predicts ~0 mean
+      transient),
+  (b) calibrated `wcfdi_mc_calibrated` with measured `(σ_intact_lf,
+      tau_env)`.
