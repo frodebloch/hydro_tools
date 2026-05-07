@@ -601,7 +601,8 @@ def wcfdi_transient_calibrated(
     if T_thr_post is not None:
         T_b = cfg.controller.bias_time_constant_s
         aug = build_augmented_system(
-            ctx.vessel, ctx.controller, T_b=T_b, T_thr=T_thr_post
+            ctx.vessel, ctx.controller, T_b=T_b, T_thr=T_thr_post,
+            include_integrator=aug.include_integrator,
         )
 
     cap_post = scenario.resolved_cap_post(cfg)
@@ -658,10 +659,11 @@ def wcfdi_transient_calibrated(
 
     BWBT_aug = aug.B_w @ W_eq @ aug.B_w.T
 
-    P0 = lift_intact_cov_to_augmented(P6)
+    P0 = lift_intact_cov_to_augmented(P6, n_state=aug.n_state)
 
+    n_aug = aug.n_state
     def rhs_P(t, P_flat):
-        P = P_flat.reshape(12, 12)
+        P = P_flat.reshape(n_aug, n_aug)
         Pdot = aug.A @ P + P @ aug.A.T + BWBT_aug
         return Pdot.flatten()
 
@@ -676,17 +678,19 @@ def wcfdi_transient_calibrated(
     )
     if not sol_P.success:
         raise RuntimeError(f"Covariance ODE failed: {sol_P.message}")
-    P_t = sol_P.y.T.reshape(n_t, 12, 12)
+    P_t = sol_P.y.T.reshape(n_t, n_aug, n_aug)
     P_t = 0.5 * (P_t + P_t.transpose(0, 2, 1))
 
     eta_mean = x_mean[:, 0:3]
     eta_std = np.sqrt(np.maximum(np.diagonal(P_t[:, 0:3, 0:3], axis1=1, axis2=2), 0.0))
 
     # Bistability score (same recipe as wcfdi_transient)
-    K_tau = np.zeros((3, 12))
+    K_tau = np.zeros((3, n_aug))
     K_tau[:, 0:3] = -aug.Kp
     K_tau[:, 3:6] = -aug.Kd
     K_tau[:, 6:9] = -np.eye(3)
+    if aug.include_integrator:
+        K_tau[:, 12:15] = -aug.Ki
     tau_cmd_mean = (K_tau @ x_mean.T).T
     tau_cmd_var = np.einsum("ij,tjk,lk->til", K_tau, P_t, K_tau)
     sigma_tau_cmd = np.sqrt(
@@ -786,7 +790,8 @@ def wcfdi_mc_calibrated(
         if T_thr_post is None:
             T_thr_post = scenario.T_thr_post
         aug = build_augmented_system(
-            ctx.vessel, ctx.controller, T_b=T_b, T_thr=T_thr_post
+            ctx.vessel, ctx.controller, T_b=T_b, T_thr=T_thr_post,
+            include_integrator=aug.include_integrator,
         )
 
     cap_post = scenario.resolved_cap_post(cfg)
@@ -798,6 +803,7 @@ def wcfdi_mc_calibrated(
     cap_fn = lambda t: scenario.cap_at_time(t, cfg)
     tau_lost_fn = ctx.tau_lost_fn if np.any(ctx.tau_lost_pre_wcf != 0.0) else None
 
+    n_aug = aug.n_state
     rng = np.random.default_rng(rng_seed)
     if sample_mode == "eta_nu":
         eigvals, eigvecs = np.linalg.eigh(P6)
@@ -805,20 +811,20 @@ def wcfdi_mc_calibrated(
         L6 = eigvecs @ np.diag(np.sqrt(eigvals))
         z = rng.standard_normal((n_samples, 6))
         delta_eta_nu = z @ L6.T
-        delta_x = np.zeros((n_samples, 12))
+        delta_x = np.zeros((n_samples, n_aug))
         delta_x[:, 0:6] = delta_eta_nu
-    else:  # full12
+    else:  # full12 (samples the full augmented state, n_aug-dim)
         eigvals, eigvecs = np.linalg.eigh(P12)
         eigvals = np.maximum(eigvals, 0.0)
         L12 = eigvecs @ np.diag(np.sqrt(eigvals))
-        z = rng.standard_normal((n_samples, 12))
+        z = rng.standard_normal((n_samples, n_aug))
         delta_x = z @ L12.T
 
     t_eval = np.linspace(0.0, t_end, n_t)
     L_traj = np.zeros((n_samples, n_t))
     dL_peak = np.zeros(n_samples)
     dL_peak_abs = np.zeros(n_samples)
-    x0_samples = np.zeros((n_samples, 12))
+    x0_samples = np.zeros((n_samples, n_aug))
     margin_low = np.zeros(n_samples)
     margin_high = np.zeros(n_samples)
     operable = np.zeros(n_samples, dtype=bool)

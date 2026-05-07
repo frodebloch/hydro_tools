@@ -5,8 +5,8 @@ seconds immediately following a worst-case failure (loss of one thruster
 group / power group), assuming the failure happens *now* at the given
 operating point.
 
-State (12-vector):
-    x = [eta(3), nu(3), b_hat(3), tau_thr(3)]
+State (15-vector by default; 12 with ``include_integrator=False``):
+    x = [eta(3), nu(3), b_hat(3), tau_thr(3), I(3)]
 where
     eta      : position/heading deviation from setpoint (NED-aligned, small
                heading approximation)
@@ -14,6 +14,14 @@ where
     b_hat    : controller bias estimate (low-frequency env. force estimate)
     tau_thr  : actually-produced thruster force (first-order lag from
                command)
+    I        : PI-integrator state on position error (3-DOF), present only
+               when ``include_integrator=True``. Brucon convention is
+               ``Ki = 0.1 * omega_n * Kp`` per DOF
+               (libs/common/regulators/tuning_parameters_no_speed_dependency.cpp:22-29);
+               see ``cqa.observer.build_observer_augmented_system`` for the
+               observer-side mirror. Added in analysis.md sec.12.21.8 to
+               close the post-WCF recovery-rate gap exposed by the brucon
+               ensemble validation.
 
 Continuous-time augmented dynamics (linear, no saturation):
 
@@ -21,7 +29,10 @@ Continuous-time augmented dynamics (linear, no saturation):
     M nu_dot    = -D nu + tau_thr + tau_env_const + w(t)
     b_hat_dot   = (1/T_b) (tau_env_est_residual)         # see below
     tau_thr_dot = (1/T_thr) (tau_cmd - tau_thr)
-    tau_cmd     = -Kp eta - Kd nu - b_hat
+    I_dot       = eta                                    # active only when
+    #                                                       include_integrator=True
+    tau_cmd     = -Kp eta - Kd nu - b_hat [- Ki I]       # Ki I term active
+    #                                                       only when integrator on
 
 Bias estimator: the brucon dp_estimator (Fossen passive observer, ch. 12)
 corrects the bias from the *position innovation*, not from a magic
@@ -87,17 +98,39 @@ class AugmentedSystem:
         idx  3..5 : nu  (u,v,r)
         idx  6..8 : b_hat (3-DOF bias estimate, force units)
         idx  9..11: tau_thr (3-DOF thruster output, force units)
+        idx 12..14: I (3-DOF PI integrator on position error; only present
+                     when ``include_integrator=True``).
+
+    The ``n_state`` field is the authoritative state-vector size; all
+    consumers should size MC perturbations, covariance matrices and
+    integrators to ``aug.n_state`` rather than hardcoding 12 or 15.
+    Block indices (eta=0..3, nu=3..6, b_hat=6..9, tau_thr=9..12) are
+    constant across both modes; only the integrator block (12..15) is
+    conditional. ``Ki`` is a 3x3 diagonal in either mode (zeros when
+    integrator disabled, retained for diagnostic).
     """
 
-    A: np.ndarray  # 12x12
-    B_w: np.ndarray  # 12x3 stochastic disturbance into nu via M^{-1}
-    B_d: np.ndarray  # 12x3 deterministic env. force bias (drives b_hat tracker
-    #                       and acts on nu via M^{-1})
+    A: np.ndarray  # (n_state, n_state)
+    B_w: np.ndarray  # (n_state, 3) stochastic disturbance into nu via M^{-1}
+    B_d: np.ndarray  # (n_state, 3) deterministic env. force bias (drives b_hat
+    #                       tracker and acts on nu via M^{-1})
     M: np.ndarray  # 3x3 (kept for projections)
     Kp: np.ndarray  # 3x3 controller gains (kept for clipping logic)
     Kd: np.ndarray
+    Ki: np.ndarray  # 3x3 diagonal; zero when include_integrator=False
     T_b: float  # bias estimator time constant [s]
     T_thr: float  # thruster lag time constant [s]
+    n_state: int = 12  # 12 (legacy) or 15 (with integrator)
+    include_integrator: bool = False
+
+
+# Block start indices (constant; integrator block, when present, is
+# always at index 12).
+_IDX_ETA = 0
+_IDX_NU = 3
+_IDX_BHAT = 6
+_IDX_TAU = 9
+_IDX_INT = 12
 
 
 def build_augmented_system(
@@ -105,12 +138,42 @@ def build_augmented_system(
     controller: LinearDpController,
     T_b: float = 100.0,
     T_thr: float = 5.0,
+    include_integrator: bool = True,
+    Ki_factor: float = 0.1,
 ) -> AugmentedSystem:
-    """Build the 12x12 A matrix and disturbance/input maps."""
+    """Build the (n_state x n_state) A matrix and disturbance/input maps.
+
+    Parameters
+    ----------
+    vessel, controller : per cqa.vessel / cqa.controller. Controller gains
+        ``Kp``, ``Kd`` are used directly.
+    T_b : bias estimator time constant [s] (passive-observer form).
+    T_thr : 1st-order thruster lag time constant [s].
+    include_integrator : if True (default), append 3 PI integrator states
+        with ``I_dot = eta`` and contribution ``-Ki @ I`` to ``tau_cmd``.
+        Mirrors the brucon DP regulator
+        (``libs/common/regulators/tuning_parameters_no_speed_dependency.cpp``)
+        and the observer-side ``build_observer_augmented_system``. Added
+        in analysis.md sec.12.21.8 to close the post-WCF recovery-rate
+        gap. Set to False to obtain the legacy 12-state system (used by
+        a small number of historic tests / sandbox studies).
+    Ki_factor : per-DOF Ki = ``Ki_factor * omega_n_per_dof * Kp_diag``,
+        with ``omega_n_per_dof[i] = sqrt(Kp[i, i] / M[i, i])``. Brucon
+        convention is 0.1; observer-side cqa already uses 0.1.
+    """
     Minv = np.linalg.inv(vessel.M)
     Kp, Kd = controller.feedback()
 
-    A = np.zeros((12, 12))
+    # Diagonal Ki = Ki_factor * omega_n * Kp (per-DOF), matching
+    # cqa.observer.build_observer_augmented_system:171-178.
+    M_diag = np.array([vessel.M[i, i] for i in range(3)])
+    Kp_diag = np.array([Kp[i, i] for i in range(3)])
+    omega_n_per_dof = np.sqrt(np.maximum(Kp_diag / np.maximum(M_diag, 1e-12), 0.0))
+    Ki_vec = Ki_factor * omega_n_per_dof * Kp_diag if include_integrator else np.zeros(3)
+    Ki = np.diag(Ki_vec)
+
+    n_state = 15 if include_integrator else 12
+    A = np.zeros((n_state, n_state))
 
     # eta_dot = nu
     A[0:3, 3:6] = np.eye(3)
@@ -120,24 +183,55 @@ def build_augmented_system(
     A[3:6, 3:6] = -Minv @ vessel.D
     A[3:6, 9:12] = Minv
 
-    # b_hat_dot = (1/T_b) Kp eta   (passive-observer form, eta-driven)
-    A[6:9, 0:3] = (1.0 / T_b) * Kp
+    # b_hat dynamics:
+    #
+    # When the PI integrator is enabled (the brucon-aligned default), the
+    # b_hat block is a *frozen feedforward* term:
+    #
+    #     b_hat_dot = 0
+    #
+    # i.e. b_hat is initialised to +tau_env (per intact_mean_steady_state)
+    # and stays there. Disturbance rejection at low frequency is delegated
+    # to the PI integrator. This avoids the redundant-integrator pole-at-
+    # zero that arises when both b_hat and I are eta-driven (analysis.md
+    # sec.12.21.8).
+    #
+    # When the integrator is disabled (legacy 12-state mode), b_hat
+    # retains the eta-driven passive-observer-style update used by the
+    # original 12-state model:
+    #
+    #     b_hat_dot = (1/T_b) * Kp * eta
+    #
+    # which gives b_hat -> +tau_env at intact equilibrium without an
+    # explicit FF input. (The two formulations agree on the deterministic
+    # steady-state mean; they differ in the stochastic b_hat variance,
+    # which is non-zero and physical only in the eta-driven form.)
+    if not include_integrator:
+        # Legacy passive-observer-style coupling.
+        A[6:9, 0:3] = (1.0 / T_b) * Kp
+    # else: A[6:9, :] stays zero -> b_hat is frozen at its initial value.
 
     # tau_thr_dot = (1/T_thr) (tau_cmd - tau_thr)
-    # tau_cmd = -Kp eta - Kd nu - b_hat
+    # tau_cmd = -Kp eta - Kd nu - b_hat [- Ki I]
     A[9:12, 0:3] = -(1.0 / T_thr) * Kp
     A[9:12, 3:6] = -(1.0 / T_thr) * Kd
     A[9:12, 6:9] = -(1.0 / T_thr) * np.eye(3)
     A[9:12, 9:12] = -(1.0 / T_thr) * np.eye(3)
+    if include_integrator:
+        A[9:12, 12:15] = -(1.0 / T_thr) * Ki
+
+        # I_dot = eta
+        A[12:15, 0:3] = np.eye(3)
 
     # B_w : stochastic force enters nu via M^-1
-    B_w = np.zeros((12, 3))
+    B_w = np.zeros((n_state, 3))
     B_w[3:6, :] = Minv
 
     # B_d : deterministic env. force enters nu via M^-1 (mean force balance).
     # The bias estimator no longer takes tau_env as a direct input (it is
-    # driven by eta), so the b_hat row of B_d is zero.
-    B_d = np.zeros((12, 3))
+    # driven by eta), so the b_hat row of B_d is zero. Likewise the
+    # integrator: it integrates the position error, not the env force.
+    B_d = np.zeros((n_state, 3))
     B_d[3:6, :] = Minv
 
     return AugmentedSystem(
@@ -147,8 +241,11 @@ def build_augmented_system(
         M=vessel.M,
         Kp=Kp,
         Kd=Kd,
+        Ki=Ki,
         T_b=T_b,
         T_thr=T_thr,
+        n_state=n_state,
+        include_integrator=include_integrator,
     )
 
 
@@ -167,16 +264,23 @@ def intact_mean_steady_state(
         nu_ss      = 0
         b_hat_ss   = +tau_env   (bias estimator absorbs the slow load)
         tau_thr_ss = -tau_env   (thrusters balance the load)
+        I_ss       = 0          (integrator carries no load when bias FF
+                                  has the env force; integrator only winds
+                                  up when the bias estimate is lagging the
+                                  truth, which is the post-WCF transient
+                                  regime, not intact stationary)
 
-    We use the closed form rather than `np.linalg.solve(A, ...)` because
+    We use the closed form rather than ``np.linalg.solve(A, ...)`` because
     the augmented A mixes wildly different unit scales (position rows,
-    force rows, and the small `1/T_b * Kp` coupling on the b_hat block)
+    force rows, and the small ``1/T_b * Kp`` coupling on the b_hat block)
     and is numerically near-singular even though every eigenvalue is in
     the open LHP. The analytic answer above is exact and unit-safe.
     """
-    x_ss = np.zeros(12)
+    x_ss = np.zeros(aug.n_state)
     x_ss[6:9] = tau_env
     x_ss[9:12] = -tau_env
+    # I_ss = 0 by construction (zeros init); the integrator does not carry
+    # the env load at intact steady state.
     return x_ss
 
 
@@ -201,16 +305,19 @@ def intact_state_covariance_freqdomain(
     return state_covariance_freqdomain(cl_intact, S_F_funcs, omega_lo, omega_hi, n_points)
 
 
-def lift_intact_cov_to_augmented(P6: np.ndarray) -> np.ndarray:
-    """Lift 6x6 (eta, nu) covariance into 12x12 augmented covariance.
+def lift_intact_cov_to_augmented(P6: np.ndarray, n_state: int = 12) -> np.ndarray:
+    """Lift 6x6 (eta, nu) covariance into (n_state x n_state) augmented covariance.
 
-    Bias and thruster states are taken as deterministic at t=0- (they have
-    already converged to the intact steady-state values), so their covariance
-    is zero at the failure instant.
+    Bias, thruster and (when present) integrator states are taken as
+    deterministic at t=0- (they have already converged to the intact
+    steady-state values), so their covariance is zero at the failure
+    instant. Default ``n_state=12`` preserves the legacy 12-state
+    behaviour; pass ``aug.n_state`` to size to the active augmented
+    system.
     """
-    P12 = np.zeros((12, 12))
-    P12[:6, :6] = P6
-    return P12
+    P_aug = np.zeros((n_state, n_state))
+    P_aug[:6, :6] = P6
+    return P_aug
 
 
 # ---------------------------------------------------------------------------
@@ -318,6 +425,10 @@ def _augmented_rhs_post(
     nu = x[3:6]
     b_hat = x[6:9]
     tau_thr = x[9:12]
+    if aug.include_integrator:
+        I_int = x[12:15]
+    else:
+        I_int = np.zeros(3)
 
     Minv_D = aug.A[3:6, 3:6]  # = -M^-1 D
     Minv = aug.B_w[3:6, :]  # = M^-1
@@ -330,15 +441,23 @@ def _augmented_rhs_post(
     else:
         nu_dot = Minv_D @ nu + Minv @ tau_thr + Minv @ tau_env
     b_hat_dot = (1.0 / aug.T_b) * (aug.Kp @ eta)
-    tau_cmd = -aug.Kp @ eta - aug.Kd @ nu - b_hat
+    # PD + bias-FF + (optional) PI integrator. Ki is a 3x3 diagonal that is
+    # zero when the integrator is disabled, so the term is identically
+    # zero in the legacy 12-state mode and physical in the 15-state mode.
+    tau_cmd = -aug.Kp @ eta - aug.Kd @ nu - b_hat - aug.Ki @ I_int
     tau_cmd_clipped = _clip_per_dof(tau_cmd, cap_now)
     tau_thr_dot = (1.0 / aug.T_thr) * (tau_cmd_clipped - tau_thr)
 
-    out = np.empty(12)
+    out = np.empty(aug.n_state)
     out[0:3] = eta_dot
     out[3:6] = nu_dot
     out[6:9] = b_hat_dot
     out[9:12] = tau_thr_dot
+    if aug.include_integrator:
+        # I_dot = eta (PI integrator on position error; matches the
+        # observer-side ``I_dot = eta_hat_LF`` since in this 12/15-state
+        # path there is no observer split: eta_hat_LF == eta).
+        out[12:15] = eta
     return out
 
 
@@ -505,11 +624,14 @@ def wcfdi_transient(
         dFdVc = np.zeros(3)
     S_curr = current_variability_force_psd(dFdVc, sigma_Vc=sigma_Vc, tau=tau_Vc)
     P6 = state_covariance_freqdomain(cl_intact, [S_wind, S_drift, S_curr])
-    P0 = lift_intact_cov_to_augmented(P6)
+    P0 = lift_intact_cov_to_augmented(P6, n_state=aug.n_state)
 
     # --- Post-failure dynamics ---
     if scenario.T_thr_post is not None:
-        aug = build_augmented_system(vessel, controller, T_b=T_b, T_thr=scenario.T_thr_post)
+        aug = build_augmented_system(
+            vessel, controller, T_b=T_b, T_thr=scenario.T_thr_post,
+            include_integrator=aug.include_integrator,
+        )
     cap_post = scenario.resolved_cap_post(cfg)
     cap_immediate = scenario.resolved_cap_immediate(cfg)
 
@@ -565,7 +687,7 @@ def wcfdi_transient(
     eigs = np.maximum(eigs, 0.0)
     W_eq = V @ np.diag(eigs) @ V.T
 
-    BWBT_aug = aug.B_w @ W_eq @ aug.B_w.T  # 12x12
+    BWBT_aug = aug.B_w @ W_eq @ aug.B_w.T  # (n_state, n_state)
 
     # The variance ODE uses the *intact* augmented A (full feedback gains).
     # Rationale: under the CQA precondition |tau_env| <= cap_post, the
@@ -573,9 +695,10 @@ def wcfdi_transient(
     # affecting the *mean* trajectory does not break the linearised
     # feedback for *fluctuations* around it. So the variance dynamics are
     # governed by the same closed-loop A as in the intact case (with the
-    # added thrust-lag and bias-estimator states).
+    # added thrust-lag, bias-estimator and (optionally) integrator states).
+    n_aug = aug.n_state
     def rhs_P(t, P_flat):
-        P = P_flat.reshape(12, 12)
+        P = P_flat.reshape(n_aug, n_aug)
         Pdot = aug.A @ P + P @ aug.A.T + BWBT_aug
         return Pdot.flatten()
 
@@ -590,7 +713,7 @@ def wcfdi_transient(
     )
     if not sol_P.success:
         raise RuntimeError(f"Covariance ODE failed: {sol_P.message}")
-    P_t = sol_P.y.T.reshape(n_t, 12, 12)
+    P_t = sol_P.y.T.reshape(n_t, n_aug, n_aug)
     # Symmetrise:
     P_t = 0.5 * (P_t + P_t.transpose(0, 2, 1))
 
@@ -612,10 +735,12 @@ def wcfdi_transient(
     #
     # The reported score is the maximum over time, per DOF, plus the
     # overall scalar maximum (the headline "bistability_risk_score").
-    K_tau = np.zeros((3, 12))
+    K_tau = np.zeros((3, n_aug))
     K_tau[:, 0:3] = -aug.Kp
     K_tau[:, 3:6] = -aug.Kd
     K_tau[:, 6:9] = -np.eye(3)
+    if aug.include_integrator:
+        K_tau[:, 12:15] = -aug.Ki
     tau_cmd_mean = (K_tau @ x_mean.T).T            # (n_t, 3)
     # tau_cmd variance: (n_t, 3, 3) = K @ P @ K^T per time
     tau_cmd_var = np.einsum("ij,tjk,lk->til", K_tau, P_t, K_tau)

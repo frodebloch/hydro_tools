@@ -166,11 +166,12 @@ class TestBuildCalibratedContext:
         np.testing.assert_allclose(
             np.diag(ctx.P6_calibrated)[3:], np.diag(ctx.P6_model)[3:], rtol=1e-10,
         )
-        # Sanity on shapes
-        assert ctx.aug.A.shape == (12, 12)
-        assert ctx.x_ss_intact.shape == (12,)
+        # Sanity on shapes (n_aug is 15 with the integrator block, 12 without)
+        n_aug = ctx.aug.n_state
+        assert ctx.aug.A.shape == (n_aug, n_aug)
+        assert ctx.x_ss_intact.shape == (n_aug,)
         assert ctx.P6_calibrated.shape == (6, 6)
-        assert ctx.P12_calibrated.shape == (12, 12)
+        assert ctx.P12_calibrated.shape == (n_aug, n_aug)
 
     def test_input_validation(self):
         cfg = csov_default_config()

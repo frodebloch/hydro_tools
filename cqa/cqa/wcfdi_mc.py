@@ -69,10 +69,11 @@ class WcfdiMcResult:
     L_traj: np.ndarray             # (N_samples, N_t) telescope length L(t) per sample [m]
     dL_peak: np.ndarray            # (N_samples,) signed peak Delta_L per sample [m]
     dL_peak_abs: np.ndarray        # (N_samples,) abs peak Delta_L per sample [m]
-    x0_samples: np.ndarray         # (N_samples, 12) starting-state perturbation
+    x0_samples: np.ndarray         # (N_samples, n_aug) starting-state perturbation
     #                                in augmented order (eta_n,e,psi, u,v,r,
-    #                                b_x,b_y,b_n, tau_thr_x,thr_y,thr_n).
-    #                                Columns 6..11 are zero when sample_mode='eta_nu'.
+    #                                b_x,b_y,b_n, tau_thr_x,thr_y,thr_n,
+    #                                [I_x,I_y,I_n if include_integrator]).
+    #                                Columns 6..end are zero when sample_mode='eta_nu'.
 
     # Operability gating outputs:
     margin_low: np.ndarray         # (N_samples,) min over time of L - L_min
@@ -337,7 +338,8 @@ def wcfdi_mc(
     # Apply T_thr_post override if requested
     if scenario.T_thr_post is not None:
         aug = build_augmented_system(
-            ctx["vessel"], ctx["controller"], T_b=T_b, T_thr=scenario.T_thr_post
+            ctx["vessel"], ctx["controller"], T_b=T_b, T_thr=scenario.T_thr_post,
+            include_integrator=aug.include_integrator,
         )
 
     cap_post = scenario.resolved_cap_post(cfg)
@@ -351,7 +353,11 @@ def wcfdi_mc(
     # Time-varying cap
     cap_fn: Callable[[float], np.ndarray] = lambda t: scenario.cap_at_time(t, cfg)
 
-    # MC sampling. Build a 12-D perturbation vector per sample.
+    # MC sampling. Build an n_state-D perturbation vector per sample.
+    # ``n_state`` is 12 for legacy include_integrator=False or 15 for the
+    # default 15-state augmented system; only the (eta, nu) block is
+    # randomised in ``eta_nu`` mode, the remainder stays at zero.
+    n_aug = aug.n_state
     rng = np.random.default_rng(rng_seed)
     if sample_mode == "eta_nu":
         # Cholesky-style factorisation of P6
@@ -360,20 +366,20 @@ def wcfdi_mc(
         L6 = eigvecs @ np.diag(np.sqrt(eigvals))
         z = rng.standard_normal((n_samples, 6))
         delta_eta_nu = z @ L6.T  # (n_samples, 6)
-        delta_x = np.zeros((n_samples, 12))
+        delta_x = np.zeros((n_samples, n_aug))
         delta_x[:, 0:6] = delta_eta_nu
-    else:  # full12
+    else:  # full12 (legacy name; samples the full augmented state, n_aug-dim)
         eigvals, eigvecs = np.linalg.eigh(P12)
         eigvals = np.maximum(eigvals, 0.0)
         L12 = eigvecs @ np.diag(np.sqrt(eigvals))
-        z = rng.standard_normal((n_samples, 12))
-        delta_x = z @ L12.T  # (n_samples, 12)
+        z = rng.standard_normal((n_samples, n_aug))
+        delta_x = z @ L12.T  # (n_samples, n_aug)
 
     t_eval = np.linspace(0.0, t_end, n_t)
     L_traj = np.zeros((n_samples, n_t))
     dL_peak = np.zeros(n_samples)
     dL_peak_abs = np.zeros(n_samples)
-    x0_samples = np.zeros((n_samples, 12))
+    x0_samples = np.zeros((n_samples, n_aug))
     margin_low = np.zeros(n_samples)
     margin_high = np.zeros(n_samples)
     operable = np.zeros(n_samples, dtype=bool)
@@ -536,14 +542,23 @@ def starting_state_sensitivity(
         "surge vel [m/s]", "sway vel [m/s]", "yaw rate [rad/s]",
         "bias surge [N]", "bias sway [N]", "bias yaw [Nm]",
         "thrust surge [N]", "thrust sway [N]", "thrust yaw [Nm]",
+        "I surge [m s]", "I sway [m s]", "I yaw [rad s]",
     ]
     valid = ~np.isnan(res.dL_peak)
-    X_all = res.x0_samples[valid]  # (N_valid, 12)
+    X_all = res.x0_samples[valid]  # (N_valid, n_aug)
+    n_aug = X_all.shape[1]
+    # Truncate / pad labels to match the actual sampled-state dimension.
+    all_labels = all_labels[:n_aug]
     y = res.dL_peak[valid]
 
-    # Active columns: those with non-zero variance across samples
+    # Active columns: those with non-zero variance across samples. The
+    # threshold is set well above numerical-noise floor (~1e-24 in
+    # variance terms) so that frozen-by-construction blocks (e.g. the
+    # 15-state b_hat block, which is a deterministic feedforward) are
+    # correctly detected as inactive even if eigendecomposition leaks
+    # picometre-scale noise into them.
     col_var = np.var(X_all, axis=0)
-    active = col_var > 1e-30
+    active = col_var > 1e-18
     X = X_all[:, active]
     labels = [lbl for lbl, a in zip(all_labels, active) if a]
 
@@ -551,9 +566,10 @@ def starting_state_sensitivity(
     # else P6 padded with zeros). Use the empirical sigma as fallback.
     P12 = res.info.get("P12_intact")
     P6 = res.info.get("P6_intact")
-    sigmas_full = np.zeros(12)
+    sigmas_full = np.zeros(n_aug)
     if P12 is not None:
-        sigmas_full = np.sqrt(np.maximum(np.diag(P12), 0.0))
+        diag = np.sqrt(np.maximum(np.diag(P12), 0.0))
+        sigmas_full[: diag.size] = diag[: n_aug]
     elif P6 is not None:
         sigmas_full[:6] = np.sqrt(np.maximum(np.diag(P6), 0.0))
     # Override with empirical sigma where the analytical value is zero but

@@ -4024,3 +4024,108 @@ operability_polar pipeline (which uses
 ever since. Worth a sweep, post-Fix-3, of any other
 controller / observer parameters that exist in both code paths
 but might have drifted out of sync.
+
+##### 12.21.8.1 Fix 3 result: PI integrator port closes some — not all — of the gap
+
+The Fix 3 plan landed in this commit. `build_augmented_system`
+gained `include_integrator: bool = True` and `Ki_factor: float = 0.1`,
+matching the brucon convention `Ki = 0.1·ω·Kp` (with the
+diagonal computed elementwise as `Ki = 0.1·sqrt(Kp/M)·Kp` to be
+exact about the Medium gain level). The state layout when
+enabled is `[eta(3), nu(3), b_hat(3), tau_thr(3), I(3)]`. When
+the integrator is present, `b_hat` is FROZEN feedforward
+(`b_hat_dot = 0`, initialised to `+tau_env_meas`); disturbance
+rejection is delegated to the integrator. This avoids the
+double-integrator marginal-stability mode that two redundant
+slow-rejection paths would produce.
+
+Architectural implications: `aug.A` has 12 negative-real-part
+eigenvalues plus 3 zero eigenvalues at the frozen-`b_hat` block.
+The `b_hat` block is uncontrollable from `B_w` (zero rows), so
+`state_covariance_freqdomain_general` returns a finite covariance
+with `P[6:9, 6:9] = 0` by construction. All 316 unit tests pass
+including the new shape tests (`x0_samples` is now `(N, 15)`,
+`starting_state_sensitivity` returns 12 active labels with the
+deterministic `b_hat` block dropped from the regression).
+
+`wcfdi_self_mc.py` was ported to the same flag and now respects
+`aug.include_integrator` in both the intact-warmup ZOH integrator
+and the post-WCF clipped RK4 integrator.
+
+**Pooled CDF, bow-quartering 30°, bus_port WCF, 500 MC × 30 seeds:**
+
+| metric                | brucon truth (LF) | cal (Fix 1+2 only) | cal (Fix 1+2+3) |
+|-----------------------|------------------:|-------------------:|----------------:|
+| pooled P50            | 1.18 m            | 0.59 m             | **0.64 m**      |
+| pooled P95            | 1.96 m            | 1.25 m             | **1.41 m**      |
+| pooled P99            | —                 | 1.73 m             | **1.96 m**      |
+| pooled max            | 2.13 m            | 3.07 m             | **3.52 m**      |
+| P95 / truth_P95       | 1.00              | 0.63               | **0.72**        |
+
+The integrator helped at every quantile — pooled P95 +16 cm
+(+13 %), P99 +23 cm — but the calibrated pipeline still
+underpredicts the LF-only truth P95 by 28 %. The pooled max
+overshoots truth (3.52 vs 2.13 m), which is expected under a
+zero-mean Gaussian IC sampler producing rare ballistic outliers
+that a 30-seed brucon sample cannot resolve.
+
+**Ensemble-mean Δη, however, did not move.** This is the more
+informative diagnostic:
+
+|                 | truth peak | cal-Fix2 peak | cal-Fix3 peak |
+|-----------------|-----------:|--------------:|--------------:|
+| Δsurge          | +0.37 m @ 154 s | −0.21 m @ 18 s | −0.21 m @ 18 s |
+| Δsway           | −0.50 m @ 35 s  | −0.30 m @ 15 s | −0.30 m @ 15 s |
+
+The integrator added stochastic spread to the per-realisation
+distribution but the deterministic mean trajectory is
+essentially unchanged. Two interpretations are consistent with
+the data:
+
+1. **Direction-of-Δsway is right; magnitude shortfall is in the
+   missing slow-mean mechanism, not in PI dynamics.** The truth
+   ensemble shows a sustained +0.4 m surge offset at t=150 s
+   (180 s after WCF), peaking *long after* the controller's
+   open-loop time constant `1/ω = 17 s` would have it return to
+   zero in cqa. cqa's mean trajectory peaks at 18 s and is
+   already restored by 60 s. This is the sustained drift /
+   slow-recovery mechanism Fix 3 was nominally meant to address;
+   evidently the brucon-sized `Ki_factor = 0.1` is too weak to
+   produce the observed mean offset.
+
+2. **Brucon recovers slower than even cqa-with-PI predicts**
+   because of two structural advantages cqa has over brucon
+   (per the user's session insight, worth recording here):
+   - **brucon's bias estimator runs on `tau_cmd` not `tau_thr`.**
+     During saturation, brucon thinks more thrust is being
+     delivered than actually is, so the bias estimate lags;
+     this adds phase to the recovery loop. cqa's frozen-FF
+     `b_hat = +tau_env` does not have this problem at all.
+   - **cqa's controller sees the truth η.** Brucon's controller
+     only knows it is off-position because the position-reference
+     filter has had time to register the drift. This is another
+     phase delay in the brucon recovery loop that cqa lacks.
+
+Both effects bias cqa toward *faster* mean recovery than brucon
+truth, on top of any remaining model-physics gap. A `Ki_factor`
+larger than 0.1 might bring the cal mean closer to truth but
+would be physically wrong (it would not match the actual brucon
+controller). The right next step is to reproduce the brucon
+behaviour by either (a) introducing a one-pole filter on η
+into the cqa controller to mimic the posref delay, or (b)
+running the bias estimator off `tau_cmd` like brucon does,
+which would give the integrator more state to settle against.
+
+**Stop-and-think before Fix 4.** The current cal pipeline is
+still **underpredicting** by 28 % at P95, but the CDF curves
+have moved in the right direction at every quantile and the
+mechanism is now physically traceable. Three options for next:
+- accept the residual 28 % gap and apply a calibration
+  multiplier (fastest path to a usable risk tool);
+- add one of the two posref / `tau_cmd` mechanisms above
+  (proper physics, more code);
+- broaden the IC velocity sampler (e.g. add the WF velocity
+  contribution that was excluded from the LF-only σ_ν
+  measurement) and see how much that contributes.
+
+This decision will be made in §12.21.9.

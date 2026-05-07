@@ -71,9 +71,9 @@ def test_decorr_position_csov_default():
     """Sanity check against the CSOV default config."""
     cfg = csov_default_config()
     T = closed_loop_decorrelation_time(cfg.controller, "position")
-    # CSOV defaults: omega_n=(0.06,0.06,0.05), zeta=(0.9,0.9,0.9).
-    # Both surge and sway give 1/(0.06*0.9) = 18.52 s.
-    assert T == pytest.approx(1.0 / (0.06 * 0.9))
+    # CSOV defaults (brucon Medium): omega_n=(0.06,0.08,0.12), zeta=(0.95,0.95,0.95).
+    # Surge dominates: T = 1/(omega_n_surge * zeta_surge) = 1/(0.06*0.95).
+    assert T == pytest.approx(1.0 / (0.06 * 0.95))
 
 
 def test_decorr_invalid_axis_raises():

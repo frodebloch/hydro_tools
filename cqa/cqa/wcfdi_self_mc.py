@@ -7,7 +7,8 @@ linear matrices, using Shinozuka realisations of the disturbance PSDs.
 
 What this validates
 -------------------
-1. The augmented 12-state structure (eta, nu, b_hat, tau_thr).
+1. The augmented state structure (eta, nu, b_hat, tau_thr, [I]) — 12 or
+   15 states depending on ``aug.include_integrator``.
 2. The deterministic mean-trajectory ODE under the time-varying per-DOF
    thrust cap (`scenario.cap_at_time`).
 3. The covariance-trajectory ODE
@@ -221,13 +222,16 @@ def _integrate_augmented_intact_zoh(
 ) -> np.ndarray:
     """Integrate the intact augmented ODE under a ZOH input force.
 
-    State: x in R^12 with layout [eta(3), nu(3), b_hat(3), tau_thr(3)].
+    State: x in R^{n_state} with layout
+    [eta(3), nu(3), b_hat(3), tau_thr(3), I(3)?] where the integrator
+    block is present iff ``aug.include_integrator``.
+
     ODE:   x_dot = A x + B_d tau_env + B_w (F(t)).
 
     Used for the intact warm-up phase. The intact closed loop is fully
     linear (no clipping) at the CQA-feasible operating points.
 
-    Returns: (12, N_t) state trajectory.
+    Returns: (n_state, N_t) state trajectory.
     """
     A = aug.A
     Bw = aug.B_w
@@ -247,7 +251,7 @@ def _integrate_augmented_intact_zoh(
         Gamma_w = dt * Bw
         Gamma_d_tau = dt * Bd @ tau_env
 
-    x = np.zeros((12, N_t))
+    x = np.zeros((aug.n_state, N_t))
     x[:, 0] = x0
     x_k = x0.copy()
     for k in range(N_t - 1):
@@ -270,9 +274,12 @@ def _integrate_augmented_post_clipped(
     force time series is treated as ZOH between samples.
 
     State layout per row of `aug.A`:
-        eta(0:3), nu(3:6), b_hat(6:9), tau_thr(9:12)
+        eta(0:3), nu(3:6), b_hat(6:9), tau_thr(9:12), I(12:15)?
+    The integrator block is present iff ``aug.include_integrator``,
+    in which case b_hat is FROZEN feedforward (b_hat_dot=0) and the PI
+    rejection is delegated to the I-state.
 
-    Returns: (12, N_t) state trajectory.
+    Returns: (n_state, N_t) state trajectory.
     """
     Minv_D = aug.A[3:6, 3:6]   # = -M^-1 D
     Minv = aug.B_w[3:6, :]     # = M^-1
@@ -280,6 +287,9 @@ def _integrate_augmented_post_clipped(
     Kd = aug.Kd
     T_b = aug.T_b
     T_thr = aug.T_thr
+    n_state = aug.n_state
+    has_int = aug.include_integrator
+    Ki = aug.Ki if has_int else None
     N_t = t.size
     dt = float(t[1] - t[0])
 
@@ -291,18 +301,26 @@ def _integrate_augmented_post_clipped(
         cap_now = cap_fn(t_now)
         eta_dot = nu
         nu_dot = Minv_D @ nu + Minv @ tau_thr + Minv @ (tau_env + F_now)
-        b_hat_dot = (1.0 / T_b) * (Kp @ eta)
-        tau_cmd = -Kp @ eta - Kd @ nu - b_hat
+        if has_int:
+            I_state = x[12:15]
+            tau_cmd = -Kp @ eta - Kd @ nu - b_hat - Ki @ I_state
+            # b_hat is frozen feedforward when integrator is enabled
+            b_hat_dot = np.zeros(3)
+        else:
+            tau_cmd = -Kp @ eta - Kd @ nu - b_hat
+            b_hat_dot = (1.0 / T_b) * (Kp @ eta)
         tau_cmd_clipped = _clip_per_dof(tau_cmd, cap_now)
         tau_thr_dot = (1.0 / T_thr) * (tau_cmd_clipped - tau_thr)
-        out = np.empty(12)
+        out = np.empty(n_state)
         out[0:3] = eta_dot
         out[3:6] = nu_dot
         out[6:9] = b_hat_dot
         out[9:12] = tau_thr_dot
+        if has_int:
+            out[12:15] = eta  # I_dot = eta
         return out
 
-    x = np.zeros((12, N_t))
+    x = np.zeros((n_state, N_t))
     x[:, 0] = x0
     x_k = x0.copy()
     for k in range(N_t - 1):
@@ -403,6 +421,7 @@ def wcfdi_self_mc(
             vessel, controller,
             T_b=cp_ctrl.bias_time_constant_s,
             T_thr=scenario.T_thr_post,
+            include_integrator=aug.include_integrator,
         )
     else:
         aug_post = aug
