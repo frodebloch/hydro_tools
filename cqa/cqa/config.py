@@ -157,23 +157,35 @@ class ControllerParams:
     Monte Carlo (`cqa.wcfdi_mc`) and the intact-prior Rice analysis
     (`cqa.operator_view.summarise_intact_prior`).
 
-    Defaults match the values previously hard-coded as `wcfdi_mc`
-    arguments and reflect a typical CSOV-class DP-2 vessel:
+    Defaults are taken from brucon `build/bin/settings/tuning.prototxt`
+    at the **Medium** gain level (the production default per
+    `controller_settings.h:125-126`, with `omega_gain_medium = 1.0`
+    per `tuning_parameters_no_speed_dependency.cpp:15`). For the
+    config_csov vessel this gives:
 
-      omega_n_surge / sway = 0.06 rad/s  (closed-loop natural frequency
-                                          ~95 s period; well below the
-                                          wave band, well above the
-                                          slow-drift band).
-      omega_n_yaw          = 0.05 rad/s.
-      zeta                 = 0.9 (over-damped DP, standard).
-      T_b                  = 1000 s (bias-estimator time constant; matches
-                                     brucon's `passive_observer.cpp`
-                                     `T_b_default = 1000 s`. Earlier 100 s
-                                     default was a misreading; verified
-                                     against config_csov/observer.prototxt
-                                     and against §12.20 sandbox closure
-                                     of the σ_y_LF gap to brucon).
-      T_thr                = 5 s   (1st-order thruster lag).
+      omega_n_surge = 0.06  rad/s   (~105 s period)
+      omega_n_sway  = 0.08  rad/s   (~79  s period)
+      omega_n_yaw   = 0.12  rad/s   (~52  s period)
+      zeta          = 0.95  (relative_damping in tuning.prototxt;
+                             over-damped DP, brucon-canonical)
+      T_b           = 1000 s        (bias-estimator time constant;
+                                     matches brucon `passive_observer.cpp`
+                                     `T_b_default = 1000 s` and
+                                     `config_csov/observer.prototxt`)
+      T_thr         = 5 s           (1st-order thruster lag)
+
+    Note: brucon's controller is full PID with Ki = 0.1·ω·Kp (per
+    `tuning_parameters_no_speed_dependency.cpp:22-29`). cqa's
+    `transient.py:build_augmented_system` currently models the bias
+    rejection through the passive-observer integrator (T_b=1000 s)
+    only, *not* the explicit Ki path. The Ki integrator is implemented
+    in `cqa.observer.build_observer_with_controller_aug`
+    (`include_integrator=True`) but not yet wired into the WCFDI
+    transient model — see analysis.md §12.21.8 for the tracking task.
+
+    Earlier defaults of (0.06, 0.06, 0.05) for omega and 0.9 for zeta
+    were unverified guesses; the source-of-truth corrections were
+    confirmed against `tuning.prototxt` on 2026-05-07.
 
     Setting `omega_n` and `zeta` here ensures that the WCFDI MC, the
     intact-prior Rice analysis and any future operating-point sweep all
@@ -182,11 +194,11 @@ class ControllerParams:
     """
 
     omega_n_surge: float = 0.06
-    omega_n_sway: float = 0.06
-    omega_n_yaw: float = 0.05
-    zeta_surge: float = 0.9
-    zeta_sway: float = 0.9
-    zeta_yaw: float = 0.9
+    omega_n_sway: float = 0.08
+    omega_n_yaw: float = 0.12
+    zeta_surge: float = 0.95
+    zeta_sway: float = 0.95
+    zeta_yaw: float = 0.95
     bias_time_constant_s: float = 1000.0   # T_b (brucon passive_observer default)
     thruster_time_constant_s: float = 5.0  # T_thr
 

@@ -208,6 +208,23 @@ class CalibratedContext:
     sigma_model_lf_body : (3,) array
         The corresponding model σ values (sqrt of P6_model diagonal),
         useful for reporting the per-DOF calibration ratio.
+    sigma_nu_measured_lf_body : (3,) array or None, default None
+        Optional per-DOF measured σ on the **velocity** block (surge,
+        sway, yaw rates). When provided, the ν diagonals (P6 indices
+        3, 4, 5) are rescaled the same way as the η diagonals; cross
+        terms within the (η, ν) block scale proportionally so the
+        correlation structure between position and velocity is
+        preserved. When None, the ν diagonals are left at the model
+        value (the legacy behaviour). Required to close the LF
+        transient peak underprediction documented in §12.21.8: the
+        model under-predicts σ_ν by 3-4× at typical CSOV operating
+        points (model 0.007 m/s vs brucon truth 0.022-0.027 m/s),
+        causing the velocity IC to be too small and the post-WCF
+        ballistic excursion to be ~0.5 m too low at P95.
+    sigma_nu_model_lf_body : (3,) array or None
+        Corresponding model σ_ν before any rescale (sqrt of P6_model
+        diagonal indices 3, 4, 5). Reported alongside the η ratio for
+        diagnostic purposes.
     tau_lost_pre_wcf : (3,) array, default zeros
         Per-DOF transient deficit on delivered thrust at WCF (the jump
         in actual delivered force at the failure instant). Drives the
@@ -270,6 +287,8 @@ class CalibratedContext:
     cl_intact: ClosedLoop
     vessel: LinearVesselModel
     controller: LinearDpController
+    sigma_nu_measured_lf_body: Optional[np.ndarray] = None
+    sigma_nu_model_lf_body: Optional[np.ndarray] = None
     tau_lost_pre_wcf: np.ndarray = None
     tau_lost_pulse_shape: str = "linear_decay"
     tau_lost_duration_s: float = 5.0
@@ -327,6 +346,7 @@ def build_calibrated_context(
     *,
     sigma_measured_lf_body: Sequence[float],
     tau_env_measured: Sequence[float],
+    sigma_nu_measured_lf_body: Optional[Sequence[float]] = None,
     Vw_mean: float = 0.0,
     Hs: float = 0.0,
     Tp: float = 8.0,
@@ -363,6 +383,18 @@ def build_calibrated_context(
         ``(Fx_body, Fy_body, Mz_body)`` mean environmental force from
         the controller's bias-estimator integrator at the WCF instant.
         Replaces ``F_wind + F_curr + F_drift`` from the spectral path.
+    sigma_nu_measured_lf_body : (3,) array-like or None, default None
+        Optional ``(σ_uS_body, σ_uW_body, σ_r_body)`` -- low-pass
+        filtered std of the controller's velocity feedback (or numeric
+        derivative of the position feedback) in body frame, units
+        m/s, m/s, rad/s. When provided, the velocity diagonal of the
+        intact closed-loop covariance ``P6`` (indices 3, 4, 5) is
+        rescaled the same way as the position diagonal -- which fixes
+        a 3-4× under-sampling of the velocity IC at typical CSOV
+        operating points (analysis.md §12.21.8). Strongly recommended
+        whenever ``sigma_measured_lf_body`` is provided; the legacy
+        path with ``None`` is kept for backward compatibility but
+        leaves the LF transient peak underpredicted by ~30 %.
     Vw_mean, Hs, Tp, Vc, theta_rel
         Sea state used to build the model's wind/drift/current PSDs
         ``S_wind``, ``S_drift``, ``S_curr`` for the unmeasured (η, ν)
@@ -390,6 +422,17 @@ def build_calibrated_context(
         )
     if np.any(sigma_meas < 0):
         raise ValueError("sigma_measured_lf_body entries must be non-negative")
+
+    if sigma_nu_measured_lf_body is not None:
+        sigma_nu_meas = np.asarray(sigma_nu_measured_lf_body, dtype=float)
+        if sigma_nu_meas.shape != (3,):
+            raise ValueError(
+                f"sigma_nu_measured_lf_body must have shape (3,), got {sigma_nu_meas.shape}"
+            )
+        if np.any(sigma_nu_meas < 0):
+            raise ValueError("sigma_nu_measured_lf_body entries must be non-negative")
+    else:
+        sigma_nu_meas = None
 
     vp = cfg.vessel
     wp = cfg.wind
@@ -460,21 +503,34 @@ def build_calibrated_context(
     P6_model = state_covariance_freqdomain(cl_intact, [S_wind, S_drift, S_curr])
     sigma_model_lf_body = np.sqrt(np.maximum(np.diag(P6_model[:3, :3]), 0.0))
 
-    # --- diagonal rescale of η block to measured sigmas ---
+    # --- diagonal rescale of η (and optionally ν) block to measured sigmas ---
     # Indices 0, 1, 2 in the 6-state (η, ν) ordering are surge, sway, yaw
-    # position; 3, 4, 5 are the corresponding velocities (left at model
-    # values).
+    # position; 3, 4, 5 are the corresponding velocities. The ν block is
+    # rescaled only when `sigma_nu_measured_lf_body` is provided; the
+    # legacy path (None) leaves ν at the model value, which under-samples
+    # the velocity IC by 3-4× at typical CSOV operating points and causes
+    # ~30% LF transient peak underprediction (see analysis.md §12.21.8).
+    sigma_nu_model_lf_body = np.sqrt(np.maximum(np.diag(P6_model[3:, 3:]), 0.0))
+    if sigma_nu_meas is not None:
+        rescale_idx = (0, 1, 2, 3, 4, 5)
+        sigma_combined = np.concatenate([sigma_meas, sigma_nu_meas])
+    else:
+        rescale_idx = (0, 1, 2)
+        sigma_combined = sigma_meas
     P6_cal, _d6 = rescale_covariance_diagonal(
-        P6_model, sigma_meas, indices=(0, 1, 2),
+        P6_model, sigma_combined, indices=rescale_idx,
     )
 
     # --- 12-state augmented covariance: same rescale logic ---
-    # Build the model P12 first, then rescale its η diagonals.
+    # Build the model P12 first, then rescale its η (and optionally ν)
+    # diagonals. Indices 0..5 here correspond to the same 6 (η, ν) DOFs;
+    # indices 6..8 are b̂ and 9..11 are τ_thr (left at model values --
+    # these are deterministic at t=0+ in the operator-view convention).
     P12_model = state_covariance_freqdomain_general(
         aug.A, aug.B_w, [S_wind, S_drift, S_curr]
     )
     P12_cal, _d12 = rescale_covariance_diagonal(
-        P12_model, sigma_meas, indices=(0, 1, 2),
+        P12_model, sigma_combined, indices=rescale_idx,
     )
 
     return CalibratedContext(
@@ -486,6 +542,10 @@ def build_calibrated_context(
         P6_model=P6_model,
         sigma_measured_lf_body=sigma_meas.copy(),
         sigma_model_lf_body=sigma_model_lf_body,
+        sigma_nu_measured_lf_body=(
+            None if sigma_nu_meas is None else sigma_nu_meas.copy()
+        ),
+        sigma_nu_model_lf_body=sigma_nu_model_lf_body,
         cl_intact=cl_intact,
         vessel=vessel,
         controller=controller,

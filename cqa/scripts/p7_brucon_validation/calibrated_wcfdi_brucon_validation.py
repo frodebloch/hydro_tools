@@ -214,6 +214,23 @@ def extract_seed_inputs(seed: int):
     spsi = float(np.deg2rad(heading_dev[mask_sigma] - heading_dev[mask_sigma].mean()).std())
     sigma_lf_body = np.array([sx, sy, spsi])
 
+    # σ_ν (velocity) extraction. brucon's SurgeSpeed/SwaySpeed channels
+    # are observer-output velocities (already LF-filtered by the Kalman),
+    # so the raw std is dominated by the LF band; the WF residual is
+    # small (~5% of variance for surge, ~8% for sway, ~14% for yaw at
+    # pwq30 conditions). RateOfTurn is logged in **deg/min** -- see
+    # `apps/dp/dp_cms_export/dp_cms_export.cpp:122` `UnitType::DegreePerMinute`
+    # -- and must be converted to rad/s. Body frame.
+    surge_speed = res.columns["SurgeSpeed"]
+    sway_speed = res.columns["SwaySpeed"]
+    rate_of_turn_deg_per_min = res.columns["RateOfTurn"]
+    s_uS = float((surge_speed[mask_sigma] - surge_speed[mask_sigma].mean()).std())
+    s_uW = float((sway_speed[mask_sigma] - sway_speed[mask_sigma].mean()).std())
+    s_r_dpm = float((rate_of_turn_deg_per_min[mask_sigma]
+                     - rate_of_turn_deg_per_min[mask_sigma].mean()).std())
+    s_r = float(np.deg2rad(s_r_dpm) / 60.0)   # deg/min -> rad/s
+    sigma_nu_lf_body = np.array([s_uS, s_uW, s_r])
+
     # tau_env from estimator at t = t_WCF - DT (last intact sample)
     est = np.loadtxt(est_path, skiprows=1)
     t_est = est[:, 0]
@@ -251,6 +268,7 @@ def extract_seed_inputs(seed: int):
         "sway": sway,
         "heading_dev": heading_dev,
         "sigma_lf_body": sigma_lf_body,
+        "sigma_nu_lf_body": sigma_nu_lf_body,
         "tau_env_meas": tau_env_meas,
         "tau_lost_pre_wcf": peak_def_SI,         # peak-deficit amplitude (square pulse)
         "tau_lost_T_eff": T_eff,                 # per-DOF equivalent duration
@@ -408,6 +426,7 @@ def main() -> None:
         ctx = build_calibrated_context(
             cfg,
             sigma_measured_lf_body=r["sigma_lf_body"],
+            sigma_nu_measured_lf_body=r["sigma_nu_lf_body"],
             tau_env_measured=r["tau_env_meas"],
             Vw_mean=VW_NOMINAL, Hs=HS, Tp=TP, Vc=VC_NOMINAL, theta_rel=THETA_REL,
             sigma_Vc=0.1, tau_Vc=600.0, rao_table=rao,

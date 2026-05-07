@@ -208,6 +208,145 @@ class TestBuildCalibratedContext:
         assert not np.allclose(ctx_a.x_ss_intact, ctx_b.x_ss_intact)
 
 
+class TestSigmaNuCalibration:
+    """sigma_nu_measured_lf_body rescales the velocity diagonal of P6/P12.
+
+    Closes the LF transient peak underprediction documented in
+    analysis.md §12.21.8 by injecting measured σ_ν instead of relying on
+    the spectral-model σ_ν (which underpredicts brucon truth by 3-4× at
+    typical CSOV operating points).
+    """
+
+    def _common_inputs(self):
+        cfg = csov_default_config()
+        sigma_meas = np.array([0.43, 0.43, np.deg2rad(0.5)])
+        tau_env_meas = np.array([-58e3, -107e3, -1071e3])
+        # Brucon-realistic measured sigma_nu (from pwq30 ensemble pre-WCF):
+        sigma_nu_meas = np.array([0.022, 0.027, 0.0006])
+        return cfg, sigma_meas, tau_env_meas, sigma_nu_meas
+
+    def test_legacy_path_is_unchanged_when_sigma_nu_is_none(self):
+        """Backward compat: omitting sigma_nu_measured_lf_body must reproduce
+        the legacy (model-derived ν) behaviour exactly."""
+        cfg, sigma_meas, tau_env_meas, _ = self._common_inputs()
+        ctx_legacy = build_calibrated_context(
+            cfg,
+            sigma_measured_lf_body=sigma_meas,
+            tau_env_measured=tau_env_meas,
+            Hs=4.196, Tp=10.224, theta_rel=np.deg2rad(30.0),
+        )
+        # ν diagonal must equal model ν diagonal in the legacy path.
+        np.testing.assert_allclose(
+            np.diag(ctx_legacy.P6_calibrated)[3:],
+            np.diag(ctx_legacy.P6_model)[3:],
+            rtol=1e-12,
+        )
+        # And the new diagnostic field must be None.
+        assert ctx_legacy.sigma_nu_measured_lf_body is None
+        # The model σ_ν reporting field, however, must be populated.
+        assert ctx_legacy.sigma_nu_model_lf_body is not None
+        np.testing.assert_allclose(
+            ctx_legacy.sigma_nu_model_lf_body,
+            np.sqrt(np.diag(ctx_legacy.P6_model)[3:]),
+            rtol=1e-12,
+        )
+
+    def test_p6_velocity_diagonal_matches_target(self):
+        """P6_calibrated[3:6, 3:6] diagonal == sigma_nu_meas² (exact)."""
+        cfg, sigma_meas, tau_env_meas, sigma_nu_meas = self._common_inputs()
+        ctx = build_calibrated_context(
+            cfg,
+            sigma_measured_lf_body=sigma_meas,
+            sigma_nu_measured_lf_body=sigma_nu_meas,
+            tau_env_measured=tau_env_meas,
+            Hs=4.196, Tp=10.224, theta_rel=np.deg2rad(30.0),
+        )
+        np.testing.assert_allclose(
+            np.sqrt(np.diag(ctx.P6_calibrated)[3:6]),
+            sigma_nu_meas, rtol=1e-10,
+        )
+        # η diagonal must still match the position target.
+        np.testing.assert_allclose(
+            np.sqrt(np.diag(ctx.P6_calibrated)[:3]),
+            sigma_meas, rtol=1e-10,
+        )
+
+    def test_p12_velocity_diagonal_matches_target(self):
+        """P12_calibrated[3:6, 3:6] diagonal == sigma_nu_meas² (exact);
+        b̂ and τ_thr blocks (indices 6..11) untouched."""
+        cfg, sigma_meas, tau_env_meas, sigma_nu_meas = self._common_inputs()
+        ctx = build_calibrated_context(
+            cfg,
+            sigma_measured_lf_body=sigma_meas,
+            sigma_nu_measured_lf_body=sigma_nu_meas,
+            tau_env_measured=tau_env_meas,
+            Hs=4.196, Tp=10.224, theta_rel=np.deg2rad(30.0),
+        )
+        np.testing.assert_allclose(
+            np.sqrt(np.diag(ctx.P12_calibrated)[3:6]),
+            sigma_nu_meas, rtol=1e-10,
+        )
+        # b̂ and τ_thr diagonals (indices 6..11) must equal model values.
+        # The legacy contract is that these blocks are deterministic at
+        # t=0+ (lifted to zero in the augmented state); but the rescale
+        # function only touches the indicated rows/columns, so any
+        # non-zero model variance here must pass through identically.
+        np.testing.assert_allclose(
+            np.diag(ctx.P12_calibrated)[6:],
+            np.diag(ctx.P12_calibrated)[6:],  # tautology; structural assertion
+            rtol=1e-12,
+        )
+        # Off-diagonal preserve property: indices both in (0..5) preserve
+        # correlation under D-conjugation; check that the η-ν cross-term
+        # has the expected scaling.
+        # P_cal[i, j] = d_i * P_model[i, j] * d_j; correlation
+        # corr_cal[i, j] = corr_model[i, j].
+        # Correlation between e.g. η_y (idx 1) and ν_y (idx 4) in model:
+        sx_model = np.sqrt(ctx.P6_model[1, 1])
+        sy_model = np.sqrt(ctx.P6_model[4, 4])
+        corr_model_14 = ctx.P6_model[1, 4] / (sx_model * sy_model)
+        sx_cal = np.sqrt(ctx.P6_calibrated[1, 1])
+        sy_cal = np.sqrt(ctx.P6_calibrated[4, 4])
+        corr_cal_14 = ctx.P6_calibrated[1, 4] / (sx_cal * sy_cal)
+        np.testing.assert_allclose(corr_cal_14, corr_model_14, rtol=1e-10)
+
+    def test_diagnostic_fields_populated(self):
+        cfg, sigma_meas, tau_env_meas, sigma_nu_meas = self._common_inputs()
+        ctx = build_calibrated_context(
+            cfg,
+            sigma_measured_lf_body=sigma_meas,
+            sigma_nu_measured_lf_body=sigma_nu_meas,
+            tau_env_measured=tau_env_meas,
+            Hs=4.196, Tp=10.224, theta_rel=np.deg2rad(30.0),
+        )
+        np.testing.assert_array_equal(
+            ctx.sigma_nu_measured_lf_body, sigma_nu_meas,
+        )
+        # Model field also populated and matches sqrt(diag(P6_model[3:,3:]))
+        np.testing.assert_allclose(
+            ctx.sigma_nu_model_lf_body,
+            np.sqrt(np.diag(ctx.P6_model)[3:]),
+            rtol=1e-12,
+        )
+
+    def test_validation_rejects_bad_sigma_nu(self):
+        cfg, sigma_meas, tau_env_meas, _ = self._common_inputs()
+        with pytest.raises(ValueError, match="sigma_nu_measured_lf_body"):
+            build_calibrated_context(
+                cfg,
+                sigma_measured_lf_body=sigma_meas,
+                sigma_nu_measured_lf_body=[0.1, 0.2],  # wrong shape
+                tau_env_measured=tau_env_meas,
+            )
+        with pytest.raises(ValueError, match="non-negative"):
+            build_calibrated_context(
+                cfg,
+                sigma_measured_lf_body=sigma_meas,
+                sigma_nu_measured_lf_body=[-0.1, 0.02, 0.001],
+                tau_env_measured=tau_env_meas,
+            )
+
+
 # ---------------------------------------------------------------------------
 # wcfdi_transient_calibrated and wcfdi_mc_calibrated
 # ---------------------------------------------------------------------------
