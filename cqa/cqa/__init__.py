@@ -58,6 +58,13 @@ from .wcfdi_mc import (
     wcfdi_mc,
     starting_state_sensitivity,
 )
+from .calibrated_wcfdi import (
+    CalibratedContext,
+    build_calibrated_context,
+    wcfdi_transient_calibrated,
+    wcfdi_mc_calibrated,
+    rescale_covariance_diagonal,
+)
 from .wcfdi_self_mc import (
     WcfdiSelfMcResult,
     WcfdiSelfMcMatrix,
@@ -195,6 +202,11 @@ __all__ = [
     "WcfdiMcResult",
     "wcfdi_mc",
     "starting_state_sensitivity",
+    "CalibratedContext",
+    "build_calibrated_context",
+    "wcfdi_transient_calibrated",
+    "wcfdi_mc_calibrated",
+    "rescale_covariance_diagonal",
     "WcfdiSelfMcResult",
     "WcfdiSelfMcMatrix",
     "WcfdiSelfMcMatrixCell",
