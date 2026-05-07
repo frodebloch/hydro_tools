@@ -3691,3 +3691,141 @@ peak |Δradial|, compared against:
       transient),
   (b) calibrated `wcfdi_mc_calibrated` with measured `(σ_intact_lf,
       tau_env)`.
+
+#### 12.21.7 G2 Phase 1.5: tau_lost pulse closes the mechanism gap
+
+The §12.21.6.2 Phase 1 plan (inject measured `(σ_intact_lf,
+tau_env)` into the calibrated post-WCF propagation) was implemented
+and validated against the 30-seed `pwo` ensemble. Result: **calibrated
+ensemble-mean Δsurge/Δsway remained flat at 0.00 m**, identical to
+raw `wcfdi_mc`. Phase 1 alone does not recover the brucon transient.
+
+This section explains why, identifies the correct mechanism (thruster
+delivery lag, *not* allocator deficit and *not* bias-estimator desync
+per se), and documents the Phase 1.5 fix: a measurement-derived
+`tau_lost(t)` pulse on the delivered thrust at WCF.
+
+**Why Phase 1 alone is flat.** The mean-trajectory ODE post-WCF, with
+`tau_env` reachable by the surviving thruster set, has a fixed point
+at the intact steady-state position. For the `bus_port` failure case
+the measured `tau_env` is dominated by the wave drift (~−200 kN sway
+median), well below the post-WCF cap (490 kN sway). No clipping fires
+in the mean-flow ODE, so the mean position never moves. The Phase 1
+plumbing nevertheless delivers ~+0.55 m P50 `pos_peak` (vs raw 0.29 m)
+purely from the rescaled stochastic LF excursions seeded by σ_intact;
+the deterministic mean-trajectory pulse is missing.
+
+**The actual mechanism: thruster delivery lag.** Inspection of the 30
+brucon seeds (channels `Tx`, `Ty`, `Tz` = body-frame *delivered*
+thrust) reveals a discontinuous step at WCF:
+
+| DOF | Δ(delivered) at WCF | sign |
+|---|---|---|
+| surge | −27 kN | small |
+| sway | −199 kN | large |
+| yaw | +5621 kN·m | large |
+
+The failed Bow1 + PortMP set was carrying ~+131 kN sway and
+~−5600 kN·m yaw at the WCF instant. The instant they trip, that
+contribution vanishes from `(Tx, Ty, Tz)` while the surviving
+thrusters need physical time (azimuth rotation, tunnel spool-up,
+main-shaft inertia) to take over. The allocator commands the correct
+redistribution **immediately** — `AllocTau == OrderTau` at every
+sample for all 30 seeds — but the *physics of force production* lags
+the command by 5–15 s.
+
+The deficit `tau_lost(t) := tau_alloc(t) − tau_delivered(t)` has a
+characteristic shape across the ensemble:
+
+  - **Sway:** holds ~+200 kN constant for ~5 s, then ramps linearly
+    to zero by t ≈ 14 s.
+  - **Yaw:** drops to ~−5650 kN·m initially, then *grows* to a peak
+    of ~−8744 kN·m at t ≈ 5 s (controller demands more as heading
+    drifts but thrusters cannot deliver), then ramps back to zero by
+    t ≈ 14 s.
+
+Per-seed effective square-pulse duration `T_eff := impulse / peak`
+(median over 30 seeds): 8.6 s sway, 11.9 s yaw, ensemble-median
+across DOFs **11.7 s**.
+
+**Phase 1.5 implementation.** `_augmented_rhs_post` (in
+`cqa.transient`) now accepts an optional `tau_lost_fn(t)` callable;
+when supplied, `M⁻¹·τ_lost(t)` is subtracted from `ν̇` post-WCF.
+`CalibratedContext` (in `cqa.calibrated_wcfdi`) gains three new
+fields: `tau_lost_pre_wcf` (3-vector, peak deficit per DOF, body
+frame), `tau_lost_pulse_shape` (`"square"` or `"linear_decay"`), and
+`tau_lost_duration_s` (scalar, typically the per-seed measured
+`T_eff`). Both `wcfdi_transient_calibrated` and
+`wcfdi_mc_calibrated` build the pulse callable (gated on non-zero
+amplitude to preserve backward compatibility) and pass it through.
+Default zero pulse preserves all pre-existing test results.
+
+The validation script in `scripts/p7_brucon_validation/
+calibrated_wcfdi_brucon_validation.py` measures, for each of the 30
+seeds: (a) σ_lf_body diagonals from a [360, 560)s pre-WCF window,
+(b) `tau_env` from the brucon estimator at t = t_WCF⁻, (c)
+`tau_lost_pre_wcf` as the *peak* per-DOF deficit on `(OrderTau −
+deliveredTau)` over [0, 30]s post-WCF, (d) per-DOF `T_eff` =
+impulse/peak. The calibrated MC uses the measured per-seed (σ,
+τ_env, τ_lost) with `pulse_shape="square"` and the ensemble-median
+T_eff (11.7 s) as `tau_lost_duration_s`.
+
+**Validation result (30 seeds, 500 MC samples each).** Cumulative
+recovery across the four calibration variants:
+
+| metric | brucon truth | cqa raw | +σ+τ_env | +σ+τ_env+linear_decay τ_lost (T=10 s) | +σ+τ_env+square τ_lost (T=11.7 s) |
+|---|---|---|---|---|---|
+| ensemble-mean Δsurge peak (m) | +0.92 @ 37 s | 0.00 | 0.00 | −0.09 @ 19 s | **+0.61 @ 19.9 s** |
+| ensemble-mean Δsway peak (m)  | −1.41 @ 35 s | 0.00 | 0.00 | −0.34 @ 16 s | **−0.60 @ 16.6 s** |
+| per-seed pos_peak P50 (m) | 2.40 | 0.29 | 0.55 | 0.60 | **1.04** |
+| per-seed pos_peak P95 (m) | 3.53 | 0.59 | 0.75 | 0.82 | **1.32** |
+
+The Phase 1.5 endpoint (square pulse, peak amplitude, ensemble-median
+T_eff) recovers **correct sign, correct shape, ~50% amplitude, ~50%
+time-to-peak** on the ensemble means, and improves per-seed P50
+`pos_peak` by 4× over raw and ~2× over Phase 1 alone.
+
+**Residual gap and Phase 2 candidates.** The ~50% amplitude shortfall
+on ensemble means is *not* a pulse-shape issue at first order. For
+LF modes with periods 50–100 s, a 12 s pulse looks approximately
+impulsive, so peak displacement scales with ∫τ_lost dt — which is
+correct by construction at the (peak, T_eff) operating point. The
+missing factor of ~2 is **closed-loop coupled amplification**: the
+brucon yaw deficit grows ~55% beyond its initial step as position
+drifts and the controller demands more thrust than the surviving set
+can yet deliver. A scalar open-loop pulse cannot reproduce this
+positive-feedback amplification.
+
+Two Phase 2 candidates are noted but not pursued here:
+
+  1. **Coupled-amplification scalar.** Replace the static
+     `tau_lost_pre_wcf` peak with a dynamic
+     `tau_lost(t) = α·τ_alloc(t) − τ_delivered_model(t)` where
+     `τ_delivered_model` is a first-order lag on commanded thrust.
+     Closes the loop on the cqa side. Requires identifying the lag
+     time constant per thruster type from brucon.
+
+  2. **Half-peak / matched-impulse pulse shape**
+     (level = ½·peak, T = 2·T_eff). Same impulse as current design,
+     so first-order peak amplitude unchanged, but later time-to-peak
+     (closer to brucon's 35 s vs current 17 s). Defensible refinement
+     if timing is the priority; not run in this pass.
+
+**Bug fix bundled in this commit.** `wcfdi_mc._build_operating_context`
+called `npd_wind_gust_force_psd` unconditionally, dividing by
+`Vw_mean^0.75` and crashing on waves-only inputs. Fixed by mirroring
+the `Vw_mean > 1e-9` guard already present in `wcfdi_transient`. This
+had been blocking calibrated waves-only validation runs.
+
+**Tests.** `tests/test_calibrated_wcfdi.py` grew an 8-test
+`TestTauLostPulse` class (default-zero preserves Phase 1 behaviour;
+non-zero drives a non-zero mean response; square impulse is 2×
+linear-decay impulse for matched peak/duration; `tau_lost_fn(t)`
+method values; three input-validation tests; MC end-to-end pulse
+propagation). All 25 tests pass. A new gated companion test
+`tests/test_calibrated_wcfdi_brucon.py` runs the full pipeline on
+brucon seed 1000 and asserts (a) measured τ_lost is non-trivial in
+sway and yaw on `bus_port`, (b) calibrated `pos_peak` P50 > 0.4 m
+(catches plumbing regressions), (c) calibrated prediction beats raw
+on |pos_peak − truth|. Skips cleanly when brucon ensemble or
+pdstrip RAOs are absent.

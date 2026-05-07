@@ -200,7 +200,14 @@ def _build_operating_context(
 
     # Intact 6x6 closed-loop covariance (eta, nu)
     cl_intact = ClosedLoop.build(vessel, controller)
-    S_wind = npd_wind_gust_force_psd(wind_model, Vw_mean, theta_rel)
+    if Vw_mean > 1e-9:
+        S_wind = npd_wind_gust_force_psd(wind_model, Vw_mean, theta_rel)
+    else:
+        # Vw_mean == 0 -> NPD spectrum is undefined and wind force is zero
+        # by construction; mirror the wcfdi_transient guard so waves-only
+        # validation runs (Vw=0) work end-to-end.
+        def S_wind(_w):
+            return np.zeros((3, 3))
     if rao_table is not None:
         S_drift = slow_drift_force_psd_newman_pdstrip(
             rao_table, Hs=Hs, Tp=Tp, theta_wave_rel=theta_rel

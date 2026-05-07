@@ -336,3 +336,177 @@ class TestCalibratedTransientPipeline:
         np.testing.assert_allclose(
             res_cal.pos_peak[valid], res_raw.pos_peak[valid], rtol=1e-6, atol=1e-6,
         )
+
+
+# ---------------------------------------------------------------------------
+# tau_lost pulse plumbing (G2 step 4 / sec.12.21.7)
+# ---------------------------------------------------------------------------
+
+
+class TestTauLostPulse:
+    """Unit tests for the measured tau_lost(t) injection in the calibrated
+    transient/MC paths."""
+
+    @pytest.fixture
+    def cfg(self):
+        return csov_default_config()
+
+    @pytest.fixture
+    def scenario(self):
+        return WcfdiScenario(
+            alpha=(0.5, 0.5, 0.5),
+            gamma_immediate=0.3,
+            T_realloc=10.0,
+        )
+
+    @pytest.fixture
+    def joint(self, cfg):
+        L0 = 0.5 * (cfg.gangway.telescope_min + cfg.gangway.telescope_max)
+        return GangwayJointState(h=15.0, alpha_g=0.0, beta_g=0.0, L=L0)
+
+    def _build_ctx(self, cfg, **overrides):
+        kwargs = dict(
+            sigma_measured_lf_body=[0.3, 0.5, np.deg2rad(0.3)],
+            tau_env_measured=[0.0, -100000.0, 0.0],
+            Vw_mean=10.0, Hs=4.0, Tp=10.0, Vc=0.5,
+            theta_rel=np.deg2rad(90.0),
+        )
+        kwargs.update(overrides)
+        return build_calibrated_context(cfg, **kwargs)
+
+    def test_default_tau_lost_zero_preserves_baseline_mean(self, cfg, scenario):
+        """With tau_lost_pre_wcf left at default (zeros), the calibrated
+        transient mean should be identical to the no-pulse path. The
+        cqa fixture uses tau_env reachable post-WCF, so the mean is
+        the intact fixed point (flat trajectory)."""
+        ctx = self._build_ctx(cfg)  # default tau_lost_pre_wcf = zeros
+        res = wcfdi_transient_calibrated(cfg, scenario, ctx, t_end=60.0, n_t=61)
+        # Should be flat at the intact fixed point: eta_mean[0] ~ eta_mean[t]
+        # for all t (within ODE tolerance).
+        np.testing.assert_allclose(
+            res.eta_mean - res.eta_mean[0:1, :], 0.0, atol=1e-3,
+        )
+        # info.calibration block should report zero pulse and the configured shape
+        cal = res.info["calibration"]
+        np.testing.assert_array_equal(cal["tau_lost_pre_wcf"], np.zeros(3))
+        assert cal["tau_lost_pulse_shape"] == "linear_decay"
+        assert cal["tau_lost_duration_s"] == 5.0
+
+    def test_nonzero_tau_lost_drives_mean_response(self, cfg, scenario):
+        """A 100 kN sway tau_lost pulse should produce a clearly non-zero
+        sway transient (more than a few cm)."""
+        ctx_zero = self._build_ctx(cfg)
+        ctx_pulse = self._build_ctx(
+            cfg,
+            tau_lost_pre_wcf=[0.0, 100_000.0, 0.0],
+            tau_lost_pulse_shape="square",
+            tau_lost_duration_s=10.0,
+        )
+        res_zero = wcfdi_transient_calibrated(cfg, scenario, ctx_zero, t_end=60.0, n_t=61)
+        res_pulse = wcfdi_transient_calibrated(cfg, scenario, ctx_pulse, t_end=60.0, n_t=61)
+        sway_pulse = res_pulse.eta_mean[:, 1] - res_pulse.eta_mean[0, 1]
+        sway_zero = res_zero.eta_mean[:, 1] - res_zero.eta_mean[0, 1]
+        # Pulse-driven sway transient should be at least 10 cm peak.
+        assert np.max(np.abs(sway_pulse)) > 0.1, (
+            f"100 kN sway pulse over 10 s should drive a > 10 cm sway transient, "
+            f"got max |sway| = {np.max(np.abs(sway_pulse)):.4f} m"
+        )
+        # And it should be much larger than the no-pulse case.
+        assert np.max(np.abs(sway_pulse)) > 5 * np.max(np.abs(sway_zero) + 1e-6)
+        # Sign: positive tau_lost_y subtracts from effective force, so
+        # vessel drifts toward NEGATIVE sway (-Minv @ tau_lost on nu).
+        idx_peak = int(np.argmax(np.abs(sway_pulse)))
+        assert sway_pulse[idx_peak] < 0, (
+            f"Expected negative sway peak from positive tau_lost_y, got {sway_pulse[idx_peak]}"
+        )
+
+    def test_square_vs_linear_decay_amplitude_ordering(self, cfg, scenario):
+        """For the same peak amplitude and duration, a square pulse delivers
+        2x the impulse of a linear-decay pulse, so the position response
+        should be larger."""
+        ctx_sq = self._build_ctx(
+            cfg,
+            tau_lost_pre_wcf=[0.0, 100_000.0, 0.0],
+            tau_lost_pulse_shape="square",
+            tau_lost_duration_s=10.0,
+        )
+        ctx_ld = self._build_ctx(
+            cfg,
+            tau_lost_pre_wcf=[0.0, 100_000.0, 0.0],
+            tau_lost_pulse_shape="linear_decay",
+            tau_lost_duration_s=10.0,
+        )
+        res_sq = wcfdi_transient_calibrated(cfg, scenario, ctx_sq, t_end=60.0, n_t=61)
+        res_ld = wcfdi_transient_calibrated(cfg, scenario, ctx_ld, t_end=60.0, n_t=61)
+        peak_sq = np.max(np.abs(res_sq.eta_mean[:, 1] - res_sq.eta_mean[0, 1]))
+        peak_ld = np.max(np.abs(res_ld.eta_mean[:, 1] - res_ld.eta_mean[0, 1]))
+        # Square should be ~2x linear-decay (impulse ratio is exactly 2).
+        # Allow some slack for closed-loop damping/response shape differences.
+        assert peak_sq > 1.4 * peak_ld, (
+            f"square pulse peak {peak_sq:.3f} m should be > 1.4x linear_decay {peak_ld:.3f} m"
+        )
+
+    def test_tau_lost_fn_method(self, cfg):
+        """CalibratedContext.tau_lost_fn returns the right values at sample times."""
+        ctx_sq = self._build_ctx(
+            cfg,
+            tau_lost_pre_wcf=[10.0, 20.0, 30.0],
+            tau_lost_pulse_shape="square",
+            tau_lost_duration_s=5.0,
+        )
+        # Inside window: full amplitude; outside: zero
+        np.testing.assert_array_equal(ctx_sq.tau_lost_fn(0.0), [10.0, 20.0, 30.0])
+        np.testing.assert_array_equal(ctx_sq.tau_lost_fn(2.5), [10.0, 20.0, 30.0])
+        np.testing.assert_array_equal(ctx_sq.tau_lost_fn(4.999), [10.0, 20.0, 30.0])
+        np.testing.assert_array_equal(ctx_sq.tau_lost_fn(5.0), [0.0, 0.0, 0.0])
+        np.testing.assert_array_equal(ctx_sq.tau_lost_fn(6.0), [0.0, 0.0, 0.0])
+        np.testing.assert_array_equal(ctx_sq.tau_lost_fn(-1.0), [0.0, 0.0, 0.0])
+
+        ctx_ld = self._build_ctx(
+            cfg,
+            tau_lost_pre_wcf=[10.0, 20.0, 30.0],
+            tau_lost_pulse_shape="linear_decay",
+            tau_lost_duration_s=10.0,
+        )
+        # At t=0: full amplitude; at t=5: half; at t=10: zero (boundary -> zero)
+        np.testing.assert_allclose(ctx_ld.tau_lost_fn(0.0), [10.0, 20.0, 30.0])
+        np.testing.assert_allclose(ctx_ld.tau_lost_fn(5.0), [5.0, 10.0, 15.0])
+        np.testing.assert_allclose(ctx_ld.tau_lost_fn(10.0), [0.0, 0.0, 0.0])
+        np.testing.assert_allclose(ctx_ld.tau_lost_fn(11.0), [0.0, 0.0, 0.0])
+
+    def test_invalid_pulse_shape_rejected(self, cfg):
+        with pytest.raises(ValueError, match="tau_lost_pulse_shape"):
+            self._build_ctx(cfg, tau_lost_pulse_shape="exponential")
+
+    def test_invalid_tau_lost_shape_rejected(self, cfg):
+        with pytest.raises(ValueError, match="tau_lost_pre_wcf"):
+            self._build_ctx(cfg, tau_lost_pre_wcf=[10.0, 20.0])  # wrong shape
+
+    def test_invalid_duration_rejected(self, cfg):
+        with pytest.raises(ValueError, match="tau_lost_duration_s"):
+            self._build_ctx(cfg, tau_lost_duration_s=-1.0)
+
+    def test_mc_with_tau_lost_propagates_to_pos_peak(self, cfg, scenario, joint):
+        """MC with a strong tau_lost pulse should yield larger pos_peak
+        than MC with zero pulse."""
+        ctx_zero = self._build_ctx(cfg)
+        ctx_pulse = self._build_ctx(
+            cfg,
+            tau_lost_pre_wcf=[0.0, 200_000.0, 0.0],
+            tau_lost_pulse_shape="square",
+            tau_lost_duration_s=10.0,
+        )
+        res_zero = wcfdi_mc_calibrated(
+            cfg, scenario, joint, ctx_zero,
+            n_samples=64, t_end=80.0, n_t=81, rng_seed=11,
+        )
+        res_pulse = wcfdi_mc_calibrated(
+            cfg, scenario, joint, ctx_pulse,
+            n_samples=64, t_end=80.0, n_t=81, rng_seed=11,
+        )
+        med_zero = float(np.nanmedian(res_zero.pos_peak))
+        med_pulse = float(np.nanmedian(res_pulse.pos_peak))
+        assert med_pulse > 1.5 * med_zero, (
+            f"Expected pulse-driven pos_peak median to be much larger than zero-pulse case, "
+            f"got {med_zero:.3f} -> {med_pulse:.3f}"
+        )

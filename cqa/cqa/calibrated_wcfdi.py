@@ -208,6 +208,26 @@ class CalibratedContext:
     sigma_model_lf_body : (3,) array
         The corresponding model σ values (sqrt of P6_model diagonal),
         useful for reporting the per-DOF calibration ratio.
+    tau_lost_pre_wcf : (3,) array, default zeros
+        Per-DOF transient deficit on delivered thrust at WCF (the jump
+        in actual delivered force at the failure instant). Drives the
+        post-WCF mean trajectory through the new tau_lost_fn term in
+        :func:`cqa.transient._augmented_rhs_post`. Defaults to zeros
+        which reproduces the flat-mean behaviour of the original
+        calibrated path (analysis.md sec.12.21.6.2).
+    tau_lost_pulse_shape : str, default "linear_decay"
+        Time profile of the deficit. ``"square"``: constant
+        ``tau_lost_pre_wcf`` for ``tau_lost_duration_s``, then zero.
+        ``"linear_decay"``: linear ramp from ``tau_lost_pre_wcf`` at
+        t=0 to zero at t=``tau_lost_duration_s``, then zero.
+    tau_lost_duration_s : float, default 5.0
+        Duration of the pulse. Should match the surviving thrusters'
+        spool-up / azimuth re-orientation timescale at this operating
+        point. Default 5 s matches scenario.T_realloc; brucon empirical
+        deficit-shape profile (sec.12.21.7) suggests ~10-15 s for the
+        full settle, with the constant-then-decay best fit being
+        trapezoidal -- linear_decay over 10 s is a reasonable scalar
+        approximation.
     """
 
     aug: AugmentedSystem
@@ -221,6 +241,38 @@ class CalibratedContext:
     cl_intact: ClosedLoop
     vessel: LinearVesselModel
     controller: LinearDpController
+    tau_lost_pre_wcf: np.ndarray = None
+    tau_lost_pulse_shape: str = "linear_decay"
+    tau_lost_duration_s: float = 5.0
+
+    def __post_init__(self):
+        if self.tau_lost_pre_wcf is None:
+            self.tau_lost_pre_wcf = np.zeros(3)
+        else:
+            self.tau_lost_pre_wcf = np.asarray(self.tau_lost_pre_wcf, dtype=float)
+        if self.tau_lost_pre_wcf.shape != (3,):
+            raise ValueError(
+                f"tau_lost_pre_wcf must have shape (3,), got {self.tau_lost_pre_wcf.shape}"
+            )
+        if self.tau_lost_pulse_shape not in ("square", "linear_decay"):
+            raise ValueError(
+                f"tau_lost_pulse_shape must be 'square' or 'linear_decay', "
+                f"got {self.tau_lost_pulse_shape!r}"
+            )
+        if self.tau_lost_duration_s < 0:
+            raise ValueError(
+                f"tau_lost_duration_s must be non-negative, got {self.tau_lost_duration_s}"
+            )
+
+    def tau_lost_fn(self, t: float) -> np.ndarray:
+        """Per-DOF tau_lost(t) following the configured pulse shape."""
+        T = self.tau_lost_duration_s
+        if T <= 0 or t < 0 or t >= T:
+            return np.zeros(3)
+        if self.tau_lost_pulse_shape == "square":
+            return self.tau_lost_pre_wcf
+        # linear_decay
+        return self.tau_lost_pre_wcf * (1.0 - t / T)
 
 
 def build_calibrated_context(
@@ -240,6 +292,9 @@ def build_calibrated_context(
     sigma_Vc: float = 0.1,
     tau_Vc: float = 600.0,
     rao_table=None,
+    tau_lost_pre_wcf: Optional[Sequence[float]] = None,
+    tau_lost_pulse_shape: str = "linear_decay",
+    tau_lost_duration_s: float = 5.0,
 ) -> CalibratedContext:
     """Build the calibrated operating-point context.
 
@@ -385,6 +440,12 @@ def build_calibrated_context(
         cl_intact=cl_intact,
         vessel=vessel,
         controller=controller,
+        tau_lost_pre_wcf=(
+            None if tau_lost_pre_wcf is None
+            else np.asarray(tau_lost_pre_wcf, dtype=float).copy()
+        ),
+        tau_lost_pulse_shape=tau_lost_pulse_shape,
+        tau_lost_duration_s=tau_lost_duration_s,
     )
 
 
@@ -435,11 +496,14 @@ def wcfdi_transient_calibrated(
     delta_tau = x0_post[9:12] - x0[9:12]
 
     cap_fn = lambda t: scenario.cap_at_time(t, cfg)
+    tau_lost_fn = ctx.tau_lost_fn if np.any(ctx.tau_lost_pre_wcf != 0.0) else None
 
     # Mean trajectory ODE
     t_eval = np.linspace(0.0, t_end, n_t)
     sol = solve_ivp(
-        fun=lambda t, x: _augmented_rhs_post(t, x, aug, tau_env, cap_fn),
+        fun=lambda t, x: _augmented_rhs_post(
+            t, x, aug, tau_env, cap_fn, tau_lost_fn=tau_lost_fn
+        ),
         t_span=(0.0, t_end),
         y0=x0_post,
         t_eval=t_eval,
@@ -530,6 +594,9 @@ def wcfdi_transient_calibrated(
                 ctx.sigma_measured_lf_body
                 / np.where(ctx.sigma_model_lf_body > 0, ctx.sigma_model_lf_body, 1.0)
             ),
+            "tau_lost_pre_wcf": ctx.tau_lost_pre_wcf,
+            "tau_lost_pulse_shape": ctx.tau_lost_pulse_shape,
+            "tau_lost_duration_s": ctx.tau_lost_duration_s,
         },
     }
     return TransientResult(
@@ -597,6 +664,7 @@ def wcfdi_mc_calibrated(
     c_L = telescope_sensitivity(joint, cfg.gangway)
     L0 = joint.L
     cap_fn = lambda t: scenario.cap_at_time(t, cfg)
+    tau_lost_fn = ctx.tau_lost_fn if np.any(ctx.tau_lost_pre_wcf != 0.0) else None
 
     rng = np.random.default_rng(rng_seed)
     if sample_mode == "eta_nu":
@@ -636,7 +704,9 @@ def wcfdi_mc_calibrated(
         x0_samples[i] = delta_x[i]
 
         sol = solve_ivp(
-            fun=lambda t, x: _augmented_rhs_post(t, x, aug, tau_env, cap_fn),
+            fun=lambda t, x: _augmented_rhs_post(
+                t, x, aug, tau_env, cap_fn, tau_lost_fn=tau_lost_fn
+            ),
             t_span=(0.0, t_end),
             y0=x0_post,
             t_eval=t_eval,
@@ -704,6 +774,9 @@ def wcfdi_mc_calibrated(
                 ctx.sigma_measured_lf_body
                 / np.where(ctx.sigma_model_lf_body > 0, ctx.sigma_model_lf_body, 1.0)
             ),
+            "tau_lost_pre_wcf": ctx.tau_lost_pre_wcf,
+            "tau_lost_pulse_shape": ctx.tau_lost_pulse_shape,
+            "tau_lost_duration_s": ctx.tau_lost_duration_s,
         },
     }
 

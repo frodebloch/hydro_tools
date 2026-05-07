@@ -296,12 +296,23 @@ def _augmented_rhs_post(
     aug: AugmentedSystem,
     tau_env: np.ndarray,
     cap_fn: Callable[[float], np.ndarray],
+    tau_lost_fn: Optional[Callable[[float], np.ndarray]] = None,
 ) -> np.ndarray:
     """RHS for the deterministic post-failure mean trajectory with thrust clipping.
 
     `cap_fn(t)` returns the per-DOF available cap at time t (modelling
     the thrust-reallocation ramp from the immediate-post-failure value
     up to the steady-state post-failure cap).
+
+    `tau_lost_fn(t)` (optional) returns a per-DOF transient deficit on
+    delivered thrust at time t -- the difference between what the
+    surviving thrusters are *commanded* to produce and what they can
+    actually *deliver* during the spool-up / re-allocation transient.
+    Mathematically equivalent to subtracting tau_lost(t) from the
+    effective force on the vessel hull. Default None preserves the
+    original (cap-only) behaviour for backward compatibility. See
+    analysis.md sec.12.21.7 for the brucon validation that motivated
+    this term.
     """
     eta = x[0:3]
     nu = x[3:6]
@@ -313,7 +324,11 @@ def _augmented_rhs_post(
 
     cap_now = cap_fn(t)
     eta_dot = nu
-    nu_dot = Minv_D @ nu + Minv @ tau_thr + Minv @ tau_env
+    if tau_lost_fn is not None:
+        tau_lost_now = tau_lost_fn(t)
+        nu_dot = Minv_D @ nu + Minv @ tau_thr + Minv @ tau_env - Minv @ tau_lost_now
+    else:
+        nu_dot = Minv_D @ nu + Minv @ tau_thr + Minv @ tau_env
     b_hat_dot = (1.0 / aug.T_b) * (aug.Kp @ eta)
     tau_cmd = -aug.Kp @ eta - aug.Kd @ nu - b_hat
     tau_cmd_clipped = _clip_per_dof(tau_cmd, cap_now)
