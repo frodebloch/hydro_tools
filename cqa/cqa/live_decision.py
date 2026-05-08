@@ -62,6 +62,26 @@ model: the WCFDI transient adds no extra randomness on top of the live
 baseline (which already captures all the stationary noise via the
 Bayes posterior). Only the mean position moves during the transient.
 
+Note on the BayesianSigmaEstimator window length
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The sigma_R values consumed by this cell come from upstream
+``BayesianSigmaEstimator`` instances on the four observer channels
+(eta_hat_x/y, eta_wave_x/y). The window length W of those estimators
+is an OPERATIONAL knob, not a fixed physical constant: at pwq30 we
+verified that LF sigma_R is non-converged in W (sigma_R goes from
+~0.27 m at W=30 s to ~1.85 m at W=500 s), because the brucon LF
+position has variance content at periods comparable to and longer
+than W (DP setpoint hold + slow drift force coherence + observer
+integral wind-up). WF sigma_R is window-independent above ~30 s.
+
+A 60 s window is the recommended default: it captures 5+ wave
+periods cleanly (so the WF sub-band converges), and matches the
+operator's "is the boat fluctuating against my setpoint right now?"
+intuition. Longer windows mix slow setpoint drift into sigma; shorter
+windows lose WF convergence. See
+``scripts/p7_brucon_validation/sigma_window_sweep_pwq30.py`` for the
+W-dependence study.
+
 Intact axis::
 
     intact_pos_envelope = | eta_hat_LF | + k_sigma * sqrt(sigma_R_LF^2 + sigma_R_WF^2)
