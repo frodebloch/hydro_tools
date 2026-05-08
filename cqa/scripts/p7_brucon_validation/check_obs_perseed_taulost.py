@@ -57,6 +57,9 @@ TAG = "pwq30"
 SEEDS = list(range(1000, 1030))
 T_WCF = 560.0  # match check_obs_vs_brucon.py: aligns to onset of Order-T divergence
                # (Alert.log fires at 562.1 s but the actual deficit starts ~2 s earlier)
+BASELINE_START = 5.0   # baseline window: [T_WCF - BASELINE_END, T_WCF - BASELINE_START]
+BASELINE_END = 30.0    # 25 s of pre-WCF data, ~2.5 wave periods (Tp ~ 10 s)
+                       # -> wave-frequency mean residual ~ 1/sqrt(2.5) of std ~ 0.3 m -> 0.06 m SE per seed
 T_PRE = 30.0
 T_POST = 120.0
 DT = 0.1
@@ -96,13 +99,21 @@ def load_seed(seed: int):
     if t[-1] < T_WCF + 30.0:
         return None  # truncated, skip
 
-    # Body-frame truth deviations
+    # Body-frame truth deviations.
+    # Baseline: per-seed time-AVERAGED mean over a pre-WCF window
+    # [T_WCF - BASELINE_END, T_WCF - BASELINE_START], NOT the instantaneous
+    # value at t_WCF. The latter would inject a per-seed wave-frequency
+    # offset of O(0.5 m std) into the trace, which after ensemble-averaging
+    # creates a spurious coherent ~10-15s sway swing around t=0 (the
+    # "upward bump" before the WCF dip in earlier diagnostics). Time-mean
+    # baseline is unbiased: each seed's wave-frequency component averages
+    # to ~0 over an integer number of wave periods.
     s_b, w_b = project_ned_to_body(cols["x"], cols["y"], cols["heading"])
-    idx0 = int(np.searchsorted(t, T_WCF) - 1)
-    s_b -= s_b[idx0]
-    w_b -= w_b[idx0]
-    sd = cols["SurgeDev"] - cols["SurgeDev"][idx0]
-    wd = cols["SwayDev"] - cols["SwayDev"][idx0]
+    base_mask = (t >= T_WCF - BASELINE_END) & (t <= T_WCF - BASELINE_START)
+    s_b -= s_b[base_mask].mean()
+    w_b -= w_b[base_mask].mean()
+    sd = cols["SurgeDev"] - cols["SurgeDev"][base_mask].mean()
+    wd = cols["SwayDev"] - cols["SwayDev"][base_mask].mean()
 
     # Per-seed tau_lost: the hull receives T but cqa's tau_thr at SS would
     # equal -Order (i.e. cqa expects the controller's commanded force to be
