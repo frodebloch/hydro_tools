@@ -377,6 +377,254 @@ def _wcfdi_peak_at_forecast(
     )
 
 
+def _wcfdi_peak_at_forecast_obs(
+    cfg: CqaConfig,
+    joint: GangwayJointState,
+    Vw: float,
+    Hs: float,
+    Tp: float,
+    Vc: float,
+    theta_rel: float,
+    *,
+    scenario: WcfdiScenario,
+    k_sigma: float,
+    t_end: float,
+    sigma_Vc: float,
+    tau_Vc: float,
+    c_L: np.ndarray,
+    rao_table=None,
+    n_t: int = 401,
+):
+    """27-state observer-augmented counterpart of _wcfdi_peak_at_forecast.
+
+    Drives the explicit-observer model in ``cqa.transient_obs`` (validated
+    against brucon truth at pwq30 to ~25 percent on LF mean peak; the
+    legacy 15-state pipeline is ~4x low). Returns the same tuple shape:
+    ``(peak_pos_m, peak_dL_m, bistability_score, cqa_violated)``.
+
+    Mean trajectory: linear ODE on the 27-state aug system driven by
+    ``tau_lost(t)`` from the WcfdiScenario thrust-cap recovery (no
+    saturation in the linear sense; saturation lives entirely in the
+    construction of tau_lost(t)). Initial state is the exact intact SS
+    via ``A x_ss = -B_d tau_env``.
+
+    Covariance trajectory: Lyapunov ODE
+        dP/dt = A P + P A^T + B_w W_eq B_w^T
+    on the same 27-state intact A, with W_eq matched to the intact
+    closed-loop 6-DOF P6 (truth (eta, nu) covariance from the
+    frequency-domain integral over wind/drift/current PSDs), exactly the
+    same W_eq pattern as in cqa.transient. P0 lifts P6 into the
+    27-state augmented covariance with observer/wave-filter blocks zero.
+
+    bistability_score is left at 0 in v1; the saturation gate from the
+    15-state model does not directly translate (no clipping in the linear
+    27-state).
+    """
+    from .vessel import LinearVesselModel, CurrentForceModel
+    from .controller import LinearDpController
+    from .closed_loop import ClosedLoop, state_covariance_freqdomain
+    from .psd import (
+        npd_wind_gust_force_psd,
+        slow_drift_force_psd_newman,
+        current_variability_force_psd,
+        WindForceModel,
+    )
+    from .transient_obs import (
+        build_observer_augmented_system_full,
+        pulse_response,
+        csov_observer_gains,
+        N_STATE as N_STATE_OBS,
+    )
+    from .transient import lift_intact_cov_to_augmented
+    from scipy.integrate import solve_ivp
+
+    vp = cfg.vessel
+    wp = cfg.wind
+    cp = cfg.current
+    wd = cfg.wave_drift
+    cp_ctrl = cfg.controller
+
+    vessel = LinearVesselModel.from_config(vp)
+    controller = LinearDpController.from_bandwidth(
+        vessel.M, vessel.D,
+        omega_n=cp_ctrl.omega_n, zeta=cp_ctrl.zeta,
+    )
+
+    # Wave-filter peak frequency from forecast Tp (the brucon observer
+    # locks omega_p to the wave-period estimate at runtime).
+    obs_gains = csov_observer_gains(Tp_s=Tp if Tp > 0 else 10.0)
+    aug = build_observer_augmented_system_full(
+        vessel, controller, obs_gains=obs_gains,
+        T_thr=cp_ctrl.thruster_time_constant_s,
+    )
+
+    # ---- Mean environmental force (wind + current + mean drift) ----
+    wind_model = WindForceModel(wp=wp, loa=vp.loa)
+    current_model = CurrentForceModel(
+        cp=cp,
+        lateral_area_underwater=vp.lpp * vp.draft,
+        frontal_area_underwater=vp.beam * vp.draft,
+        loa=vp.loa,
+    )
+    F_wind = wind_model.force(Vw, theta_rel)
+    F_curr = current_model.force(Vc, theta_rel)
+    if rao_table is not None:
+        from .drift import mean_drift_force_pdstrip
+        F_drift = mean_drift_force_pdstrip(
+            rao_table, Hs=Hs, Tp=Tp, theta_wave_rel=theta_rel,
+        )
+    else:
+        F_drift = np.array([
+            wd.drift_x_amp * Hs ** 2 * np.cos(theta_rel),
+            wd.drift_y_amp * Hs ** 2 * np.sin(theta_rel),
+            wd.drift_n_amp * Hs ** 2 * np.sin(2.0 * theta_rel),
+        ])
+    tau_env = F_wind + F_curr + F_drift
+
+    cap_post = scenario.resolved_cap_post(cfg)
+    cqa_violated_arr = np.abs(tau_env) > cap_post
+    if bool(np.any(cqa_violated_arr)):
+        return float("inf"), float("inf"), 0.0, True
+
+    # ---- Initial perturbation: zero (we propagate the deviation from the
+    # intact SS). The validated direct cqa-27 path against brucon truth uses
+    # x0 = zeros for the same reason: pulse_response solves
+    #     d delta_x / dt = A delta_x + B_lost tau_lost(t)
+    # i.e. it omits the persistent B_d tau_env term, so an "absolute" SS
+    # initialisation would relax under unforced A and produce a spurious
+    # transient. The footprint metric of operational interest is the
+    # deviation from the operator's commanded set-point (= intact SS) anyway.
+    x0 = np.zeros(N_STATE_OBS)
+
+    # ---- tau_lost(t) on uniform grid ----
+    # The "deliverable thrust" model used here is the brucon-physics-faithful
+    # one: at t=0+ half the thrusters drop out, the surviving alloc cannot
+    # immediately reproduce the pre-WCF thrust direction, and the actually
+    # delivered thrust drops to a fraction of T_pre = -tau_env. It then
+    # recovers toward the steady-state achievable thrust over T_realloc.
+    #
+    # Empirically (cqa/scripts/p7_brucon_validation/check_obs_perseed_taulost.py
+    # ensemble at pwq30, sway DOF):
+    #   T_pre        = +108 kN
+    #   T(t+1s)      = -29 kN     (delivered thrust drops by ~137 kN)
+    #   tau_lost(0+) = T(0+) - T_pre = -137 kN
+    # The previous "cap-based" formulation tau_lost = tau_env - clip(tau_env,
+    # +-cap) gives identically zero whenever |tau_env| <= cap_immediate, which
+    # is the operationally interesting regime (CQA precondition holds with
+    # margin). It systematically misses the dominant transient, which is
+    # set by the allocator's inability to reproduce the pre-WCF thrust
+    # direction immediately, NOT by capacity saturation per DOF.
+    #
+    # Parameterisation:
+    #   T_post(t) = beta(t) * T_pre        (pre-WCF balanced thrust scaled)
+    #   beta(0+) = gamma_immediate         (default 0.5: brucon-empirical match)
+    #   beta(inf) = 1                      (controller recovers to balance)
+    #   beta(t) = 1 + (gamma_immediate - 1) * exp(-t / T_realloc)
+    # tau_lost(t) injected via B_lost (B_lost = +Minv) is then:
+    #   tau_lost(t) = T_post(t) - T_pre = (beta(t) - 1) * T_pre
+    #               = -(1 - beta(t)) * tau_env
+    #               = -(1 - gamma_immediate) * tau_env * exp(-t / T_realloc)
+    # (T_pre = -tau_env at intact SS).
+    #
+    # Note: scenario.alpha encodes the steady-state surviving-fraction cap;
+    # not used here because we model recovery as beta(inf)=1 (full reach back
+    # to the demanded thrust). If alpha < |tau_env|/cap_intact in any DOF,
+    # the CQA precondition has already failed and we returned (inf, inf)
+    # above. Inside the precondition envelope, the steady-state achievable
+    # thrust always equals the demand.
+    t_grid = np.linspace(0.0, t_end, n_t)
+    gamma_imm = float(scenario.gamma_immediate)
+    T_realloc = float(scenario.T_realloc) if scenario.T_realloc > 0 else 1e-9
+    beta_t = 1.0 + (gamma_imm - 1.0) * np.exp(-t_grid / T_realloc)  # (n_t,)
+    tau_lost = (beta_t[:, None] - 1.0) * (-tau_env[None, :])
+    # i.e. tau_lost(t, dof) = -(1 - beta(t)) * tau_env[dof]
+    # At t=0+ : tau_lost = -(1 - gamma_imm) * tau_env
+    # At t=inf: tau_lost = 0
+
+    # ---- Mean trajectory ----
+    try:
+        X = pulse_response(aug, t_grid, tau_lost, x0=x0)
+    except Exception:
+        return float("inf"), float("inf"), 0.0, True
+
+    eta_mean = X[:, 0:3]  # truth body deviation (m, m, rad)
+
+    # ---- Covariance trajectory (Lyapunov ODE on intact A) ----
+    cl_intact = ClosedLoop.build(vessel, controller)
+    if Vw > 1e-9:
+        S_wind = npd_wind_gust_force_psd(wind_model, Vw, theta_rel)
+    else:
+        def S_wind(_w):
+            return np.zeros((3, 3))
+    if rao_table is not None:
+        from .drift import slow_drift_force_psd_newman_pdstrip
+        S_drift = slow_drift_force_psd_newman_pdstrip(
+            rao_table, Hs=Hs, Tp=Tp, theta_wave_rel=theta_rel,
+        )
+    else:
+        S_drift = slow_drift_force_psd_newman(
+            (wd.drift_x_amp, wd.drift_y_amp, wd.drift_n_amp),
+            Hs, Tp, theta_rel,
+        )
+    if Vc > 1e-9:
+        dFdVc = 2.0 * F_curr / Vc
+    else:
+        dFdVc = np.zeros(3)
+    S_curr = current_variability_force_psd(dFdVc, sigma_Vc=sigma_Vc, tau=tau_Vc)
+    P6 = state_covariance_freqdomain(cl_intact, [S_wind, S_drift, S_curr])
+    P0 = lift_intact_cov_to_augmented(P6, n_state=N_STATE_OBS)
+
+    # Match W_eq to intact 6-DOF P6 via Lyapunov on the 6-state closed loop.
+    A_cl6 = cl_intact.A_cl
+    B_w6 = cl_intact.B_w
+    Q6 = -(A_cl6 @ P6 + P6 @ A_cl6.T)
+    Bp = np.linalg.pinv(B_w6)
+    W_eq = Bp @ Q6 @ Bp.T
+    W_eq = 0.5 * (W_eq + W_eq.T)
+    eigs, V = np.linalg.eigh(W_eq)
+    eigs = np.maximum(eigs, 0.0)
+    W_eq = V @ np.diag(eigs) @ V.T
+    BWBT_aug = aug.B_w @ W_eq @ aug.B_w.T
+
+    n_aug = aug.n_state
+    def rhs_P(t, P_flat):
+        P = P_flat.reshape(n_aug, n_aug)
+        return (aug.A @ P + P @ aug.A.T + BWBT_aug).flatten()
+
+    sol_P = solve_ivp(
+        fun=rhs_P,
+        t_span=(0.0, t_end),
+        y0=P0.flatten(),
+        t_eval=t_grid,
+        method="RK45",
+        rtol=1e-5,
+        atol=1e-9,
+    )
+    if not sol_P.success:
+        return float("inf"), float("inf"), 0.0, True
+    P_t = sol_P.y.T.reshape(n_t, n_aug, n_aug)
+    P_t = 0.5 * (P_t + P_t.transpose(0, 2, 1))
+    P_eta = P_t[:, 0:3, 0:3]
+
+    # ---- Envelopes ----
+    pos_mean_r = np.sqrt(eta_mean[:, 0] ** 2 + eta_mean[:, 1] ** 2)
+    sigma_R_t = np.sqrt(np.maximum(P_eta[:, 0, 0] + P_eta[:, 1, 1], 0.0))
+    pos_envelope = pos_mean_r + k_sigma * sigma_R_t
+
+    dL_mean = eta_mean @ c_L
+    sigma_dL = np.sqrt(np.maximum(
+        np.einsum("i,nij,j->n", c_L, P_eta, c_L), 0.0,
+    ))
+    dL_envelope = np.abs(dL_mean) + k_sigma * sigma_dL
+
+    return (
+        float(np.max(pos_envelope)),
+        float(np.max(dL_envelope)),
+        0.0,  # bistability_score: not directly defined for the linear 27-state
+        False,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -401,6 +649,7 @@ def evaluate_decision_cell(
     k_sigma: float = 0.674,
     t_end_wcfdi: float = 200.0,
     bistability_alarm: float = 1.5,
+    use_obs_transient: bool = False,
 ) -> DecisionCell:
     """Evaluate the decision-matrix cell at one (slot, heading) pair.
 
@@ -457,13 +706,23 @@ def evaluate_decision_cell(
 
     c_L = telescope_sensitivity(joint, cfg.gangway)
 
-    pos_peak, dL_peak, bist_score, cqa_violated = _wcfdi_peak_at_forecast(
-        cfg, joint,
-        Vw=slot.Vw, Hs=slot.Hs, Tp=slot.Tp, Vc=slot.Vc,
-        theta_rel=theta_rel,
-        scenario=scenario, k_sigma=k_sigma, t_end=t_end_wcfdi,
-        sigma_Vc=sigma_Vc, tau_Vc=tau_Vc, c_L=c_L,
-    )
+    if use_obs_transient:
+        pos_peak, dL_peak, bist_score, cqa_violated = _wcfdi_peak_at_forecast_obs(
+            cfg, joint,
+            Vw=slot.Vw, Hs=slot.Hs, Tp=slot.Tp, Vc=slot.Vc,
+            theta_rel=theta_rel,
+            scenario=scenario, k_sigma=k_sigma, t_end=t_end_wcfdi,
+            sigma_Vc=sigma_Vc, tau_Vc=tau_Vc, c_L=c_L,
+            rao_table=rao_table,
+        )
+    else:
+        pos_peak, dL_peak, bist_score, cqa_violated = _wcfdi_peak_at_forecast(
+            cfg, joint,
+            Vw=slot.Vw, Hs=slot.Hs, Tp=slot.Tp, Vc=slot.Vc,
+            theta_rel=theta_rel,
+            scenario=scenario, k_sigma=k_sigma, t_end=t_end_wcfdi,
+            sigma_Vc=sigma_Vc, tau_Vc=tau_Vc, c_L=c_L,
+        )
     if bist_score > bistability_alarm and not cqa_violated:
         # Bistability gate: deterministic predictor in the meta-stable
         # regime; treat both axes as alarm. See analysis.md §12.14.
@@ -520,6 +779,7 @@ def wcfdi_decision_matrix(
     k_sigma: float = 0.674,
     t_end_wcfdi: float = 200.0,
     bistability_alarm: float = 1.5,
+    use_obs_transient: bool = False,
     progress_cb=None,
 ) -> WcfdiDecisionMatrix:
     """Build the full forecast-case decision matrix (slots x headings).
@@ -573,6 +833,7 @@ def wcfdi_decision_matrix(
                 use_pm_for_drift=use_pm_for_drift,
                 k_sigma=k_sigma, t_end_wcfdi=t_end_wcfdi,
                 bistability_alarm=bistability_alarm,
+                use_obs_transient=use_obs_transient,
             )
             cells.append(cell)
 
