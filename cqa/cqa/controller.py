@@ -44,20 +44,37 @@ class LinearDpController:
         D: np.ndarray,
         omega_n: tuple[float, float, float] = (0.06, 0.06, 0.05),
         zeta: tuple[float, float, float] = (0.9, 0.9, 0.9),
+        subtract_open_loop_damping: bool = True,
     ) -> "LinearDpController":
         """Tune diagonal PD gains from desired closed-loop bandwidth/damping.
 
         omega_n in rad/s. Defaults give surge/sway natural period ~105 s and
         yaw natural period ~125 s, typical for DP station-keeping.
+
+        Parameters
+        ----------
+        subtract_open_loop_damping : if True (default, historical cqa
+            convention), Kd = 2 zeta M omega - D so that the resulting
+            closed-loop pole has the requested damping ratio zeta. If
+            False (brucon convention), Kd = 2 zeta M omega and the
+            open-loop damping D adds on top, leaving the system
+            **overdamped** by a factor (1 + D/(2 M omega zeta)). Brucon
+            uses this convention because its DP controller provides all
+            damping (open-loop D estimation was not in place when the
+            tuning was set), so the natural D is regarded as a 'bonus'
+            rather than a budgeted contribution.
         """
         omega = np.asarray(omega_n)
         zet = np.asarray(zeta)
         Mdiag = np.diag(M)
         Ddiag = np.diag(D)
         kp = Mdiag * omega ** 2
-        kd = 2.0 * zet * Mdiag * omega - Ddiag
-        # Ensure non-negative effective damping.
-        kd = np.maximum(kd, 0.5 * Ddiag)
+        if subtract_open_loop_damping:
+            kd = 2.0 * zet * Mdiag * omega - Ddiag
+            # Ensure non-negative effective damping.
+            kd = np.maximum(kd, 0.5 * Ddiag)
+        else:
+            kd = 2.0 * zet * Mdiag * omega
         return cls(Kp=np.diag(kp), Kd=np.diag(kd))
 
     def feedback(self) -> tuple[np.ndarray, np.ndarray]:

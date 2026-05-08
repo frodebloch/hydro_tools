@@ -153,7 +153,8 @@ def build_cqa():
     vessel = LinearVesselModel.from_config(cfg.vessel)
     omega_n = np.array([0.060, 0.080, 0.120])
     zeta = np.array([0.95, 0.95, 0.95])
-    ctrl = LinearDpController.from_bandwidth(vessel.M, vessel.D, omega_n=omega_n, zeta=zeta)
+    ctrl = LinearDpController.from_bandwidth(vessel.M, vessel.D, omega_n=omega_n, zeta=zeta,
+                                             subtract_open_loop_damping=False)
     return build_observer_augmented_system_full(vessel, ctrl, T_thr=5.0)
 
 
