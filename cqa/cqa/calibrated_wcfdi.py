@@ -364,6 +364,7 @@ def build_calibrated_context(
     tau_lost_duration_s: float = 5.0,
     tau_thr_post_init_delta: Optional[Sequence[float]] = None,
     T_thr_post_override_s: Optional[float] = None,
+    include_integrator: bool = True,
 ) -> CalibratedContext:
     """Build the calibrated operating-point context.
 
@@ -453,7 +454,10 @@ def build_calibrated_context(
     controller = LinearDpController.from_bandwidth(
         vessel.M, vessel.D, omega_n=omega_n, zeta=zeta
     )
-    aug = build_augmented_system(vessel, controller, T_b=T_b, T_thr=T_thr)
+    aug = build_augmented_system(
+        vessel, controller, T_b=T_b, T_thr=T_thr,
+        include_integrator=include_integrator,
+    )
 
     # --- intact mean steady state from MEASURED tau_env ---
     x_ss_intact = intact_mean_steady_state(aug, tau_env_meas)

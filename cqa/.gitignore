@@ -7,6 +7,7 @@ scripts/p7_brucon_validation/work/
 scripts/p7_brucon_validation/work_long/
 scripts/p7_brucon_validation/work_long_lockedTp/
 scripts/p7_brucon_validation/work_smoke_lockedTp/
+scripts/p7_brucon_validation/work_pwq30_taufb/
 scripts/p7_brucon_validation/*.png
 scripts/p7_brucon_validation/*.pdf
 scripts/p7_brucon_validation/*.log

@@ -106,7 +106,8 @@ PDSTRIP_PATH = (
 )
 
 # ---- MC sample size for cqa-side wcfdi_mc ----
-N_MC_SAMPLES = 500
+import os as _os_envhook
+N_MC_SAMPLES = int(_os_envhook.environ.get("CQA_N_MC", "500"))
 
 # ---- tau_lost pulse shape (G2 step 4 / sec.12.21.7) ----
 # Per-seed measurement extracts:
@@ -132,6 +133,19 @@ TAU_LOST_PULSE_SHAPE = "square"
 # amplitude is set to zero (no double-counting) and the measured
 # tau_lost_init_jump is passed as tau_thr_post_init_delta.
 USE_REINIT_PATH = False
+
+# ---- Status-summary support (sec.12.21.8.1) ----
+# If CQA_INTEGRATOR=0/1 env var is set, force include_integrator on/off
+# in build_calibrated_context. Default (unset) leaves the library default
+# (True). If CQA_STATUS_NPZ=<path> is set, dump the comparison arrays
+# (truth_peaks_60, cal_pooled_peaks, cal_dsurge_mean, cal_dsway_mean,
+# t_cqa, brucon_dsurge_mean, brucon_dsway_mean, t_truth) at the end.
+import os as _os_status
+_INTEG_ENV = _os_status.environ.get("CQA_INTEGRATOR")
+INCLUDE_INTEGRATOR = (_INTEG_ENV != "0") if _INTEG_ENV is not None else True
+STATUS_NPZ_PATH = _os_status.environ.get("CQA_STATUS_NPZ")
+print(f"[status hook] include_integrator = {INCLUDE_INTEGRATOR}, "
+      f"npz dump = {STATUS_NPZ_PATH}")
 # Optional override for the post-WCF thruster lag time constant. None
 # uses the model default (cfg.controller.thruster_time_constant_s,
 # typically 5 s). Brucon empirical T_eff ~12 s -> set to ~12 to match.
@@ -430,6 +444,7 @@ def main() -> None:
             tau_env_measured=r["tau_env_meas"],
             Vw_mean=VW_NOMINAL, Hs=HS, Tp=TP, Vc=VC_NOMINAL, theta_rel=THETA_REL,
             sigma_Vc=0.1, tau_Vc=600.0, rao_table=rao,
+            include_integrator=INCLUDE_INTEGRATOR,
             **ctx_kwargs,
         )
         cal = wcfdi_mc_calibrated(
@@ -649,6 +664,27 @@ def main() -> None:
         print(f"\nSaved: {out_png}")
     except Exception as e:
         print(f"\nplot failed: {e}")
+
+    # ---- status-summary npz dump (sec.12.21.8.1) ----
+    if STATUS_NPZ_PATH:
+        np.savez(
+            STATUS_NPZ_PATH,
+            include_integrator=np.array(INCLUDE_INTEGRATOR),
+            t_cqa=t_cqa,
+            t_truth=t_truth,
+            truth_dsurge_mean=truth_dsurge,
+            truth_dsway_mean=truth_dsway,
+            cal_dsurge_mean=cal_dsurge_mean,
+            cal_dsway_mean=cal_dsway_mean,
+            truth_peaks_60=truth_peaks_60,
+            cal_pooled_peaks=cal_cg60_pooled_finite,
+            cal_peaks_p50_per_seed=np.array(cal_pos_peak_p50),
+            cal_peaks_p50_truth_seed=cal_peaks_p50,
+            cal_peaks_p95_truth_seed=cal_peaks_p95,
+            truth_peaks_60_truth_seed=np.array([r["truth_peak_60"] for r in rows]),
+            raw_pos_peak_p50=raw_pos_peak_p50_seed,
+        )
+        print(f"Saved status npz: {STATUS_NPZ_PATH}")
 
 
 if __name__ == "__main__":
