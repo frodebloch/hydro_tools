@@ -1,8 +1,8 @@
 """Generate the brucon validation-matrix ensembles.
 
-Runs four cells of {head-on, Q10} x {Bf 6 (nominal), Bf 8 (extreme)},
-all with co-linear wind/wave/current per DNV-ST-0111 Table (provided
-by the user 2026-05):
+Co-linear cells {head-on, Q10} x {Bf 6 (nominal), Bf 8 (extreme)},
+plus 45-deg wind/wave split cells with the same {theta_rel, Bf} grid,
+all per DNV-ST-0111 Table (provided by the user 2026-05):
 
     Bf 6  (nominal): Vw = 13.8 m/s, Hs = 3.1 m, Tp = 8.5 s, Vc = 0.75 m/s
     Bf 8 (extreme): Vw = 20.7 m/s, Hs = 5.7 m, Tp = 10.0 s, Vc = 0.75 m/s
@@ -11,10 +11,17 @@ WCFDI: bus_port (Bow1 + PortMP), matching pwq30 / pwo.
 
 Tags written under work/<TAG>_seed{1000..1029}/:
 
-    bf6_h0    head-on,   Bf 6
-    bf6_q10   theta=+10, Bf 6
-    bf8_h0    head-on,   Bf 8
-    bf8_q10   theta=+10, Bf 8
+  Co-linear (wind = waves = current):
+    bf6_h0       head-on,   Bf 6
+    bf6_q10      theta=+10, Bf 6
+    bf8_h0       head-on,   Bf 8
+    bf8_q10      theta=+10, Bf 8
+
+  45-deg split (wind veers +45 deg right of waves; current co-linear with waves):
+    bf6_h0_w45   head-on,   Bf 6
+    bf6_q10_w45  theta=+10, Bf 6
+    bf8_h0_w45   head-on,   Bf 8
+    bf8_q10_w45  theta=+10, Bf 8
 
 Once a cell is generated, validate it with::
 
@@ -61,20 +68,36 @@ POST_FAILURE_S = 180.0    # WCFDI transient window
 # DNV-ST-0111 Beaufort table (image provided 2026-05).
 BF6 = dict(Vw=13.8, Hs=3.1, Tp=8.5, Vc=0.75)
 BF8 = dict(Vw=20.7, Hs=5.7, Tp=10.0, Vc=0.75)
+# Bf 4 benign sea state for low-variability current-dominated check
+# (DNV-ish standard values, current overridden per-cell):
+BF4 = dict(Vw=7.0, Hs=1.5, Tp=6.0, Vc=0.75)
 
 
-def _make_spec(env: dict, theta_rel_deg: float) -> ScenarioSpec:
-    """Build a ScenarioSpec with co-linear wind/wave/current.
+def _make_spec(env: dict, theta_rel_deg: float,
+               wind_offset_deg: float = 0.0,
+               current_compass_abs: float | None = None,
+               current_speed_override: float | None = None) -> ScenarioSpec:
+    """Build a ScenarioSpec.
 
-    theta_rel_deg = (wave_compass - vessel_heading_compass) wrapped to
-    [-180, 180]. We hold vessel heading at 180 deg, so wave_compass =
-    180 + theta_rel_deg.
+    theta_rel_deg = (wave_compass - vessel_heading_compass), i.e. waves and
+    current come from compass = 180 + theta_rel_deg. wind comes from
+    (wave_compass + wind_offset_deg).
+
+    If current_compass_abs is given, current direction is taken absolute
+    (independent of waves) — used for current-dominated cells where the
+    current loads the vessel asymmetrically. current_speed_override
+    likewise replaces env["Vc"] when supplied.
     """
     wave_compass = (VESSEL_HEADING_COMPASS + theta_rel_deg) % 360.0
+    wind_compass = (wave_compass + wind_offset_deg) % 360.0
+    current_compass = (current_compass_abs % 360.0
+                       if current_compass_abs is not None else wave_compass)
+    current_speed = (current_speed_override
+                     if current_speed_override is not None else env["Vc"])
     return ScenarioSpec(
         Hs=env["Hs"], Tp=env["Tp"], wave_dir_compass=wave_compass,
-        wind_speed=env["Vw"], wind_dir_compass=wave_compass,
-        current_speed=env["Vc"], current_dir_compass=wave_compass,
+        wind_speed=env["Vw"], wind_dir_compass=wind_compass,
+        current_speed=current_speed, current_dir_compass=current_compass,
         vessel_heading_compass=VESSEL_HEADING_COMPASS,
         failed_thruster_indices=FAILED_THRUSTERS,
         activate_sk_s=ACTIVATE_SK_S,
@@ -84,12 +107,26 @@ def _make_spec(env: dict, theta_rel_deg: float) -> ScenarioSpec:
     )
 
 
-# (tag, theta_rel_deg, env_dict).
-CELLS: dict[str, tuple[float, dict]] = {
-    "bf6_h0":  (0.0,  BF6),
-    "bf6_q10": (10.0, BF6),
-    "bf8_h0":  (0.0,  BF8),
-    "bf8_q10": (10.0, BF8),
+# Heavy-current cells: current from vessel+45 deg compass = 225, Vc = 1.0 m/s.
+_BF4_CURR_COMPASS = (VESSEL_HEADING_COMPASS + 45.0) % 360.0  # = 225
+_BF4_CURR_SPEED = 1.0
+
+# CELLS[tag] = (theta_rel_deg, env_dict, wind_offset_deg,
+#               current_compass_abs_or_None, current_speed_override_or_None).
+CELLS: dict[str, tuple[float, dict, float, float | None, float | None]] = {
+    # Co-linear matrix.
+    "bf6_h0":      (0.0,  BF6, 0.0,  None, None),
+    "bf6_q10":     (10.0, BF6, 0.0,  None, None),
+    "bf8_h0":      (0.0,  BF8, 0.0,  None, None),
+    "bf8_q10":     (10.0, BF8, 0.0,  None, None),
+    # 45-deg wind/wave split (wind veers right of waves; current co-linear).
+    "bf6_h0_w45":  (0.0,  BF6, 45.0, None, None),
+    "bf6_q10_w45": (10.0, BF6, 45.0, None, None),
+    "bf8_h0_w45":  (0.0,  BF8, 45.0, None, None),
+    "bf8_q10_w45": (10.0, BF8, 45.0, None, None),
+    # Bf 4 + heavy current from vessel+45 deg (low-variability check).
+    "bf4_c1_h0":   (0.0,  BF4, 0.0,  _BF4_CURR_COMPASS, _BF4_CURR_SPEED),
+    "bf4_c1_q10":  (10.0, BF4, 0.0,  _BF4_CURR_COMPASS, _BF4_CURR_SPEED),
 }
 
 
@@ -97,9 +134,13 @@ def _parse_args():
     import argparse
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--tags", default=",".join(CELLS.keys()),
+    p.add_argument("--tags",
+                   default="bf6_h0_w45,bf6_q10_w45,bf8_h0_w45,bf8_q10_w45,"
+                           "bf4_c1_h0,bf4_c1_q10",
                    help="Comma-separated list of cell tags to (re)generate. "
-                        "Default: all four.")
+                        f"Known: {','.join(CELLS.keys())}. "
+                        "Default: the 4 split-direction cells plus the 2 "
+                        "Bf 4 + heavy-current cells.")
     p.add_argument("--n-seeds", type=int, default=N_SEEDS,
                    help=f"Seeds per cell (default {N_SEEDS}).")
     p.add_argument("--n-workers", type=int, default=None,
@@ -124,15 +165,22 @@ def main():
     print()
 
     for tag in tags:
-        theta_rel, env = CELLS[tag]
-        spec = _make_spec(env, theta_rel)
+        theta_rel, env, wind_off, curr_compass_abs, curr_speed_ovr = CELLS[tag]
+        spec = _make_spec(env, theta_rel, wind_offset_deg=wind_off,
+                          current_compass_abs=curr_compass_abs,
+                          current_speed_override=curr_speed_ovr)
         wave_compass = (VESSEL_HEADING_COMPASS + theta_rel) % 360.0
+        wind_compass = (wave_compass + wind_off) % 360.0
+        curr_compass = (curr_compass_abs if curr_compass_abs is not None
+                        else wave_compass)
+        curr_speed = (curr_speed_ovr if curr_speed_ovr is not None
+                      else env["Vc"])
         print("-" * 72)
         print(f"[{tag}]  theta_rel = {theta_rel:+.1f} deg  "
-              f"(wave from {wave_compass:.1f} compass)")
+              f"(wave from {wave_compass:.1f}, wind from {wind_compass:.1f}, "
+              f"current from {curr_compass:.1f} compass)")
         print(f"  Hs = {env['Hs']:.2f} m, Tp = {env['Tp']:.2f} s, "
-              f"Vw = {env['Vw']:.2f} m/s, Vc = {env['Vc']:.2f} m/s "
-              f"(co-linear)")
+              f"Vw = {env['Vw']:.2f} m/s, Vc = {curr_speed:.2f} m/s")
         t0 = time.time()
         run_ensemble(
             spec, n_seeds=args.n_seeds, work_dir=WORK_DIR, tag=tag,
