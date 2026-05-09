@@ -69,6 +69,7 @@ from cqa.transient import WcfdiScenario
 
 # --------------------------- scenario knobs ------------------------------
 WORK_ROOT = THIS / "work"
+# Cell parameters (defaults match pwq30; override on CLI for other cells).
 TAG = "pwq30"
 SEEDS = list(range(1000, 1030))
 
@@ -77,6 +78,33 @@ T_EVAL = T_WCF - 5.0          # snapshot time for the live cell
 WIN_S = 60.0                  # Bayesian sigma window length
 WIN_END = T_WCF - 1.0         # end of the live-window (just before the WCF)
 WIN_START = WIN_END - WIN_S
+
+
+def _parse_args():
+    import argparse
+    p = argparse.ArgumentParser(description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--tag", default=TAG,
+                   help=f"Cell tag, also work-dir prefix (default: {TAG})")
+    p.add_argument("--t-wcf", type=float, default=T_WCF,
+                   help=f"WCF injection time in seconds (default: {T_WCF})")
+    p.add_argument("--seeds", default=f"{SEEDS[0]}-{SEEDS[-1]+1}",
+                   help="Seed range as 'lo-hi' (Python-style half-open) "
+                        f"(default: {SEEDS[0]}-{SEEDS[-1]+1})")
+    return p.parse_args()
+
+
+def _apply_args(args):
+    """Mutate module-level cell parameters from parsed args."""
+    global TAG, T_WCF, T_EVAL, WIN_END, WIN_START, SEEDS, CALIB_NPZ
+    TAG = args.tag
+    T_WCF = float(args.t_wcf)
+    T_EVAL = T_WCF - 5.0
+    WIN_END = T_WCF - 1.0
+    WIN_START = WIN_END - WIN_S
+    lo, hi = args.seeds.split("-")
+    SEEDS = list(range(int(lo), int(hi)))
+    CALIB_NPZ = THIS / f"scenario_{TAG}_calibration.npz"
 
 # Heuristic decorrelation times (s):
 #   LF surge/sway: ~ 1 / omega_pid ~ 12-17 s -> use 15 s
@@ -524,10 +552,11 @@ def main():
 
     plt.suptitle(f"Live operational CQA cell vs brucon truth at {TAG}", fontsize=12)
     plt.tight_layout()
-    out = THIS / "live_cell_per_seed_pwq30.png"
+    out = THIS / f"live_cell_per_seed_{TAG}.png"
     plt.savefig(out, dpi=120)
     print(f"\nsaved {out}")
 
 
 if __name__ == "__main__":
+    _apply_args(_parse_args())
     main()

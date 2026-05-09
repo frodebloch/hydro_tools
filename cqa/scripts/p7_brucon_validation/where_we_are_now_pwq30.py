@@ -48,6 +48,7 @@ from cqa.transient_obs import (
 from cqa.vessel import LinearVesselModel
 
 WORK_ROOT = THIS / "work"
+# Cell parameters (defaults match pwq30; override on CLI for other cells).
 TAG = "pwq30"
 SEEDS = list(range(1000, 1030))
 T_WCF = 560.0
@@ -56,6 +57,32 @@ DT = 0.05
 T_PRE_LO = T_WCF - 30.0
 T_PRE_HI = T_WCF - 5.0
 B_HAT_SNAPSHOT_T = T_WCF - 5.0
+
+
+def _parse_args():
+    import argparse
+    p = argparse.ArgumentParser(description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--tag", default=TAG,
+                   help=f"Cell tag, also work-dir prefix (default: {TAG})")
+    p.add_argument("--t-wcf", type=float, default=T_WCF,
+                   help=f"WCF injection time in seconds (default: {T_WCF})")
+    p.add_argument("--seeds", default=f"{SEEDS[0]}-{SEEDS[-1]+1}",
+                   help="Seed range as 'lo-hi' (Python-style half-open) "
+                        f"(default: {SEEDS[0]}-{SEEDS[-1]+1})")
+    return p.parse_args()
+
+
+def _apply_args(args):
+    """Mutate module-level cell parameters from parsed args."""
+    global TAG, T_WCF, T_PRE_LO, T_PRE_HI, B_HAT_SNAPSHOT_T, SEEDS
+    TAG = args.tag
+    T_WCF = float(args.t_wcf)
+    T_PRE_LO = T_WCF - 30.0
+    T_PRE_HI = T_WCF - 5.0
+    B_HAT_SNAPSHOT_T = T_WCF - 5.0
+    lo, hi = args.seeds.split("-")
+    SEEDS = list(range(int(lo), int(hi)))
 
 
 def _load_seed(seed):
@@ -174,10 +201,43 @@ def main():
     eta_hat_mag = np.hypot(eta_lf_seeds[:, 0], eta_lf_seeds[:, 1])
     deta_mag_at_peak_V3 = np.hypot(deta_pk_V3[:, 0], deta_pk_V3[:, 1])
 
-    # Sigma envelope contribution (typical pwq30 from validation script)
-    SIGMA_R_LF = 0.36
-    SIGMA_R_WF = 0.53
-    SIGMA_R_BHAT = 0.073
+    # Sigma envelope contribution.
+    #   sigma_R_b_hat: cell-specific, from offline calibration npz produced
+    #     by peak_R_b_hat_sigma_pwq30.py (script-name fossilised, multi-cell).
+    #   sigma_R_LF, sigma_R_WF: cell-specific in principle (depend on sea
+    #     state and observer Tp). Computed here from the brucon ensemble
+    #     pre-WCF window as a stand-in for the per-seed Bayesian posterior
+    #     medians (which the live cell uses). Acceptable for offline
+    #     diagnostics; the live cell itself uses BayesianSigmaEstimator.
+    calib_npz = THIS / f"scenario_{TAG}_calibration.npz"
+    if calib_npz.exists():
+        SIGMA_R_BHAT = float(np.load(calib_npz)["sigma_R_b_hat_m"])
+    else:
+        SIGMA_R_BHAT = 0.073  # pwq30 fallback
+
+    # Pre-WCF ensemble-std proxy for LF and WF radial sigmas.
+    pre_lf_dx = []; pre_lf_dy = []
+    pre_wf_dx = []; pre_wf_dy = []
+    for seed in SEEDS:
+        out = _load_seed(seed)
+        if out is None:
+            continue
+        M, E = out
+        pre = (M["t"] >= T_PRE_LO) & (M["t"] <= T_PRE_HI)
+        # LF residual: SurgeDev/SwayDev minus their 60-s mean.
+        sx = M["SurgeDev"][pre]; sy = M["SwayDev"][pre]
+        pre_lf_dx.append(sx - sx.mean()); pre_lf_dy.append(sy - sy.mean())
+        # WF residual: HfPosX/Y from estimator log.
+        pre_e = (E["Time"] >= T_PRE_LO) & (E["Time"] <= T_PRE_HI)
+        wx = E["HfPosX"][pre_e]; wy = E["HfPosY"][pre_e]
+        pre_wf_dx.append(wx - wx.mean()); pre_wf_dy.append(wy - wy.mean())
+    sig_lf_x = float(np.std(np.concatenate(pre_lf_dx)))
+    sig_lf_y = float(np.std(np.concatenate(pre_lf_dy)))
+    sig_wf_x = float(np.std(np.concatenate(pre_wf_dx)))
+    sig_wf_y = float(np.std(np.concatenate(pre_wf_dy)))
+    SIGMA_R_LF = float(np.hypot(sig_lf_x, sig_lf_y))
+    SIGMA_R_WF = float(np.hypot(sig_wf_x, sig_wf_y))
+
     SIGMA_R_TOTAL = float(np.sqrt(SIGMA_R_LF**2 + SIGMA_R_WF**2 + SIGMA_R_BHAT**2))
     K_SIGMA = 0.674
     sigma_halo = K_SIGMA * SIGMA_R_TOTAL
@@ -326,10 +386,11 @@ def main():
         fontsize=12,
     )
     plt.tight_layout()
-    out = THIS / "where_we_are_now_pwq30.png"
+    out = THIS / f"where_we_are_now_{TAG}.png"
     plt.savefig(out, dpi=120)
     print(f"\nsaved {out}")
 
 
 if __name__ == "__main__":
+    _apply_args(_parse_args())
     main()

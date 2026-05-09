@@ -32,10 +32,21 @@ import numpy as np
 THIS = Path(__file__).resolve().parent
 sys.path.insert(0, str(THIS.parent.parent))
 
-CALIB_NPZ = THIS / "scenario_pwq30_calibration.npz"
+CALIB_NPZ_DEFAULT = THIS / "scenario_pwq30_calibration.npz"
+
+
+def _parse_args():
+    import argparse
+    p = argparse.ArgumentParser(description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--tag", default="pwq30",
+                   help="Cell tag (selects scenario_<tag>_calibration.npz; default: pwq30)")
+    return p.parse_args()
 
 
 def main():
+    args = _parse_args()
+    CALIB_NPZ = THIS / f"scenario_{args.tag}_calibration.npz"
     if not CALIB_NPZ.exists():
         sys.exit(
             f"missing {CALIB_NPZ}\n"
@@ -138,7 +149,7 @@ def main():
         fontsize=12,
     )
     plt.tight_layout()
-    out = THIS / "peak_R_per_seed_traces_pwq30.png"
+    out = THIS / f"peak_R_per_seed_traces_{args.tag}.png"
     plt.savefig(out, dpi=120)
     print(f"\nsaved {out}")
 
