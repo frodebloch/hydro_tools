@@ -62,7 +62,7 @@ N_SEEDS = 30
 BASE_SEED = 1000
 T_WCF = 560.0  # matches pwq30 / pwo lua
 PRE_WINDOW_S = 60.0
-POST_WINDOW_S = 90.0
+POST_WINDOW_S = 60.0
 
 
 def _load_seed(seed: int):
@@ -169,18 +169,28 @@ def main():
         pred_Rx = delta_eta_mean[:, 0]
         pred_Ry = delta_eta_mean[:, 1]
         pred_R = np.sqrt(pred_Rx ** 2 + pred_Ry ** 2)
-        print(f"\n=== Live-cell pulse_response(b_hat) prediction (axis decomposition) ===")
+        print(f"\n=== Live-cell pulse_response(b_hat_mean) — peak of mean ===")
         print(f"  peak |R_x| (surge):  {np.max(np.abs(pred_Rx)):.3f} m")
         print(f"  peak |R_y| (sway):   {np.max(np.abs(pred_Ry)):.3f} m")
         print(f"  peak |R|  (total):   {np.max(pred_R):.3f} m")
 
-        # Surge share of prediction.
-        if np.max(pred_R) > 1e-6:
-            i_peak = int(np.argmax(pred_R))
-            pred_surge_share = abs(pred_Rx[i_peak]) / np.max(pred_R)
-            pred_sway_share = abs(pred_Ry[i_peak]) / np.max(pred_R)
-            print(f"  surge share at peak: {pred_surge_share:.3f}")
-            print(f"  sway share at peak:  {pred_sway_share:.3f}")
+    # Per-seed live-cell prediction from delta_eta_seeds (apples-to-apples
+    # with per-seed truth).
+    if "delta_eta_seeds" in cal.files:
+        ds = cal["delta_eta_seeds"]  # (n_seeds, T, 3)
+        pred_Rx_per = np.max(np.abs(ds[:, :, 0]), axis=1)
+        pred_Ry_per = np.max(np.abs(ds[:, :, 1]), axis=1)
+        pred_R_per = np.max(np.sqrt(ds[:, :, 0] ** 2 + ds[:, :, 1] ** 2), axis=1)
+        print(f"\n=== Live-cell per-seed pulse_response(b_hat_seed) ===")
+        print(f"  peak |R_x| (surge):  mean={pred_Rx_per.mean():.3f}  "
+              f"vs truth {peak_Rx.mean():.3f}  "
+              f"(gap {(pred_Rx_per.mean()-peak_Rx.mean())/peak_Rx.mean()*100:+.1f}%)")
+        print(f"  peak |R_y| (sway):   mean={pred_Ry_per.mean():.3f}  "
+              f"vs truth {peak_Ry.mean():.3f}  "
+              f"(gap {(pred_Ry_per.mean()-peak_Ry.mean())/peak_Ry.mean()*100:+.1f}%)")
+        print(f"  peak |R|  (total):   mean={pred_R_per.mean():.3f}  "
+              f"vs truth {peak_R.mean():.3f}  "
+              f"(gap {(pred_R_per.mean()-peak_R.mean())/peak_R.mean()*100:+.1f}%)")
 
     # ------------------------------------------------------------------
     # Plot: heading drift overlay + ensemble-mean R_x, R_y vs time.
