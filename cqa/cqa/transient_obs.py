@@ -399,3 +399,80 @@ def pulse_response(
         # comparison.
         X[k] = Phi @ X[k - 1] + 0.5 * dt * (Phi @ u_km1 + u_k)
     return X
+
+
+def pulse_response_with_lift_coupling(
+    aug: AugmentedSystemObs,
+    t_grid: np.ndarray,
+    tau_lost_t: np.ndarray,
+    b_hat0: np.ndarray,
+    K_lift: float,
+    x0: np.ndarray | None = None,
+    n_iter: int = 2,
+) -> np.ndarray:
+    """pulse_response with a slender-body lift-coupling correction.
+
+    The constant-body-frame b_hat assumption in pulse_response misses
+    the post-WCF rotation of the wave/wind/current force vector as the
+    vessel yaws by dpsi(t). Slender-body approximation: at small alpha
+    the lateral force scales as F_y ~ -q*A*C_Y*sin(alpha), so
+        dF_y/dpsi = -dF_y/dalpha = +q*A*C_Y = -F_x * (C_Y/C_D0) = -F_x * K
+    where K is calibrated offline (cqa.config or scripts/calibrate_lift_coupling.py).
+
+    Implementation: Picard iteration.
+      iter 1: integrate without coupling (delta_b = 0), extract dpsi(t).
+      iter 2: integrate with extra forcing (0, -F_x0 * K * dpsi(t), 0)
+              injected through B_d, derived from iter 1's dpsi.
+      iter 3+: refine using the previous iteration's dpsi.
+
+    Default n_iter=2 applies the coupling once. n_iter=1 returns the
+    UN-coupled result (for diagnostic / sanity comparison).
+
+    Parameters
+    ----------
+    aug : 27-state augmented system.
+    t_grid : (N,) uniform time grid.
+    tau_lost_t : (N, 3) thruster-loss force time series.
+    b_hat0 : (3,) intact-DP body-frame disturbance estimate
+        (b_hat at t=0; treated constant baseline).
+    K_lift : C_Y / C_D0, the lift-coupling scalar [per rad].
+    x0 : (n_state,) initial perturbation. Defaults to zero.
+    n_iter : Picard iterations (default 2; n_iter=1 returns the
+        UN-coupled result, n_iter>=2 applies the lift coupling).
+
+    Returns
+    -------
+    X : (N, n_state) state trajectory with coupling applied.
+    """
+    from scipy.linalg import expm
+    n = aug.n_state
+    N = len(t_grid)
+    if x0 is None:
+        x0 = np.zeros(n)
+    dt = float(t_grid[1] - t_grid[0])
+    if not np.allclose(np.diff(t_grid), dt, rtol=1e-8):
+        raise ValueError("t_grid must be uniform")
+    Phi = expm(aug.A * dt)
+
+    Fx0 = float(b_hat0[0])
+    coupling_y = -Fx0 * K_lift   # dF_y/dpsi  [N/rad]
+
+    # Yaw deviation index in IDX_ETA: surge=0, sway=1, yaw=2.
+    yaw_idx = IDX_ETA.start + 2
+
+    # Start with zero coupling correction.
+    delta_b_t = np.zeros((N, 3))
+    X = np.zeros((N, n))
+
+    for it in range(max(1, n_iter)):
+        X[0] = x0
+        for k in range(1, N):
+            u_k = aug.B_lost @ tau_lost_t[k] + aug.B_d @ delta_b_t[k]
+            u_km1 = aug.B_lost @ tau_lost_t[k - 1] + aug.B_d @ delta_b_t[k - 1]
+            X[k] = Phi @ X[k - 1] + 0.5 * dt * (Phi @ u_km1 + u_k)
+        # Update coupling forcing from this pass's dpsi(t).
+        dpsi_t = X[:, yaw_idx]
+        delta_b_t = np.zeros((N, 3))
+        delta_b_t[:, 1] = coupling_y * dpsi_t
+
+    return X
