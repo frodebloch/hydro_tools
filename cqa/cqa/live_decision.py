@@ -220,6 +220,18 @@ class LiveSigmaPosterior:
     radial_wf: RadialPosterior
     validity_wf: ValidityBadge
 
+    # b_hat realisation uncertainty: std of peak |delta_eta_LF| obtained
+    # by Monte-Carlo propagation of the live observer's b_hat snapshot
+    # noise (across-seed std of EstBiasSurge/Sway/Yaw at t = T_WCF - 5)
+    # through the cqa-27 pulse response under the WCFDI scenario.
+    # Calibrated offline per cell from the brucon ensemble. For pwq30
+    # the value is ~0.07 m (6x smaller than the previous OrderTau-mean
+    # based sigma_R_tau_lost = 0.46 m, commit 9333269) because b_hat
+    # converges to the mean unmodelled force much faster than a 25 s
+    # OrderTau-mean window does. Defaults to 0.0 for backwards
+    # compatibility.
+    sigma_R_b_hat_m: float = 0.0
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -275,6 +287,8 @@ def evaluate_decision_cell_live(
     t_end_wcfdi: float = 200.0,
     n_t: int = 401,
     Tp_obs_s: float = 10.0,
+    precomputed_delta_eta_mean: Optional[np.ndarray] = None,
+    precomputed_t_grid: Optional[np.ndarray] = None,
 ) -> DecisionCell:
     """Evaluate one live operational CQA decision cell.
 
@@ -290,18 +304,31 @@ def evaluate_decision_cell_live(
         column mapping.
     sigma_post : LiveSigmaPosterior
         Live BayesianSigmaEstimator posteriors (LF + WF, body-frame
-        per axis, plus combined radial and validity badges).
+        per axis, plus combined radial and validity badges). Also
+        carries sigma_R_b_hat_m, which is calibrated offline from
+        the brucon ensemble.
     scenario : WcfdiScenario, optional
         WCFDI failure to evaluate. Default = single thruster group lost
-        with gamma_immediate=0.5, T_realloc=10 s, alpha=2/3.
+        with gamma_immediate=0.5, T_realloc=10 s, alpha=2/3. Used only
+        when ``precomputed_delta_eta_mean`` is None.
     k_sigma : float, default 0.674 (= p75 envelope, decision-matrix default).
     t_end_wcfdi : float, default 200 s. Forward horizon for the
-        post-WCF transient.
-    n_t : int, default 401. Number of integration steps.
+        post-WCF transient (parametric path only).
+    n_t : int, default 401. Number of integration steps (parametric path only).
     Tp_obs_s : float, default 10 s. Observer's current wave-period
         estimate (drives the wave-filter peak frequency in the model).
-        For production, plumb through the live brucon Tp estimator
-        output here.
+    precomputed_delta_eta_mean : ndarray (n_t, 3), optional
+        Pre-computed mean LF deviation trajectory (body frame, m/m/rad
+        per axis), as e.g. the ensemble mean of pulse_response over a
+        brucon ensemble for the relevant (sea-state, heading, scenario)
+        cell. When provided, this trajectory is used directly and the
+        parametric WcfdiScenario / pulse_response chain is bypassed.
+        This is the recommended path for production once a scenario
+        library exists, because the parametric WcfdiScenario form has
+        been shown to be structurally inadequate (commit c123799).
+    precomputed_t_grid : ndarray (n_t,), optional
+        Time grid for ``precomputed_delta_eta_mean`` (must be present
+        whenever the precomputed trajectory is provided).
 
     Returns
     -------
@@ -314,11 +341,13 @@ def evaluate_decision_cell_live(
 
     Notes
     -----
-    The WCFDI mean trajectory is propagated in deviation coordinates
-    via ``pulse_response(x0=0)``, then added to the live offset
+    The WCFDI mean trajectory is added to the live offset
     ``eta_hat_LF`` to get the predicted absolute footprint. The sigma
     envelope is time-invariant (no extra randomness from the linear
-    deterministic transient on top of the live baseline).
+    deterministic transient on top of the live baseline) and now
+    includes a sigma_R_b_hat term calibrated from MC propagation of
+    the live observer's b_hat snapshot noise (supersedes the earlier
+    sigma_R_tau_lost from commit 9333269).
     """
     if scenario is None:
         scenario = WcfdiScenario(
@@ -327,39 +356,65 @@ def evaluate_decision_cell_live(
             T_realloc=10.0,
         )
 
-    # ---- Mean environmental force from the observer's bias estimate ----
-    # The brucon NonlinearPassiveObserver models the observer's nu_dot as
-    #   M * nu_hat_dot = D(nu_hat) + tau_thr + b_hat + ...
-    # (libs/dp/dp_estimator/observer_vessel_model.cpp:99-105). At the
-    # observer's quasi-SS with nu_hat=0 and D(0)=0, this gives
-    # b_hat = -tau_thr_ss = -OrderTau_pre. Physically the observer's bias
-    # estimate IS the mean unmodelled force on the vessel, i.e.
-    #     tau_env := +b_hat                       (NOT -b_hat)
-    # Verified at pwq30: Order_pre_sway = +110 kN -> b_hat_sway = -110 kN
-    # -> tau_env_sway = -110 kN (env pushes vessel in -y), consistent
-    # with brucon truth (vessel drifts -y post-WCF).
-    tau_env = np.asarray(obs_state.b_hat, dtype=float)
+    # ---- Mean deviation trajectory (parametric or precomputed) ----
+    if precomputed_delta_eta_mean is not None:
+        if precomputed_t_grid is None:
+            raise ValueError(
+                "precomputed_delta_eta_mean requires precomputed_t_grid")
+        delta_eta_mean = np.asarray(precomputed_delta_eta_mean, dtype=float)
+        t_grid = np.asarray(precomputed_t_grid, dtype=float)
+        if delta_eta_mean.shape != (len(t_grid), 3):
+            raise ValueError(
+                f"precomputed_delta_eta_mean shape {delta_eta_mean.shape} "
+                f"!= (len(t_grid)={len(t_grid)}, 3)")
+        # Still compute tau_env for legacy / diagnostic; not needed for the
+        # deterministic trajectory.
+        tau_env = np.asarray(obs_state.b_hat, dtype=float)
+        aug = None  # not built in the precomputed branch
+    else:
+        # ---- Mean environmental force from the observer's bias estimate ----
+        # The brucon NonlinearPassiveObserver models the observer's nu_dot as
+        #   M * nu_hat_dot = D(nu_hat) + tau_thr + b_hat + ...
+        # (libs/dp/dp_estimator/observer_vessel_model.cpp:99-105). At the
+        # observer's quasi-SS with nu_hat=0 and D(0)=0, this gives
+        # b_hat = -tau_thr_ss = -OrderTau_pre. Physically the observer's bias
+        # estimate IS the mean unmodelled force on the vessel, i.e.
+        #     tau_env := +b_hat                       (NOT -b_hat)
+        # Verified at pwq30: Order_pre_sway = +110 kN -> b_hat_sway = -110 kN
+        # -> tau_env_sway = -110 kN (env pushes vessel in -y), consistent
+        # with brucon truth (vessel drifts -y post-WCF).
+        tau_env = np.asarray(obs_state.b_hat, dtype=float)
 
-    # ---- Build the cqa-27 augmented system at the observer's Tp ----
-    aug = _build_aug_for_live(cfg, Tp_obs_s=Tp_obs_s)
+        # ---- Build the cqa-27 augmented system at the observer's Tp ----
+        aug = _build_aug_for_live(cfg, Tp_obs_s=Tp_obs_s)
 
-    # ---- WCFDI scenario tau_lost(t), same formula as forecast pipeline ----
-    # See cqa.decision_matrix._wcfdi_peak_at_forecast_obs for derivation.
-    # tau_lost(t) = -(1 - beta(t)) * tau_env, injected via B_lost = +Minv.
-    t_grid = np.linspace(0.0, t_end_wcfdi, n_t)
-    gamma_imm = float(scenario.gamma_immediate)
-    T_realloc = float(scenario.T_realloc) if scenario.T_realloc > 0 else 1e-9
-    beta_t = 1.0 + (gamma_imm - 1.0) * np.exp(-t_grid / T_realloc)
-    tau_lost = (beta_t[:, None] - 1.0) * (-tau_env[None, :])
+        # ---- WCFDI scenario tau_lost(t), same formula as forecast pipeline
+        # See cqa.decision_matrix._wcfdi_peak_at_forecast_obs for derivation.
+        # tau_lost(t) = -(1 - beta(t)) * tau_env, injected via B_lost = +Minv.
+        t_grid = np.linspace(0.0, t_end_wcfdi, n_t)
+        gamma_imm = float(scenario.gamma_immediate)
+        T_realloc = float(scenario.T_realloc) if scenario.T_realloc > 0 else 1e-9
+        beta_t = 1.0 + (gamma_imm - 1.0) * np.exp(-t_grid / T_realloc)
+        tau_lost = (beta_t[:, None] - 1.0) * (-tau_env[None, :])
 
-    # ---- Mean deviation trajectory ----
-    X = pulse_response(aug, t_grid, tau_lost, x0=np.zeros(N_STATE))
-    delta_eta_mean = X[:, 0:3]   # body, m/m/rad
+        # ---- Mean deviation trajectory ----
+        X = pulse_response(aug, t_grid, tau_lost, x0=np.zeros(N_STATE))
+        delta_eta_mean = X[:, 0:3]   # body, m/m/rad
 
-    # ---- Sigma envelope (LF + WF, time-invariant in linear deterministic model) ----
+    # ---- Sigma envelope (LF + WF + b_hat realisation) ----
+    # The LF and WF terms come from the steady-state Bayesian posteriors
+    # over the live observer's eta_hat and eta_wave channels respectively.
+    # The b_hat term is calibrated offline from the brucon ensemble for
+    # the relevant cell (sea-state, heading, scenario class). It is the
+    # std of peak |delta_eta_LF| obtained by Monte-Carlo propagation of
+    # the live observer's b_hat snapshot uncertainty through the cqa-27
+    # pulse response, and captures the realisation noise in the assumed
+    # tau_env := +b_hat used to drive the WCFDI scenario.
     sigma_R_lf = float(sigma_post.radial_lf.sigma_R_median)
     sigma_R_wf = float(sigma_post.radial_wf.sigma_R_median)
-    sigma_R_total = float(np.sqrt(sigma_R_lf ** 2 + sigma_R_wf ** 2))
+    sigma_R_b_hat = float(sigma_post.sigma_R_b_hat_m)
+    sigma_R_total = float(np.sqrt(sigma_R_lf ** 2 + sigma_R_wf ** 2
+                                   + sigma_R_b_hat ** 2))
 
     # Per-axis sigmas for gangway-tip projection.
     sig_lf = np.array([sigma_post.posterior_lf_x.sigma_median,

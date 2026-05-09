@@ -105,6 +105,15 @@ SCENARIO = WcfdiScenario(
 T_END_WCFDI = 120.0
 N_T = 241
 
+# ---- Calibration artefact (offline-precomputed scenario for this cell) ----
+# Produced by scripts/p7_brucon_validation/peak_R_b_hat_sigma_pwq30.py.
+# Provides:
+#   - delta_eta_mean(t): ensemble mean of per-seed delta_eta_LF trajectories
+#     (each seed driven by tau_pre := -b_hat snapshot at t = T_WCF - 5)
+#   - sigma_R_b_hat_m: std of peak |delta_eta_LF| from MC propagation of
+#     the b_hat snapshot noise through cqa-27 (~0.07 m for pwq30)
+CALIB_NPZ = THIS / "scenario_pwq30_calibration.npz"
+
 # Plot horizon for the realised trajectory.
 T_PLOT_PRE = 30.0             # s before WCF in plots
 T_PLOT_POST = 120.0           # s after WCF
@@ -260,7 +269,7 @@ def _bayes_post(samples: np.ndarray, dt: float, T_decorr: float,
     return est.posterior(), est.health()
 
 
-def build_live_sigma_posterior(d: dict) -> LiveSigmaPosterior:
+def build_live_sigma_posterior(d: dict, sigma_R_b_hat_m: float = 0.0) -> LiveSigmaPosterior:
     """Build the LiveSigmaPosterior for one seed from the per-channel
     pre-WCF samples."""
     dt_m = d["win_dt"]
@@ -292,6 +301,7 @@ def build_live_sigma_posterior(d: dict) -> LiveSigmaPosterior:
         radial_lf=rad_lf, validity_lf=_worst_badge(badges_lf),
         posterior_wf_x=pwf_x, posterior_wf_y=pwf_y, posterior_wf_yaw=pwf_z,
         radial_wf=rad_wf, validity_wf=_worst_badge(badges_wf),
+        sigma_R_b_hat_m=float(sigma_R_b_hat_m),
     )
 
 
@@ -312,6 +322,20 @@ def main():
     cfg = csov_default_config()
     joint = _trivial_joint(cfg)
 
+    # ---- Load offline calibration artefact for this cell ----
+    if not CALIB_NPZ.exists():
+        sys.exit(
+            f"Calibration artefact missing: {CALIB_NPZ}\n"
+            f"Run scripts/p7_brucon_validation/peak_R_b_hat_sigma_pwq30.py first."
+        )
+    calib = np.load(CALIB_NPZ, allow_pickle=True)
+    calib_t = calib["t_grid"]
+    calib_delta_eta = calib["delta_eta_mean"]                  # [N_calib, 3]
+    sigma_R_b_hat_m = float(calib["sigma_R_b_hat_m"])
+    print(f"Loaded calibration {CALIB_NPZ.name}: "
+          f"sigma_R_b_hat = {sigma_R_b_hat_m:.3f} m, "
+          f"N_calib = {len(calib_t)} samples on [0, {calib_t[-1]:.1f}] s")
+
     seed_data = []
     for seed in SEEDS:
         d = load_seed(seed)
@@ -327,6 +351,11 @@ def main():
     t_pred = seed_data[0][1]["t_pred_grid"]
     t_plot = seed_data[0][1]["t_plot_grid"]
 
+    # Resample the precomputed mean delta_eta onto the plot/prediction grid.
+    delta_eta_on_grid = np.zeros((len(t_pred), 3))
+    for k in range(3):
+        delta_eta_on_grid[:, k] = np.interp(t_pred, calib_t, calib_delta_eta[:, k])
+
     pred_R_envelope = np.zeros((len(seed_data), len(t_pred)))
     pred_R_offset = np.zeros((len(seed_data), len(t_pred)))      # |eta_hat + dEta|, no sigma
     sigma_R_total = np.zeros(len(seed_data))
@@ -338,10 +367,12 @@ def main():
 
     cell_summary = []
     for k, (seed, d) in enumerate(seed_data):
-        sigma_post = build_live_sigma_posterior(d)
+        sigma_post = build_live_sigma_posterior(d, sigma_R_b_hat_m=sigma_R_b_hat_m)
         sigma_R_lf[k] = sigma_post.radial_lf.sigma_R_median
         sigma_R_wf[k] = sigma_post.radial_wf.sigma_R_median
-        sigma_R_total[k] = float(np.hypot(sigma_R_lf[k], sigma_R_wf[k]))
+        sigma_R_total[k] = float(np.sqrt(sigma_R_lf[k] ** 2
+                                          + sigma_R_wf[k] ** 2
+                                          + sigma_R_b_hat_m ** 2))
 
         obs = LiveObserverState(
             eta_hat=d["eta_hat"],
@@ -357,24 +388,14 @@ def main():
             t_end_wcfdi=T_END_WCFDI,
             n_t=N_T,
             Tp_obs_s=d["Tp_obs"],
+            precomputed_delta_eta_mean=delta_eta_on_grid,
+            precomputed_t_grid=t_pred,
         )
         cell_summary.append((seed, cell))
 
-        # We re-run the deterministic part externally to expose the full
-        # envelope time series (the cell only returns the peak scalar).
-        # Cheaper: replicate the trajectory from inside the cell. Since
-        # evaluate_decision_cell_live doesn't expose pos_envelope_t, we
-        # call the underlying machinery directly via a thin shim.
-        from cqa.live_decision import _build_aug_for_live
-        from cqa.transient_obs import pulse_response, N_STATE
-        aug = _build_aug_for_live(cfg, Tp_obs_s=d["Tp_obs"])
-        gamma = SCENARIO.gamma_immediate
-        T_re = SCENARIO.T_realloc
-        beta_t = 1.0 + (gamma - 1.0) * np.exp(-t_pred / T_re)
-        tau_lost = (beta_t[:, None] - 1.0) * (-d["b_hat"][None, :])
-        X = pulse_response(aug, t_pred, tau_lost, x0=np.zeros(N_STATE))
-        d_eta = X[:, 0:3]
-        eta_xy = d["eta_hat"][None, 0:2] + d_eta[:, 0:2]
+        # Replicate the deterministic envelope time series for plotting using
+        # the same precomputed mean trajectory the live cell consumed.
+        eta_xy = d["eta_hat"][None, 0:2] + delta_eta_on_grid[:, 0:2]
         pos_t = np.sqrt(np.sum(eta_xy ** 2, axis=1))
         pred_R_offset[k] = pos_t
         pred_R_envelope[k] = pos_t + 0.674 * sigma_R_total[k]
