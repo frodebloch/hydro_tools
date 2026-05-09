@@ -145,6 +145,11 @@ from .decision_matrix import (
     evaluate_decision_cell,
     wcfdi_decision_matrix,
 )
+from .live_decision import (
+    LiveObserverState,
+    LiveSigmaPosterior,
+    evaluate_decision_cell_live,
+)
 from .time_series_realisation import (
     realise_vector_force_time_series,
     integrate_closed_loop_response,
@@ -265,6 +270,9 @@ __all__ = [
     "WcfdiDecisionMatrix",
     "evaluate_decision_cell",
     "wcfdi_decision_matrix",
+    "LiveObserverState",
+    "LiveSigmaPosterior",
+    "evaluate_decision_cell_live",
     "realise_vector_force_time_series",
     "integrate_closed_loop_response",
     "realise_wave_motion_6dof",

@@ -151,6 +151,7 @@ from .transient_obs import (
     build_observer_augmented_system_full,
     csov_observer_gains,
     pulse_response,
+    pulse_response_with_lift_coupling,
     N_STATE,
     IDX_ETA_HAT, IDX_NU_HAT, IDX_B_HAT, IDX_ETA_W,
 )
@@ -398,7 +399,24 @@ def evaluate_decision_cell_live(
         tau_lost = (beta_t[:, None] - 1.0) * (-tau_env[None, :])
 
         # ---- Mean deviation trajectory ----
-        X = pulse_response(aug, t_grid, tau_lost, x0=np.zeros(N_STATE))
+        # Use the slender-body lift-coupled pulse response when the vessel
+        # config provides a non-zero K. This adds a yaw-driven sway
+        # correction d F_y / d psi = -F_x * K to absorb the post-WCF
+        # rotation of the body-frame env force vector. Validated to close
+        # ~18 pts of head-seas sway under-prediction at Bf 8 (commit
+        # fb39b62). When K = 0 the function reduces to pulse_response
+        # (delete the lift_coupling_K_per_rad field or set it to 0 to
+        # disable).
+        K_lift = float(getattr(cfg.vessel, "lift_coupling_K_per_rad", 0.0))
+        if K_lift > 0.0:
+            X = pulse_response_with_lift_coupling(
+                aug, t_grid, tau_lost,
+                b_hat0=tau_env,           # b_hat0 = +b_hat = tau_env
+                K_lift=K_lift,
+                x0=np.zeros(N_STATE),
+            )
+        else:
+            X = pulse_response(aug, t_grid, tau_lost, x0=np.zeros(N_STATE))
         delta_eta_mean = X[:, 0:3]   # body, m/m/rad
 
     # ---- Sigma envelope (LF + WF + b_hat realisation) ----

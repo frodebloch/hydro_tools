@@ -44,6 +44,18 @@ class VesselParticulars:
     linear_damping_sway: float = 0.0
     linear_damping_yaw: float = 0.0
 
+    # Slender-body lift-coupling scalar K = C_Y / C_D0 [per rad].
+    # Used by transient_obs.pulse_response_with_lift_coupling to add a
+    # post-WCF yaw-driven sway correction:
+    #     dF_y / dpsi = -F_x * K
+    # under the small-alpha approximation F_y/F_x = K * tan(alpha).
+    # Calibrated from the brucon ensemble at Bf 6 / Bf 8 head and
+    # quartering colinear cells, see
+    #   scripts/p7_brucon_validation/calibrate_lift_coupling.py
+    # CSOV result: K = 3.40/rad. Setting to 0.0 disables coupling
+    # (yields the un-corrected pulse_response output).
+    lift_coupling_K_per_rad: float = 0.0
+
     @property
     def displacement_mass(self) -> float:
         return self.rho_water * self.lpp * self.beam * self.draft * self.block_coefficient
@@ -313,6 +325,9 @@ def csov_default_config() -> CqaConfig:
         beam=22.4,
         draft=6.50,
         block_coefficient=0.7369815,
+        # Calibrated from brucon ensemble at Bf 6 / Bf 8 colinear
+        # head + quartering cells (see calibrate_lift_coupling.py).
+        lift_coupling_K_per_rad=3.40,
     )
     # Damping: pick linear coefficients that give realistic open-loop time
     # constants for an 8000 t CSOV. We target ~60 s surge open-loop time
