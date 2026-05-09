@@ -4129,3 +4129,71 @@ mechanism is now physically traceable. Three options for next:
   measurement) and see how much that contributes.
 
 This decision will be made in §12.21.9.
+
+#### 12.21.10 Deferred: live-cell scenario IRF precomputation (perf, not correctness)
+
+When the live cell ships on the brucon panel, the per-tick cost of
+`evaluate_decision_cell_live` is dominated by:
+
+* `expm(A * dt)` on the 27×27 augmented system (one matrix exponential).
+* `pulse_response` / `pulse_response_with_lift_coupling` integration over
+  ~400 time steps (a `Phi @ x` per step plus the trapezoidal forcing).
+
+This is fine at 1 Hz refresh on a workstation. It may bite when:
+
+* the panel evaluates several WCFDI scenario shapes in parallel (e.g.
+  loss of each thruster group enumerated independently — say 4–12
+  scenarios per tick), or
+* the panel runs at >5 Hz on an embedded brucon panel.
+
+**Optimisation idea (deferred):** factor the integration into a
+3×3 impulse-response operator that depends only on the SCENARIO SHAPE
+and the vessel/controller/observer model — not on the live `tau_env`.
+
+For the un-coupled case the live mean trajectory is a linear functional
+of `tau_env`:
+
+    delta_eta_mean(t) = G_lin(t) @ tau_env       (3×3 IRF, precomputable)
+
+with `G_lin(t)` built once at boot per `(scenario shape, observer Tp
+slice)` combination. Runtime cost collapses to a 3×3 matrix-vector
+multiply per time step — orders of magnitude cheaper than `Phi @ x` on
+27 states.
+
+For the lift-coupled case the relationship is **bilinear** in `tau_env`
+because the coupling forcing is `(0, −F_x · K · dpsi(t), 0)` with both
+`F_x` and `dpsi(t)` depending on `tau_env`:
+
+    delta_eta_mean(t) = G_lin(t) @ tau_env  +  K · F_x · G_coupling(t) @ tau_env
+
+where `G_coupling(t)` is a second precomputed 3×3 IRF capturing the
+yaw-driven lift response per unit-`tau_env`. Two 3×3 matvecs per step
+plus one extra scalar multiply — still cheap.
+
+Tp dependence: the wave-filter peak frequency in the 27-state model
+shifts with the observer's live `Tp` estimate. Either precompute on a
+small Tp grid (5–10 slices, linear interpolate) or rebuild the IRF
+whenever `Tp_obs_s` drifts beyond a tolerance (rare — Tp drifts on
+hour timescales).
+
+**What this is NOT:** this is **not** the sea-state-conditioned scenario
+library that was vetoed earlier in §12.21.6. The precomputed IRF carries
+no Hs/Tp/theta information; the live `tau_env = +b_hat` is still pulled
+from the running observer at every tick. Only the integration kernel is
+cached, identical to how `expm(A*dt)` is already cached inside
+`pulse_response` — just one level higher.
+
+**Pre-conditions before doing this work:**
+1. Profile the live cell. If wall-time is already comfortable on the
+   target hardware, do not optimise.
+2. Decide how many WCFDI scenario shapes the panel evaluates in
+   parallel. If just one (worst-case configured failure), the gain
+   over the existing path is small.
+3. Re-derive `G_coupling(t)` carefully — test against
+   `pulse_response_with_lift_coupling` on a battery of `tau_env`
+   directions to confirm the bilinear decomposition is exact (it
+   should be: the Picard iteration is linear in the per-iteration
+   forcing).
+
+Tag for this future task: `perf-irf-precompute`.
+
