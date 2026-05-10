@@ -122,7 +122,11 @@ from typing import Optional
 import numpy as np
 
 from .config import CqaConfig
-from .gangway import GangwayJointState
+from .gangway import (
+    GangwayJointState,
+    telescope_sensitivity,
+    telescope_sensitivity_6dof,
+)
 from .live_decision import (
     LiveObserverState,
     LiveSigmaPosterior,
@@ -218,6 +222,38 @@ class LiveOperatorSummary:
     sigma_R_wcf_m: float
     overall_traffic: str
 
+    # ----- Gangway telescope axis (optional, present iff a joint is given) -----
+    # The telescope bar reports SIGNED telescope-length deviation
+    # ``dL = L_required - L0`` from the operator-set nominal length
+    # ``L0 = joint.L``, with ``dL > 0`` meaning the telescope must
+    # EXTEND further to keep the tip on the world-fixed landing point.
+    # Two thresholds are drawn: extend-margin ``L_max - L0`` (red on
+    # the right) and retract-margin ``-(L0 - L_min)`` (red on the
+    # left). The traffic light is the worst of (envelope_high vs
+    # extend-margin, envelope_low vs retract-margin) using the IMCA-
+    # style 60% / 80% of margin convention to match
+    # ``evaluate_decision_cell_live``.
+    #
+    # WF projection coverage:
+    #   "horizontal_3dof" : only surge/sway/yaw WF posteriors used
+    #                       (roll/pitch/heave not provided -- the
+    #                       displayed sigma_dL is a LOWER BOUND).
+    #   "full_6dof"       : all six WF DOFs included.
+    # The position bars are unaffected by this choice.
+    gangway_present: bool = False
+    gangway_dL_p05: float = 0.0
+    gangway_dL_p50: float = 0.0
+    gangway_dL_p95: float = 0.0
+    gangway_dL_intact_offset: float = 0.0  # signed mean dL right now
+    gangway_dL_wcf_offset_at_peak: float = 0.0  # signed mean dL at the WCF peak
+    gangway_extend_margin_m: float = 0.0  # +ve magnitude L_max - L0
+    gangway_retract_margin_m: float = 0.0  # +ve magnitude L0 - L_min
+    gangway_sigma_dL_intact_m: float = 0.0
+    gangway_sigma_dL_wcf_m: float = 0.0
+    gangway_t_peak_s: float = 0.0
+    gangway_traffic: str = "green"
+    gangway_wf_coverage: str = "horizontal_3dof"
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -276,6 +312,123 @@ def _sigmas_wcf_axis(sigma_post: LiveSigmaPosterior) -> tuple[float, float]:
 
 
 # ---------------------------------------------------------------------------
+# Telescope-axis sigma helpers (gangway bar)
+# ---------------------------------------------------------------------------
+
+
+def _wf_6dof_sigma_vector(
+    sigma_post: LiveSigmaPosterior,
+) -> tuple[np.ndarray, str]:
+    """Build the 6-vector of WF per-DOF sigmas for a 6-DOF projection.
+
+    Order: (surge, sway, heave, roll, pitch, yaw) matching
+    ``cqa.gangway.telescope_sensitivity_6dof``.
+
+    Returns ``(sig6, coverage)`` where ``coverage`` is
+
+      * ``"full_6dof"``        if ``posterior_wf_heave``,
+                               ``posterior_wf_roll`` and
+                               ``posterior_wf_pitch`` are all present.
+      * ``"horizontal_3dof"``  if any of the three is None. In this
+                               case heave/roll/pitch entries of
+                               ``sig6`` are set to 0.0 and the caller
+                               should display a LOWER-BOUND warning.
+
+    The horizontal-only fallback is operator-honest: it is better to
+    show "you are missing roll/pitch monitoring, this is a lower
+    bound" than to silently inject a prior we have not earned. The
+    user has agreed roll is the dominant out-of-plane contributor at
+    realistic gangway base/height geometry, so the warning is
+    important to surface in the plot title.
+    """
+    sig_x = float(sigma_post.posterior_wf_x.sigma_median)
+    sig_y = float(sigma_post.posterior_wf_y.sigma_median)
+    sig_yaw = float(sigma_post.posterior_wf_yaw.sigma_median)
+    pwf_h = sigma_post.posterior_wf_heave
+    pwf_r = sigma_post.posterior_wf_roll
+    pwf_p = sigma_post.posterior_wf_pitch
+    if pwf_h is not None and pwf_r is not None and pwf_p is not None:
+        sig_h = float(pwf_h.sigma_median)
+        sig_r = float(pwf_r.sigma_median)
+        sig_p = float(pwf_p.sigma_median)
+        coverage = "full_6dof"
+    else:
+        sig_h = sig_r = sig_p = 0.0
+        coverage = "horizontal_3dof"
+    sig6 = np.array([sig_x, sig_y, sig_h, sig_r, sig_p, sig_yaw], dtype=float)
+    return sig6, coverage
+
+
+def _sigma_dL_intact(
+    joint: GangwayJointState,
+    cfg: CqaConfig,
+    sigma_post: LiveSigmaPosterior,
+) -> tuple[float, str]:
+    """sigma of dL for the intact (steady-state) gangway bar.
+
+    LF horizontal channel only -- consistent with the intact position
+    bar, which also uses LF only (the WF noise lives on
+    ``eta_wave``, not on the LF position estimate). The b_hat-radial
+    halo is a property of the post-WCF transient and is NOT included
+    here.
+
+    Coverage tag returned alongside is always ``"horizontal_3dof"``
+    for the intact bar -- LF is body-frame surge/sway/yaw only by
+    construction. We surface it as a uniform tag so the operator-
+    panel title can render a single coverage line for the gangway
+    bar.
+    """
+    c3 = telescope_sensitivity(joint, cfg.gangway)
+    sig_lf = np.array([
+        sigma_post.posterior_lf_x.sigma_median,
+        sigma_post.posterior_lf_y.sigma_median,
+        sigma_post.posterior_lf_yaw.sigma_median,
+    ], dtype=float)
+    var = float(np.sum((c3 * sig_lf) ** 2))
+    return float(np.sqrt(max(var, 0.0))), "horizontal_3dof"
+
+
+def _sigma_dL_wcf(
+    joint: GangwayJointState,
+    cfg: CqaConfig,
+    sigma_post: LiveSigmaPosterior,
+) -> tuple[float, str]:
+    """sigma of dL for the WCF (post-fault peak) gangway bar.
+
+    LF horizontal (3-DOF, c) + WF (6-DOF when full coverage available,
+    otherwise horizontal-only fallback with c6 entries for heave/
+    roll/pitch zeroed) + b_hat-radial split equally onto the two
+    horizontal axes (mirrors ``_sigmas_wcf_axis``).
+
+    Returns (sigma_dL, coverage_tag).
+    """
+    c3 = telescope_sensitivity(joint, cfg.gangway)
+    c6 = telescope_sensitivity_6dof(joint, cfg.gangway)
+
+    # LF (horizontal 3-DOF only).
+    sig_lf = np.array([
+        sigma_post.posterior_lf_x.sigma_median,
+        sigma_post.posterior_lf_y.sigma_median,
+        sigma_post.posterior_lf_yaw.sigma_median,
+    ], dtype=float)
+    var_lf = float(np.sum((c3 * sig_lf) ** 2))
+
+    # WF (3 or 6 DOF, depending on coverage).
+    sig_wf6, coverage = _wf_6dof_sigma_vector(sigma_post)
+    var_wf = float(np.sum((c6 * sig_wf6) ** 2))
+
+    # b_hat-radial: split equally across body-x / body-y, like
+    # _sigmas_wcf_axis. Yaw component is treated as zero (b_hat
+    # radial is a position-equivalent magnitude only). Project
+    # through the horizontal entries of c6.
+    sig_bh_axis = float(sigma_post.sigma_R_b_hat_m) / float(np.sqrt(2.0))
+    var_bh = (c6[0] * sig_bh_axis) ** 2 + (c6[1] * sig_bh_axis) ** 2
+
+    var = var_lf + var_wf + var_bh
+    return float(np.sqrt(max(var, 0.0))), coverage
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
@@ -291,8 +444,9 @@ def summarise_for_operator_live(
     Tp_obs_s: float = 10.0,
     n_mc: int = 2000,
     rng: Optional[np.random.Generator] = None,
+    joint: Optional[GangwayJointState] = None,
 ) -> LiveOperatorSummary:
-    """Build the operator-facing two-bar summary from the live state.
+    """Build the operator-facing two- or three-bar summary from the live state.
 
     Parameters
     ----------
@@ -309,6 +463,15 @@ def summarise_for_operator_live(
         Number of integration steps over the horizon (dt = 0.5 s by
         default; tight enough to localise the peak time within ~0.5 s).
     Tp_obs_s, n_mc, rng : tuning knobs (defaults are reasonable).
+    joint : GangwayJointState, optional.
+        If provided, a third "gangway telescope" bar is computed:
+        signed telescope-length deviation ``dL = L_required - L0``
+        with extend / retract margins as separate red thresholds.
+        WF roll/pitch/heave use the optional posteriors from
+        ``sigma_post`` when present (full 6-DOF projection); when
+        absent, the bar falls back to a horizontal-only projection
+        and the coverage tag flags the displayed sigma_dL as a
+        lower bound. The position bars are unaffected by ``joint``.
 
     Returns
     -------
@@ -373,6 +536,71 @@ def summarise_for_operator_live(
 
     overall = _worst(intact_traffic, wcf_traffic)
 
+    # ---- Gangway telescope bar (optional) ----
+    gw_present = False
+    gw_dL_p05 = gw_dL_p50 = gw_dL_p95 = 0.0
+    gw_dL_intact = gw_dL_wcf_at_peak = 0.0
+    gw_extend_margin = gw_retract_margin = 0.0
+    gw_sigma_dL_intact = gw_sigma_dL_wcf = 0.0
+    gw_t_peak = 0.0
+    gw_traffic = "green"
+    gw_coverage = "horizontal_3dof"
+    if joint is not None:
+        gw_present = True
+        gw_cfg = cfg.gangway
+        L0 = float(joint.L)
+        L_min = float(gw_cfg.telescope_min)
+        L_max = float(gw_cfg.telescope_max)
+        gw_extend_margin = max(L_max - L0, 0.0)
+        gw_retract_margin = max(L0 - L_min, 0.0)
+
+        c3 = telescope_sensitivity(joint, gw_cfg)
+        gw_sigma_dL_intact, _ = _sigma_dL_intact(joint, cfg, sigma_post)
+        gw_sigma_dL_wcf, gw_coverage = _sigma_dL_wcf(joint, cfg, sigma_post)
+
+        # Intact deterministic dL: signed projection of LF eta_hat onto
+        # the telescope axis.
+        gw_dL_intact = float(c3 @ eta_hat_lf)
+
+        # WCF deterministic dL trajectory: dL(t) = c3 . (eta_hat_LF +
+        # delta_eta_mean(t)). Pick the time of maximum |dL| for the
+        # peak-cue (operator cares about whichever direction the
+        # telescope is being driven hardest into an end-stop).
+        dL_t = (eta_hat_lf[None, :] + delta_eta_mean) @ c3
+        k_peak_dL = int(np.argmax(np.abs(dL_t)))
+        gw_t_peak = float(t_grid[k_peak_dL])
+        gw_dL_wcf_at_peak = float(dL_t[k_peak_dL])
+
+        # Quantiles of signed dL at the peak instant (Gaussian: mean +
+        # sigma_dL_wcf, two-sided P05/P50/P95). Per-call MC for
+        # consistency with the position bars (no special functions).
+        nu = (rng.standard_normal(n_mc) if gw_sigma_dL_wcf > 0.0
+              else np.zeros(n_mc))
+        dL_samples = gw_dL_wcf_at_peak + gw_sigma_dL_wcf * nu
+        gw_dL_p05 = float(np.quantile(dL_samples, 0.05))
+        gw_dL_p50 = float(np.quantile(dL_samples, 0.50))
+        gw_dL_p95 = float(np.quantile(dL_samples, 0.95))
+
+        # Traffic light: worst of the extend / retract sides. Use the
+        # IMCA-style 60 % / 80 % of margin convention to match
+        # ``evaluate_decision_cell_live`` so this panel and the
+        # decision cell agree on the colour. P95 (one-sided extend)
+        # vs extend_margin; -P05 (one-sided retract) vs retract_margin.
+        ext_warn = 0.60 * gw_extend_margin
+        ext_alarm = 0.80 * gw_extend_margin
+        ret_warn = 0.60 * gw_retract_margin
+        ret_alarm = 0.80 * gw_retract_margin
+        if gw_extend_margin > 0.0:
+            t_ext = _imca_traffic(max(gw_dL_p95, 0.0), ext_warn, ext_alarm)
+        else:
+            t_ext = "green"
+        if gw_retract_margin > 0.0:
+            t_ret = _imca_traffic(max(-gw_dL_p05, 0.0), ret_warn, ret_alarm)
+        else:
+            t_ret = "green"
+        gw_traffic = _worst(t_ext, t_ret)
+        overall = _worst(overall, gw_traffic)
+
     return LiveOperatorSummary(
         intact_R_p50=intact_p50,
         intact_R_p95=intact_p95,
@@ -388,6 +616,19 @@ def summarise_for_operator_live(
         sigma_R_intact_m=sigma_R_intact,
         sigma_R_wcf_m=sigma_R_wcf,
         overall_traffic=overall,
+        gangway_present=gw_present,
+        gangway_dL_p05=gw_dL_p05,
+        gangway_dL_p50=gw_dL_p50,
+        gangway_dL_p95=gw_dL_p95,
+        gangway_dL_intact_offset=gw_dL_intact,
+        gangway_dL_wcf_offset_at_peak=gw_dL_wcf_at_peak,
+        gangway_extend_margin_m=gw_extend_margin,
+        gangway_retract_margin_m=gw_retract_margin,
+        gangway_sigma_dL_intact_m=gw_sigma_dL_intact,
+        gangway_sigma_dL_wcf_m=gw_sigma_dL_wcf,
+        gangway_t_peak_s=gw_t_peak,
+        gangway_traffic=gw_traffic,
+        gangway_wf_coverage=gw_coverage,
     )
 
 
@@ -404,25 +645,31 @@ _TRAFFIC_COLOURS = {
 
 
 def plot_live_operator_summary(summary: LiveOperatorSummary, fig=None):
-    """Render the two-bar operator panel.
+    """Render the operator panel.
 
-    Top row "RIGHT NOW (intact)" and bottom row "IF WCF NOW", same
-    radial-distance axis [0, max(P95, alarm) * 1.2]. P50 shown as
-    light open marker, P95 shown as filled diamond. IMCA warning
-    (amber) and alarm (red) thresholds drawn as dashed verticals.
-    Bar tint = traffic-light colour driven by P95 vs the thresholds.
+    Two bars when ``summary.gangway_present`` is False:
+      * Top: "RIGHT NOW (intact)"
+      * Bot: "IF WCF NOW"
+    Three bars when ``summary.gangway_present`` is True; the third
+    "GANGWAY (telescope)" bar uses a SIGNED dL axis with a separate
+    red threshold for the extend (right) and retract (left) sides
+    plus the corresponding 60 %-of-margin amber thresholds.
 
-    Title prints both numbers in plain language plus the time-to-peak
-    for the WCF row.
+    P50 shown as light open marker, P95 (or P05/P95 for the gangway
+    bar) shown as filled diamond. Bar tint = traffic-light colour.
+
+    Title prints both/all numbers in plain language plus the time-
+    to-peak for the WCF row.
     """
     import matplotlib.pyplot as plt
 
+    n_rows = 3 if summary.gangway_present else 2
     if fig is None:
-        fig, axes = plt.subplots(2, 1, figsize=(11, 5.5),
+        fig, axes = plt.subplots(n_rows, 1, figsize=(11, 2.6 * n_rows + 0.2),
                                  gridspec_kw=dict(hspace=1.4))
     else:
-        axes = fig.subplots(2, 1, gridspec_kw=dict(hspace=1.4))
-    fig.subplots_adjust(top=0.78, bottom=0.14, left=0.07, right=0.97)
+        axes = fig.subplots(n_rows, 1, gridspec_kw=dict(hspace=1.4))
+    fig.subplots_adjust(top=0.80, bottom=0.10, left=0.07, right=0.97)
 
     bar_max = max(
         summary.pos_alarm_radius_m * 1.3,
@@ -467,7 +714,7 @@ def plot_live_operator_summary(summary: LiveOperatorSummary, fig=None):
         f"sigma_R = {summary.sigma_R_intact_m:.2f} m)",
     )
 
-    # WCF (bottom)
+    # WCF (middle if gangway present, else bottom)
     _draw_bar(
         axes[1],
         summary.wcf_R_p50, summary.wcf_R_p95, summary.wcf_traffic,
@@ -479,9 +726,89 @@ def plot_live_operator_summary(summary: LiveOperatorSummary, fig=None):
         f"sigma_R = {summary.sigma_R_wcf_m:.2f} m)",
     )
 
+    # Gangway (bottom, optional)
+    if summary.gangway_present:
+        _draw_signed_dL_bar(axes[2], summary)
+
     fig.suptitle(
         f"Live operator panel  -  overall: {summary.overall_traffic.upper()}",
         fontsize=13, y=0.95,
     )
 
     return fig
+
+
+def _draw_signed_dL_bar(ax, summary: LiveOperatorSummary):
+    """Render the signed-dL telescope bar.
+
+    Layout: x = signed dL [m], 0 = nominal length L0. Right side =
+    EXTEND (positive dL), left side = RETRACT (negative dL). Two red
+    end-stop lines at +extend_margin and -retract_margin, two amber
+    thresholds at 60 % of the respective margin. P05 / P50 / P95 of
+    the SIGNED dL distribution at the WCF peak instant. The mean
+    intact dL is drawn as a small "now" tick at the LF-only value.
+    """
+    col = _TRAFFIC_COLOURS[summary.gangway_traffic]
+    ext = summary.gangway_extend_margin_m
+    ret = summary.gangway_retract_margin_m
+    half = max(ext, ret, abs(summary.gangway_dL_p95),
+               abs(summary.gangway_dL_p05), 0.5) * 1.15
+
+    # Bar tint spans the full visible signed range so the operator
+    # sees the whole travel envelope.
+    ax.barh(0, 2 * half, left=-half, height=0.5, color=col, alpha=0.25,
+            edgecolor=col, linewidth=2)
+
+    # End-stop and warning thresholds (drawn only on the side where a
+    # margin actually exists).
+    if ext > 0.0:
+        ax.axvline(0.60 * ext, color="#ff9900", ls="--", lw=2,
+                   label=f"amber > {0.60 * ext:.2f} m")
+        ax.axvline(ext, color="#d62728", ls="--", lw=2,
+                   label=f"L_max  ({ext:+.2f} m)")
+    if ret > 0.0:
+        ax.axvline(-0.60 * ret, color="#ff9900", ls="--", lw=2)
+        ax.axvline(-ret, color="#d62728", ls="--", lw=2,
+                   label=f"L_min ({-ret:+.2f} m)")
+
+    # Markers: P05 (left whisker), P50 (open circle), P95 (right
+    # diamond). All at y = 0.
+    ax.plot(summary.gangway_dL_p05, 0, marker="<", markersize=10,
+            markerfacecolor=col, markeredgecolor="black",
+            markeredgewidth=1.5,
+            label=f"P05 = {summary.gangway_dL_p05:+.2f} m")
+    ax.plot(summary.gangway_dL_p50, 0, marker="o", markersize=11,
+            markerfacecolor="white", markeredgecolor="#333333",
+            markeredgewidth=2,
+            label=f"P50 = {summary.gangway_dL_p50:+.2f} m")
+    ax.plot(summary.gangway_dL_p95, 0, marker=">", markersize=10,
+            markerfacecolor=col, markeredgecolor="black",
+            markeredgewidth=1.5,
+            label=f"P95 = {summary.gangway_dL_p95:+.2f} m")
+
+    # Live (intact) dL tick: small black mark at the deterministic
+    # signed offset right now.
+    ax.plot(summary.gangway_dL_intact_offset, 0.30, marker="v",
+            markersize=8, color="black",
+            label=f"now {summary.gangway_dL_intact_offset:+.2f} m")
+
+    # Origin guide.
+    ax.axvline(0.0, color="black", lw=0.8, alpha=0.5)
+    ax.set_xlim(-half, half)
+    ax.set_ylim(-0.5, 0.5)
+    ax.set_yticks([])
+    ax.set_xlabel("signed telescope dL  [m]   (+ = extend, - = retract)")
+
+    coverage_note = ("" if summary.gangway_wf_coverage == "full_6dof"
+                     else "  (LOWER BOUND: roll/pitch/heave WF posteriors not provided)")
+    ax.set_title(
+        f"GANGWAY (telescope)   [{summary.gangway_traffic.upper()}]\n"
+        f"P05/P50/P95 = {summary.gangway_dL_p05:+.2f} / "
+        f"{summary.gangway_dL_p50:+.2f} / "
+        f"{summary.gangway_dL_p95:+.2f} m   "
+        f"(WCF peak in ~{summary.gangway_t_peak_s:.0f} s, "
+        f"sigma_dL = {summary.gangway_sigma_dL_wcf_m:.2f} m){coverage_note}",
+        fontsize=11, loc="left",
+    )
+    ax.legend(loc="upper right", fontsize=8, framealpha=0.95, ncol=2)
+    ax.grid(True, axis="x", alpha=0.3)

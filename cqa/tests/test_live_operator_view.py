@@ -249,3 +249,212 @@ def test_sigma_R_wcf_is_LF_WF_b_hat_quadrature():
     sig_axis = math.sqrt(sig_lf ** 2 + sig_wf ** 2 + (sig_bh / math.sqrt(2)) ** 2)
     sig_R_wcf_th = math.hypot(sig_axis, sig_axis)
     assert s.sigma_R_wcf_m == pytest.approx(sig_R_wcf_th, rel=1e-9)
+
+
+# ---------------------------------------------------------------------------
+# Gangway telescope bar
+# ---------------------------------------------------------------------------
+
+
+def _gw_joint_forward(L=25.0, h=15.0):
+    """Forward-pointing gangway, horizontal boom: e_L = (1, 0, 0).
+
+    With cfg.gangway base = (5, -9, -8) and h, the rotation centre is
+    at body (5, -9, -8 - h). For h=15 -> r_z = -23 m. Sensitivities:
+        c3 = -(e_x, e_y, e_x * (-r_y) + e_y * r_x)
+           = -(1, 0, 1 * 9 + 0)
+           = (-1, 0, -9)
+        c6 = -(1, 0, 0, 0, -r_z, -r_y) = (-1, 0, 0, 0, 23, -9)
+            (only surge, pitch, yaw entries non-zero).
+    """
+    from cqa import GangwayJointState
+    return GangwayJointState(h=h, alpha_g=0.0, beta_g=0.0, L=L)
+
+
+def test_gangway_bar_absent_by_default():
+    """Backwards compatibility: when joint=None, gangway bar fields keep
+    their defaults and the position bars are unchanged."""
+    cfg = _config_with_K(0.0)
+    obs = _make_obs_state(b_hat_kN=(-200.0, -100.0, -500.0))
+    sigma = _make_sigma_post()
+    s = summarise_for_operator_live(cfg, obs, sigma)
+    assert s.gangway_present is False
+    assert s.gangway_dL_p50 == 0.0
+    assert s.gangway_dL_p95 == 0.0
+    assert s.gangway_traffic == "green"
+    # Overall traffic is unchanged from the worst of intact / WCF.
+    from cqa.decision_matrix import _worst
+    assert s.overall_traffic == _worst(s.intact_traffic, s.wcf_traffic)
+
+
+def test_gangway_bar_present_when_joint_provided():
+    cfg = _config_with_K(0.0)
+    obs = _make_obs_state(b_hat_kN=(-200.0, -100.0, -500.0))
+    sigma = _make_sigma_post()
+    s = summarise_for_operator_live(cfg, obs, sigma, joint=_gw_joint_forward())
+    assert s.gangway_present is True
+    assert math.isfinite(s.gangway_sigma_dL_intact_m)
+    assert math.isfinite(s.gangway_sigma_dL_wcf_m)
+    assert s.gangway_sigma_dL_wcf_m >= s.gangway_sigma_dL_intact_m  # WCF includes WF + b_hat
+    # Quantile ordering.
+    assert s.gangway_dL_p05 < s.gangway_dL_p50 < s.gangway_dL_p95
+    # Coverage flag: no roll/pitch/heave WF posteriors -> horizontal_3dof.
+    assert s.gangway_wf_coverage == "horizontal_3dof"
+    # WCF peak time inside the integration window.
+    assert 0.0 <= s.gangway_t_peak_s <= 60.0
+
+
+def test_gangway_sigma_dL_intact_matches_LF_only_projection():
+    """The intact gangway sigma must equal sqrt((c3 .* sig_lf)^2 . 1)
+    where c3 is telescope_sensitivity (3-DOF body LF). WF and b_hat
+    must NOT leak into the intact sigma_dL."""
+    from cqa.gangway import telescope_sensitivity
+    cfg = _config_with_K(0.0)
+    sig_lf = 0.3
+    # Huge WF and b_hat to detect any leak.
+    sigma = _make_sigma_post(sigma_lf=sig_lf, sigma_wf=99.0,
+                             sigma_R_b_hat_m=99.0)
+    obs = _make_obs_state(b_hat_kN=(-1.0, -1.0, -1.0))
+    joint = _gw_joint_forward()
+    s = summarise_for_operator_live(cfg, obs, sigma, joint=joint)
+    c3 = telescope_sensitivity(joint, cfg.gangway)
+    sig_lf_vec = np.array([sig_lf, sig_lf, sig_lf])
+    sigma_dL_th = float(np.sqrt(np.sum((c3 * sig_lf_vec) ** 2)))
+    assert s.gangway_sigma_dL_intact_m == pytest.approx(sigma_dL_th, rel=1e-9)
+
+
+def test_gangway_sigma_dL_wcf_horizontal_3dof_fallback():
+    """Without roll/pitch/heave WF posteriors, the WCF sigma_dL is
+
+        var_LF (3-DOF c3) + var_WF (only x,y,yaw entries of c6, others
+        zero) + var_b_hat (b_hat_axis split, projected through c6[0:2]).
+
+    This is the LOWER-BOUND surfaced via the horizontal_3dof coverage
+    tag.
+    """
+    from cqa.gangway import telescope_sensitivity, telescope_sensitivity_6dof
+    cfg = _config_with_K(0.0)
+    sig_lf, sig_wf, sig_bh = 0.3, 0.5, 0.1
+    sigma = _make_sigma_post(sigma_lf=sig_lf, sigma_wf=sig_wf,
+                             sigma_R_b_hat_m=sig_bh)
+    obs = _make_obs_state(b_hat_kN=(-200.0, -100.0, -500.0))
+    joint = _gw_joint_forward()
+    s = summarise_for_operator_live(cfg, obs, sigma, joint=joint)
+
+    c3 = telescope_sensitivity(joint, cfg.gangway)
+    c6 = telescope_sensitivity_6dof(joint, cfg.gangway)
+    var_lf = float(np.sum((c3 * np.array([sig_lf] * 3)) ** 2))
+    sig_wf6 = np.array([sig_wf, sig_wf, 0.0, 0.0, 0.0, sig_wf])
+    var_wf = float(np.sum((c6 * sig_wf6) ** 2))
+    sig_bh_axis = sig_bh / math.sqrt(2.0)
+    var_bh = (c6[0] * sig_bh_axis) ** 2 + (c6[1] * sig_bh_axis) ** 2
+    sigma_dL_th = math.sqrt(var_lf + var_wf + var_bh)
+
+    assert s.gangway_wf_coverage == "horizontal_3dof"
+    assert s.gangway_sigma_dL_wcf_m == pytest.approx(sigma_dL_th, rel=1e-9)
+
+
+def test_gangway_full_6dof_increases_sigma_when_pitch_provided():
+    """Adding a roll/pitch/heave WF posterior must INCREASE sigma_dL
+    relative to the horizontal-only fallback (the c6[3,4,5] entries
+    pick up additional variance), and must flip the coverage tag to
+    full_6dof."""
+    from cqa.online_estimator import SigmaPosterior, RadialPosterior, ValidityBadge
+    from cqa import LiveSigmaPosterior
+    cfg = _config_with_K(0.0)
+    sig_lf, sig_wf, sig_bh = 0.05, 0.05, 0.0
+    sigma_h = _make_sigma_post(sigma_lf=sig_lf, sigma_wf=sig_wf,
+                               sigma_R_b_hat_m=sig_bh)
+    # Build an alternative posterior that ALSO carries roll/pitch/
+    # heave at ~1 deg / ~1 deg / 0.3 m (small but non-zero).
+    sig_rpp = math.radians(1.0)
+    sig_heave = 0.3
+    from tests._live_fixtures import _trivial_sigma_posterior  # noqa
+    p_roll = _trivial_sigma_posterior(sig_rpp)
+    p_pitch = _trivial_sigma_posterior(sig_rpp)
+    p_heave = _trivial_sigma_posterior(sig_heave)
+    import dataclasses
+    sigma_full = dataclasses.replace(
+        sigma_h,
+        posterior_wf_heave=p_heave,
+        posterior_wf_roll=p_roll,
+        posterior_wf_pitch=p_pitch,
+    )
+
+    obs = _make_obs_state(b_hat_kN=(-200.0, -100.0, -500.0))
+    joint = _gw_joint_forward()
+    s_h = summarise_for_operator_live(cfg, obs, sigma_h, joint=joint)
+    s_f = summarise_for_operator_live(cfg, obs, sigma_full, joint=joint)
+    assert s_h.gangway_wf_coverage == "horizontal_3dof"
+    assert s_f.gangway_wf_coverage == "full_6dof"
+    # pitch coefficient is 23 m/rad here -> 1 deg pitch contributes
+    # ~0.40 m sigma. Combined with the existing horizontal terms
+    # (dominated by the LF yaw-lever-arm c3[2]=-9), the full 6-DOF
+    # sigma is ~18 % larger than the horizontal-only fallback.
+    assert s_f.gangway_sigma_dL_wcf_m > 1.15 * s_h.gangway_sigma_dL_wcf_m
+
+
+def test_gangway_signed_dL_extends_for_forward_drift():
+    """A vessel drifted forward (eta_n > 0) with a forward-pointing
+    gangway means the rotation centre has moved AWAY from the world-
+    fixed landing point along +e_L; the telescope must EXTEND, so
+    signed dL > 0.
+
+    Specifically: c3 = (-1, 0, -9), eta_hat = (+0.5, 0, 0) gives
+    intact dL = c3 . eta_hat = -0.5. Sign is NEGATIVE because cqa's
+    convention is "Delta_L > 0 means MORE telescope is required",
+    and a positive eta_n is a vessel deviation in +N which keeps the
+    same vessel-to-tip vector for a forward-pointing gangway when
+    the landing point was set BEHIND the vessel (Delta_L = -e_L .
+    Delta_p_rc; Delta_p_rc = +N for a forward drift, e_L_world = +N
+    too -> Delta_L = -1 * eta_n). The test pins the SIGN of the
+    intact-offset value so a future refactor cannot silently flip
+    the convention."""
+    from cqa.gangway import telescope_sensitivity
+    cfg = _config_with_K(0.0)
+    sigma = _make_sigma_post()
+    eta_hat = (0.5, 0.0, 0.0)
+    obs = _make_obs_state(b_hat_kN=(-1.0, -1.0, -1.0), eta_hat=eta_hat)
+    joint = _gw_joint_forward()
+    s = summarise_for_operator_live(cfg, obs, sigma, joint=joint)
+    c3 = telescope_sensitivity(joint, cfg.gangway)
+    expected = float(c3 @ np.array(eta_hat))
+    assert s.gangway_dL_intact_offset == pytest.approx(expected, rel=1e-9)
+    # And sign matches: c3[0] = -1 < 0 and eta_n = +0.5 > 0 -> dL < 0.
+    assert s.gangway_dL_intact_offset < 0.0
+
+
+def test_gangway_traffic_red_when_dL_p95_exceeds_extend_alarm():
+    """Punitive b_hat that drives the WCF transient hard along +e_L
+    should push dL_p95 past 0.8 * extend_margin -> RED gangway bar."""
+    cfg = _config_with_K(0.0)
+    # Big forward bias -> big +e_L excursion under WCFDI for forward-
+    # pointing gangway. Small extend margin via L0 close to L_max.
+    obs = _make_obs_state(b_hat_kN=(800.0, 0.0, 0.0))
+    sigma = _make_sigma_post(sigma_lf=0.5, sigma_wf=0.8,
+                             sigma_R_b_hat_m=0.3)
+    joint = _gw_joint_forward(L=31.5, h=15.0)  # extend_margin = 0.5 m
+    s = summarise_for_operator_live(cfg, obs, sigma, joint=joint)
+    assert s.gangway_extend_margin_m == pytest.approx(0.5, abs=1e-9)
+    assert s.gangway_traffic == "red"
+    assert s.overall_traffic == "red"
+
+
+def test_gangway_plot_three_rows_when_present(tmp_path):
+    """Smoke test the plot helper renders 3 axes when gangway is on."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from cqa.live_operator_view import plot_live_operator_summary
+
+    cfg = _config_with_K(0.0)
+    obs = _make_obs_state(b_hat_kN=(-200.0, -100.0, -500.0))
+    sigma = _make_sigma_post()
+    s = summarise_for_operator_live(cfg, obs, sigma, joint=_gw_joint_forward())
+    fig = plot_live_operator_summary(s)
+    assert len(fig.axes) == 3
+    plt.close(fig)
+    s2 = summarise_for_operator_live(cfg, obs, sigma)  # no joint
+    fig2 = plot_live_operator_summary(s2)
+    assert len(fig2.axes) == 2
+    plt.close(fig2)

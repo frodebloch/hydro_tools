@@ -233,6 +233,25 @@ class LiveSigmaPosterior:
     # compatibility.
     sigma_R_b_hat_m: float = 0.0
 
+    # Optional WF posteriors for the out-of-plane DOFs (heave, roll,
+    # pitch). Required for the gangway-telescope bar of the operator
+    # panel: with the gangway base above CO and the rotation centre
+    # higher still, roll and pitch dominate the WF telescope-length
+    # variance through the lever-arm terms in
+    # ``cqa.gangway.telescope_sensitivity_6dof``. Built from the same
+    # ``BayesianSigmaEstimator`` machinery applied to the live MRU
+    # roll/pitch/heave WF channels (sea-state-agnostic: the estimator
+    # observes the realised motion, no Hs/Tp lookup needed).
+    #
+    # Default ``None`` keeps the existing 3-DOF LF + WF + b_hat
+    # composition for the position bars unchanged, and the gangway bar
+    # falls back to a horizontal-only (surge/sway/yaw) projection with
+    # an explicit "roll/pitch unmonitored" warning so the operator
+    # knows the displayed sigma_dL is a lower bound.
+    posterior_wf_heave: Optional[SigmaPosterior] = None
+    posterior_wf_roll: Optional[SigmaPosterior] = None
+    posterior_wf_pitch: Optional[SigmaPosterior] = None
+
 
 # ---------------------------------------------------------------------------
 # Helpers
