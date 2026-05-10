@@ -81,37 +81,79 @@ with single-snapshot coverage 50-70 % -- the latter is genuine
 sampling variability of single-realisation P95 vs a calibrated
 halo, not over-conservatism.
 
-WCF axis: under-predicts the realised single-realisation post-WCF
-peak by ~15-20 % across most of the matrix. This was extensively
-diagnosed (see scripts/p7_brucon_validation):
+WCF axis: the previous per-instant Gaussian halo at the
+deterministic peak under-predicted the per-seed brucon
+single-realisation P95 by 11-59 % across the matrix (worst on
+energetic cells where the LF channel has the largest natural
+slow drift). Diagnosis (scripts/p7_brucon_validation/
+diagnose_lf_transient_shape.py, analysis.md sec.12.21.9):
 
-  * Adding nu_hat as IC (x0[3:6] = x0[9:12] = nu_hat) changes the
-    peak by +5 % only -- LF velocity at the WCF instant carries
-    little energy.
-  * Adding b_hat as IC (x0[12:15] = b_hat) explodes the prediction
-    3-4x, confirming the existing x0 = 0 IC is correct: the linear
-    augmented system is set up as a *delta around intact steady-
-    state*, with tau_env re-entering through tau_lost(t) as the
-    additional perturbation only.
-  * The deterministic mean trajectory itself (no noise, no halo) is
-    accurate to within +/-10 % of the brucon ensemble-mean post-WCF
-    transient peak across the matrix.
-  * The remaining 15-20 % gap is therefore a comparator-statistic
-    effect, not a model bug: the panel reports P95 of |R| at the
-    deterministic peak time under a single Gaussian halo at that
-    instant, while the truth statistic is the single-realisation
-    max over a 60-s window of a *correlated* noise process. Even
-    with strong correlation (LF tau_decorr ~60 s, comparable to the
-    transient horizon), max-over-window samples ~0.3-0.5 sigma above
-    the deterministic peak, which at typical sigma_R ~0.5-0.7 m and
-    peaks ~2 m gives the observed ~10-15 % inflation.
-  * iid-per-timestep noise gives ~+80 % over-prediction (confirms
-    correlation matters and any fix must respect LF/WF decorrelation
-    timescales).
+  * cqa pred ensemble-mean Δη(t) on the b̂-loaded DOF matches
+    truth ensemble-mean to within ~30 % on head-on cells (e.g.
+    bf6_h0 surge -0.39 m truth vs -0.44 m pred at t≈32 s).
+    The deterministic transient on the loaded DOF is correct.
+  * The per-seed P95 gap is dominated by NATURAL LF DRIFT in
+    the brucon LF channel: a stationary correlated process with
+    sigma_R_LF ~ 0.3-0.9 m and tau_decorr ~15 s wandering over
+    the 60 s post-WCF window. This adds ~a_q(N_eff_LF) *
+    sigma_R_LF to the per-seed window-max, where the Gumbel/
+    Rice peak factor a_95 ~ 3.5 at N_eff = 4. The previous
+    per-instant Gaussian halo gave only ~1.96 * sigma -- about
+    half what the window-max statistic actually produces.
+  * Cross-coupled DOFs (sway/yaw under head-on b̂) DO show a
+    real model gap: cqa pred ensemble-mean is essentially zero
+    while truth has +0.5 m sway / +0.04 rad yaw transient.
+    Tracked separately as a candidate WCFDI asymmetry-physics
+    investigation; not addressed here. The natural-drift
+    fix below partially absorbs it through the LF Gumbel
+    contribution (which is direction-isotropic in 2D and so
+    enters every radial direction equally).
 
-Known residual physics gap: pwo (beam-on, current = +20 deg) under-
-predicts by ~50 %, the documented missing dF_x/dpsi mirror term
-(analysis.md sec.12). NOT a comparator effect; tracked separately.
+Fix in this version: the WCF P95 / P50 are computed by
+``_radial_window_max_quantiles``, which:
+
+  * adds an LF Gumbel contribution with a_50 / sqrt(pi/2)
+    scaling on a 2D Gaussian sample (preserves random
+    direction; magnitude calibrated to give the right MEDIAN
+    over the window), with N_eff_LF = t_horizon / 15 s;
+  * adds a WF Gumbel contribution the same way with N_eff_WF
+    = t_horizon / 5 s;
+  * adds the b̂ snapshot uncertainty as a per-instant 2D
+    Gaussian halo (deterministic-mean uncertainty -- no
+    correlation knob to exploit);
+  * computes the radial quantile of the sum by MC.
+
+12-cell roll-up of the WCF P95 bias before / after this fix:
+
+  cell             before      after     coverage_after
+  bf4_c1_h0          +26 %      -16 %        47 %
+  bf4_c1_q10         +12 %      -19 %        40 %
+  bf6_h0             -23 %       -8 %        87 %
+  bf6_q10            -23 %      -10 %        87 %
+  bf6_h0_w45         -17 %      -18 %        87 %
+  bf6_q10_w45        -13 %      -21 %        67 %
+  bf8_h0             -32 %       +1 %        90 %
+  bf8_q10            -40 %      -22 %        73 %
+  bf8_h0_w45         -41 %      -28 %        60 %
+  bf8_q10_w45        -35 %      -15 %        83 %
+  pwo                -59 %      -25 %        63 %
+  pwq30              -42 %       -9 %        87 %
+
+Big wins on the energetic / cross-coupled cells (pwo -34 pp,
+pwq30 -33 pp, bf8_h0 -33 pp, bf8_q10_w45 -20 pp). Small
+regressions on bf4 calm cells (~30 pp) where the previous
+slight over-prediction had been useful slack -- absolute
+magnitudes there are ~0.1 m, well below operator-relevant
+scales. P50 is now consistently -20..-30 %; the operationally
+important quantile is P95.
+
+Residual P95 gap on bf6/bf8 (-8..-28 %) is the cross-coupled
+DOF model gap noted above: even with the right LF Gumbel
+envelope, the deterministic mean trajectory under-predicts
+sway/yaw transients on cells where the WCFDI thrust loss is
+asymmetric in physical thruster geometry. Resolving that
+requires extending WcfdiScenario to carry an asymmetric loss
+vector matched to the brucon thruster bus assignment.
 """
 
 from __future__ import annotations
@@ -272,15 +314,27 @@ class LiveOperatorSummary:
     # window-max model removes the spurious noise width that the
     # folded-normal halo had been using to mask the LF transient
     # under-prediction. The residual on bf6/bf8/pwo is now cleanly
-    # attributable to the LF transient model itself: e.g. on
-    # bf8_h0 seed 1000 the predicted LF surge peak is 1.13 m at
-    # t=32s while the truth peaks at 2.05 m at t=76s -- 1.8x
-    # under-prediction and ~45 s mis-located in time. This is the
-    # same dF/dpsi mirror-term physics gap that the position bar
-    # also has (analysis.md sec.12); the position bar's larger
-    # sigma_R envelope masks it more effectively in cell-aggregate.
-    # Resolving the LF transient model will improve both bars at
-    # once. The gangway comparator itself is now apples-to-apples.
+    # attributable to two distinct causes (per the position-bar
+    # diagnosis in analysis.md sec.12.21.9 and
+    # diagnose_lf_transient_shape.py):
+    #
+    #   (i)  natural slow LF drift in the brucon LF channel
+    #        (sigma_R_LF ~ 0.3-0.9 m, tau_decorr ~15 s) which adds
+    #        a Gumbel/Rice window-max contribution the position bar
+    #        now models but the gangway bar's c3 . eta_LF projection
+    #        does NOT yet model on top of |c3 . delta_eta_mean(t_peak)|;
+    #
+    #   (ii) the same cross-coupling model gap the position bar has --
+    #        cqa pred ensemble-mean is essentially zero on the
+    #        un-loaded DOFs (sway / yaw under head-on b̂) while truth
+    #        has substantial transients. WCFDI thrust loss is
+    #        asymmetric in physical thruster geometry but cqa models
+    #        it as symmetric per-DOF alpha-cap reduction.
+    #
+    # Adding an LF Gumbel contribution to the gangway excursion would
+    # mirror the position-bar fix; deferred until per-DOF brucon LF
+    # sigmas can be projected through c6 the same way the WF posteriors
+    # already are. The gangway comparator itself is now apples-to-apples.
     #
     # Note: when sigma_dL_wf_measured / T_zc_dL_wf_measured are not
     # supplied on LiveSigmaPosterior, the panel falls back to the
@@ -324,6 +378,63 @@ class LiveOperatorSummary:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Decorrelation timescales for the WCF window-max envelope
+# ---------------------------------------------------------------------------
+#
+# These are the same heuristic decorrelation times used in the live
+# brucon validation harness (scripts/p7_brucon_validation/
+# live_cell_per_seed_pwq30.py) for the BayesianSigmaEstimator
+# windows. Treating them here as module-level constants documents
+# them in one place; the WCF window-max envelope uses them to size
+# the Gumbel/Rice peak factor a_q(N_eff) over the WCF horizon.
+#
+#   T_DECORR_LF (surge / sway): ~ 1 / omega_pid ~ 12-17 s on the
+#     CSOV Medium tuning -> 15 s.
+#   T_DECORR_WF (all axes): ~ Tp / 2 ~ 5 s for typical Bf6+ states.
+#
+# Yaw is not used in the radial-position WCF envelope (the bar is
+# 2D xy magnitude); the gangway bar uses its own tau_LF measured
+# from the LF peak shape and T_zc_dL_wf_measured for N_eff and so
+# is independent of these constants.
+T_DECORR_LF_S = 15.0
+T_DECORR_WF_S = 5.0
+
+
+def _gumbel_peak_factor(N_eff: float, q: float) -> float:
+    """Gumbel/Rice extreme-value peak factor at quantile ``q``.
+
+    Returns ``a_q`` such that for a stationary zero-mean Gaussian
+    with ``N_eff`` independent crests in the observation window,
+    the q-quantile of ``max_t |x(t)|`` is approximately
+    ``a_q * sigma``. This is the same formula used by the gangway
+    bar (Gumbel/Rice extreme-value model); centralised here so the
+    position-bar window-max envelope and the gangway window-max
+    excursion share one implementation.
+
+    Floors ``N_eff`` at 1.001 to keep ``ln`` defined for the
+    "single crest" limit (a_50 -> 0.95, a_95 -> 4.4 at N=1.001
+    -- which is conservative; the q=0.95 quantile of |x| with one
+    crest is ~1.96 sigma, not 4.4 sigma, so callers that want
+    "fall back to per-instant Gaussian" should detect N_eff <= 1
+    explicitly and use the folded-normal/MC path instead).
+
+    Conventions match analysis.md sec.12.6:
+      a_50 = sqrt(2 ln N) - euler_gamma / sqrt(2 ln N)
+      a_95 = sqrt(2 ln N) - ln(-ln 0.95) / sqrt(2 ln N)
+    where euler_gamma ~= 0.5772156649 (Euler-Mascheroni constant).
+    """
+    N = max(float(N_eff), 1.001)
+    ln_term = float(np.sqrt(2.0 * np.log(N)))
+    if q == 0.50:
+        return ln_term - 0.5772156649 / ln_term
+    if q == 0.95:
+        return ln_term - float(np.log(-np.log(0.95))) / ln_term
+    # General q: Gumbel CDF F(a) = exp(-exp(-(a*ln_term - ln N)))
+    # Inverting: a = ln_term - ln(-ln q) / ln_term.
+    return ln_term - float(np.log(-np.log(q))) / ln_term
+
+
 def _radial_quantiles(
     offset_xy: np.ndarray,
     sigma_x: float,
@@ -336,12 +447,122 @@ def _radial_quantiles(
 
     Pure function. Per-call MC; no state. ``offset_xy`` is a (2,)
     deterministic body-frame mean offset.
+
+    This is a per-instant statistic. For window-max statistics over
+    a finite horizon (e.g. the WCF post-fault peak), use
+    ``_radial_window_max_quantiles`` instead, which combines the
+    per-instant 2D Gaussian halo on b_hat uncertainty with scalar
+    Gumbel/Rice contributions for the LF and WF correlated noise
+    processes.
     """
     if rng is None:
         rng = np.random.default_rng(0)
     nu_x = rng.standard_normal(n_mc) * sigma_x
     nu_y = rng.standard_normal(n_mc) * sigma_y
     R = np.hypot(offset_xy[0] + nu_x, offset_xy[1] + nu_y)
+    return float(np.quantile(R, 0.50)), float(np.quantile(R, 0.95))
+
+
+def _radial_window_max_quantiles(
+    offset_xy_at_peak: np.ndarray,
+    sigma_lf_x: float,
+    sigma_lf_y: float,
+    sigma_wf_x: float,
+    sigma_wf_y: float,
+    sigma_b_hat_axis: float,
+    *,
+    t_horizon_s: float,
+    T_decorr_lf_s: float = T_DECORR_LF_S,
+    T_decorr_wf_s: float = T_DECORR_WF_S,
+    n_mc: int = 2000,
+    rng: Optional[np.random.Generator] = None,
+) -> tuple[float, float]:
+    """WCF post-fault P50, P95 of ``max_{t in [0, t_horizon]} |R(t)|``.
+
+    Three independent noise contributions, each modelled with the
+    correlation structure that fits its physics:
+
+      1. LF residual: stationary correlated Gaussian process with
+         per-axis sigma (``sigma_lf_x``, ``sigma_lf_y``) and
+         decorrelation time ``T_decorr_lf_s``. Over the WCF horizon
+         it sees ``N_eff_lf = t_horizon / T_decorr_lf`` independent
+         crests; the q-quantile of ``max_t |x_lf|`` is
+         ``a_q(N_eff_lf) * sigma_R_lf`` in **magnitude** with
+         **random direction in 2D** (independent of the radial axis
+         of ``offset_xy_at_peak``). Modelled here as an isotropic
+         2D vector with Rayleigh-magnitude scaling.
+
+      2. WF residual: same as LF but with ``T_decorr_wf_s`` and
+         per-axis (``sigma_wf_x``, ``sigma_wf_y``). Independent of
+         the LF residual.
+
+      3. b_hat snapshot uncertainty: a deterministic-mean
+         uncertainty (no time-correlation knob), modelled per-instant
+         as 2D Gaussian halo with per-axis sigma
+         ``sigma_b_hat_axis``.
+
+    All three vectors add in xy:
+        nu_total = nu_lf + nu_wf + nu_bhat
+    and the WCF radial deviation is ``R = |offset_xy_at_peak +
+    nu_total|``. Per-call MC; n_mc samples.
+
+    Why 2D random-direction (not scalar add): adding ``a_q * sigma``
+    as a scalar to ``R`` would double-count. The radial direction
+    at peak ``R_det = |eta_hat + delta_eta_mean(t_peak)|`` is fixed,
+    and the LF/WF residuals are NOT preferentially aligned with it.
+    Worst-case alignment gives the scalar-add answer (max bound
+    ~3.5 sigma per process); typical alignment gives the
+    quadrature-sum answer (~2 sigma per process). The 2D MC
+    captures the actual distribution.
+
+    Falls back gracefully: when ``T_decorr_*`` exceeds
+    ``t_horizon_s`` (N_eff < 1) the corresponding Gumbel scaling
+    drops to 1.0 -- the residual is treated as quasi-static within
+    the window with per-instant Gaussian magnitude. (For LF this
+    means the live snapshot of eta_hat already captures the
+    relevant offset and adding extra spread would be redundant.
+    For WF it means the wave forcing has not changed within the
+    window, so a single Gaussian sample suffices.)
+    """
+    if rng is None:
+        rng = np.random.default_rng(0)
+
+    # Gumbel scaling per process: max-amplitude scales as
+    # a_q(N_eff) * sigma instead of ~1 * sigma. Implemented as a
+    # multiplier on the per-instant Gaussian sample so that the
+    # 2D random direction is preserved.
+    N_eff_lf = max(float(t_horizon_s) / float(T_decorr_lf_s), 1.0)
+    N_eff_wf = max(float(t_horizon_s) / float(T_decorr_wf_s), 1.0)
+    # Use the median Gumbel peak factor a_50 as the magnitude
+    # multiplier on the per-instant Gaussian: the per-instant
+    # Gaussian's expected magnitude is ~1.25 sigma (Rayleigh mean
+    # for sigma_x = sigma_y); the Gumbel-max expected magnitude is
+    # ~a_50 sigma. Scaling by a_50 / 1.25 inflates the per-instant
+    # 2D Gaussian to have the right MEDIAN magnitude over the
+    # window, while preserving the 2D direction distribution. The
+    # MC then yields the correct radial P50 / P95 by composition
+    # with the deterministic peak offset and the b_hat halo.
+    rayleigh_mean_factor = 1.2533141373155001  # = sqrt(pi/2)
+    if N_eff_lf > 1.0:
+        scale_lf = _gumbel_peak_factor(N_eff_lf, 0.50) / rayleigh_mean_factor
+    else:
+        scale_lf = 1.0
+    if N_eff_wf > 1.0:
+        scale_wf = _gumbel_peak_factor(N_eff_wf, 0.50) / rayleigh_mean_factor
+    else:
+        scale_wf = 1.0
+
+    nu_lf_x = rng.standard_normal(n_mc) * sigma_lf_x * scale_lf
+    nu_lf_y = rng.standard_normal(n_mc) * sigma_lf_y * scale_lf
+    nu_wf_x = rng.standard_normal(n_mc) * sigma_wf_x * scale_wf
+    nu_wf_y = rng.standard_normal(n_mc) * sigma_wf_y * scale_wf
+    nu_bh_x = rng.standard_normal(n_mc) * sigma_b_hat_axis
+    nu_bh_y = rng.standard_normal(n_mc) * sigma_b_hat_axis
+
+    R = np.hypot(
+        offset_xy_at_peak[0] + nu_lf_x + nu_wf_x + nu_bh_x,
+        offset_xy_at_peak[1] + nu_lf_y + nu_wf_y + nu_bh_y,
+    )
     return float(np.quantile(R, 0.50)), float(np.quantile(R, 0.95))
 
 
@@ -596,8 +817,26 @@ def summarise_for_operator_live(
     k_peak = int(np.argmax(R_det_t))
     wcf_t_peak = float(t_grid[k_peak])
     wcf_offset_at_peak = float(R_det_t[k_peak])
-    wcf_p50, wcf_p95 = _radial_quantiles(
-        eta_xy_t[k_peak], sigma_x_wcf, sigma_y_wcf, n_mc=n_mc, rng=rng,
+    # Window-max P50/P95 (LF + WF Gumbel contributions over t_horizon_s,
+    # plus per-instant b_hat halo at the deterministic peak instant).
+    # See diagnose_lf_transient_shape.py and analysis.md sec.12.21.9 for
+    # why the previous per-instant Gaussian on the LF channel
+    # under-predicted the per-seed WCF P95: the LF channel has
+    # natural slow drift with sigma_R_LF ~ 0.3-0.9 m and tau_decorr
+    # ~15 s, giving N_eff ~ 4 over a 60 s horizon and a Gumbel peak
+    # factor a_95 ~ 3.5x sigma -- much larger than the ~1.96x sigma
+    # a per-instant Gaussian gives.
+    sig_lf_x_w, sig_lf_y_w = _sigmas_intact_axis(sigma_post)  # LF only
+    sig_wf_x_w = float(sigma_post.posterior_wf_x.sigma_median)
+    sig_wf_y_w = float(sigma_post.posterior_wf_y.sigma_median)
+    sig_bh_axis_w = float(sigma_post.sigma_R_b_hat_m) / float(np.sqrt(2.0))
+    wcf_p50, wcf_p95 = _radial_window_max_quantiles(
+        eta_xy_t[k_peak],
+        sig_lf_x_w, sig_lf_y_w,
+        sig_wf_x_w, sig_wf_y_w,
+        sig_bh_axis_w,
+        t_horizon_s=t_horizon_s,
+        n_mc=n_mc, rng=rng,
     )
     wcf_traffic = _imca_traffic(wcf_p95, pos_warn, pos_alarm)
 

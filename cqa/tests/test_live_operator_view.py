@@ -541,3 +541,70 @@ def test_gangway_excursion_grows_with_b_hat_magnitude():
     # WF contribution is tiny (~1e-3 m), so the ratio is ~2.0.
     ratio = s2.gangway_dL_excursion_p50 / max(s1.gangway_dL_excursion_p50, 1e-9)
     assert 1.9 < ratio < 2.1
+
+
+# ---------------------------------------------------------------------------
+# WCF window-max envelope on the position bar (12.21.9 LF + WF Gumbel)
+# ---------------------------------------------------------------------------
+
+
+def test_wcf_p95_grows_with_lf_sigma_via_gumbel_envelope():
+    """Increasing the LF sigma posterior must enlarge the WCF P95 by an
+    amount consistent with the Gumbel/Rice peak factor a_q(N_eff_LF)
+    over the 60 s default horizon. The deterministic peak |eta_hat +
+    delta_eta_mean(t_peak)| is held fixed by holding b_hat / eta_hat
+    fixed; only sigma_LF varies."""
+    cfg = _config_with_K(0.0)
+    obs = _make_obs_state(b_hat_kN=(-300.0, -200.0, -500.0))
+    sigma_lo = _make_sigma_post(sigma_lf=0.10)
+    sigma_hi = _make_sigma_post(sigma_lf=0.40)
+    s_lo = summarise_for_operator_live(cfg, obs, sigma_lo)
+    s_hi = summarise_for_operator_live(cfg, obs, sigma_hi)
+    # Higher LF sigma -> larger WCF P95.
+    assert s_hi.wcf_R_p95 > s_lo.wcf_R_p95
+    # The increment per unit sigma must be in the Gumbel range:
+    # for T_horizon = 60 s, T_decorr_LF = 15 s -> N_eff_LF = 4 ->
+    # a_50 ~ 0.95, the magnitude scaling factor is a_50 / sqrt(pi/2)
+    # ~ 0.76 applied to per-axis sigma. For sigma_R = sqrt(2) * sigma
+    # the per-axis-isotropic incremental contribution at P95 is roughly
+    # (Rayleigh-like) 1.5 .. 2.5x the per-axis sigma increment. Pin
+    # loose bounds.
+    delta_sigma = 0.40 - 0.10
+    delta_p95 = s_hi.wcf_R_p95 - s_lo.wcf_R_p95
+    incr_per_sigma = delta_p95 / delta_sigma
+    assert 0.5 < incr_per_sigma < 4.0
+
+
+def test_wcf_p95_grows_with_b_hat_via_deterministic_peak():
+    """Increasing |b_hat| linearly must scale the deterministic LF
+    transient peak proportionally (pulse_response is linear in
+    tau_env). The MC halo has random direction so the radial sum
+    grows roughly linearly too. Test scaling is monotone and
+    bounded."""
+    cfg = _config_with_K(0.0)
+    sigma = _make_sigma_post(sigma_lf=0.05)  # small noise
+    obs1 = _make_obs_state(b_hat_kN=(-200.0, 0.0, 0.0))
+    obs2 = _make_obs_state(b_hat_kN=(-400.0, 0.0, 0.0))
+    s1 = summarise_for_operator_live(cfg, obs1, sigma)
+    s2 = summarise_for_operator_live(cfg, obs2, sigma)
+    # 2x larger b_hat -> ~2x larger deterministic peak.
+    ratio_offset = s2.wcf_R_offset_at_peak_m / max(
+        s1.wcf_R_offset_at_peak_m, 1e-9)
+    assert 1.9 < ratio_offset < 2.1
+    # WCF P95 grows at least monotonically.
+    assert s2.wcf_R_p95 > s1.wcf_R_p95
+
+
+def test_wcf_p95_horizon_dependence_via_gumbel():
+    """A longer t_horizon_s gives a larger N_eff and hence a larger
+    Gumbel peak factor, so the WCF P95 must increase as t_horizon_s
+    grows (with all else fixed). This is the core property that
+    distinguishes the new window-max envelope from the previous
+    per-instant Gaussian halo."""
+    cfg = _config_with_K(0.0)
+    obs = _make_obs_state(b_hat_kN=(-300.0, -200.0, -500.0))
+    sigma = _make_sigma_post(sigma_lf=0.30)
+    s_short = summarise_for_operator_live(cfg, obs, sigma, t_horizon_s=30.0)
+    s_long = summarise_for_operator_live(cfg, obs, sigma, t_horizon_s=120.0)
+    # 4x longer window -> larger Gumbel peak factor -> larger P95.
+    assert s_long.wcf_R_p95 > s_short.wcf_R_p95

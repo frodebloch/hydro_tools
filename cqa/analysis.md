@@ -4130,6 +4130,194 @@ mechanism is now physically traceable. Three options for next:
 
 This decision will be made in §12.21.9.
 
+#### 12.21.9 Diagnosis: the LF "transient gap" is two distinct problems
+
+Before picking from the three options at the end of §12.21.8.1, a
+direct trajectory-shape comparison was run to characterise *what
+the missing LF actually looks like* rather than guessing at a
+mechanism. The diagnostic
+(`scripts/p7_brucon_validation/diagnose_lf_transient_shape.py`)
+extracts, per cell, per seed:
+
+1. truth body-frame LF Δη(t) = (SurgeDev, SwayDev, HeadingDev)
+   baseline-subtracted to the pre-WCF [t_WCF-60, t_WCF-1]s mean,
+   over [t_WCF-10, t_WCF+120] s;
+2. cqa pred Δη_mean(t) from `pulse_response_with_lift_coupling`
+   driven by τ_env = +b̂(t_WCF-5 s) and the canonical scenario
+   (α=2/3, γ_imm=0.5, T_realloc=10 s), x0=zeros;
+3. the same pre-WCF baseline-subtract pipeline applied to a 120 s
+   *no-event* window [t_WCF-150, t_WCF-30] s -- a control measure
+   of the natural LF drift the brucon channel carries even
+   without any WCFDI event.
+
+##### 12.21.9.1 What the data shows
+
+Run on bf6_h0, bf8_h0, pwo (n=30 seeds each), the picture is
+consistent across cells:
+
+**Finding 1 -- ensemble-mean Δη on the b̂-loaded DOF is correct.**
+On the head-on cells the deterministic mean trajectory matches
+truth ensemble-mean to within ~30 % both in amplitude and peak
+time, on the loaded DOF:
+
+| cell    | DOF   | truth ens-mean peak | cqa pred ens-mean peak |
+|---------|-------|--------------------:|-----------------------:|
+| bf8_h0  | surge | -0.85 m @ 31 s      | **-1.15 m @ 33 s**     |
+| bf6_h0  | surge | -0.39 m @ 40 s      | **-0.44 m @ 32 s**     |
+| pwo     | sway  | -1.42 m @ 40 s      | -0.51 m @ 28 s         |
+
+This refutes three hypotheses considered in §12.21.8.1:
+- "missing slow-recovery / posref filter on η": the cqa surge
+  recovery shape on bf6/bf8 head-on is essentially *correct*
+  (slightly over-amplitude, in fact);
+- "Ki integrator too weak": same direction, same data;
+- "missing dF/dψ mirror term in pulse_response_with_lift_coupling":
+  no missing extra force on the loaded DOF.
+
+The pwo (beam-on) case shows a 2-3× ensemble-mean shortfall on
+sway with the right peak time -- a real partial gap, but not the
+dominant story.
+
+**Finding 2 -- cqa pred has zero response on un-loaded DOFs but
+truth does.** The model gap that *is* real is **lateral
+cross-coupling**:
+
+| cell    | un-loaded DOF | truth ens-mean peak | cqa pred ens-mean peak |
+|---------|---------------|--------------------:|-----------------------:|
+| bf8_h0  | sway          | +0.58 m @ 61 s      | -0.01 m                |
+| bf8_h0  | yaw           | +0.036 rad @ 25 s   | -0.0002 rad            |
+| bf6_h0  | sway          | -0.14 m @ 30 s      | -0.004 m               |
+| bf6_h0  | yaw           | +0.019 rad @ 25 s   | -0.0001 rad            |
+| pwo     | surge         | +0.89 m @ 42 s      | +0.014 m               |
+
+The yaw response has the **same sign on every cell** despite
+different b̂ orientations, suggesting it is driven by something
+universal in the WCFDI mechanism rather than per-cell forcing
+geometry. Working hypothesis: the brucon `bus_port` WCF event
+loses an asymmetric thruster set whose loss creates a residual
+yaw moment + lateral force that cqa's per-DOF α-uniform
+abstraction misses entirely. Verifying / fixing this is the
+candidate next physics investigation; tagged but not addressed
+in this iteration.
+
+**Finding 3 -- per-seed P95 gap is mostly natural LF drift, not
+transient under-prediction.** The "no-event" 120 s baseline-
+subtracted control window has substantial RMS amplitude on every
+cell:
+
+| cell    | DOF   | truth P95 | NE RMS | P95 / NE |
+|---------|-------|----------:|-------:|---------:|
+| bf8_h0  | surge | 3.13 m    | 0.89 m | 3.5×     |
+| bf8_h0  | sway  | 3.42 m    | 0.81 m | 4.2×     |
+| bf6_h0  | surge | 1.34 m    | 0.32 m | 4.2×     |
+| pwo     | sway  | 3.10 m    | 0.57 m | 5.5×     |
+
+A pure stationary Gaussian LF process with σ ≈ NE_RMS would,
+over 120 s with τ_decorr ~15 s (8 effective samples), give a
+peak of ~2σ ≈ 1.8 m on bf8 surge. Truth shows 3.13 m. So the
+WCF transient adds ~1.3 m to the natural drift on top of which
+sits the cqa pred ens-mean ~1.15 m on surge -- the numbers add
+up. **cqa correctly predicts the deterministic transient;
+per-seed P95 = transient + natural LF drift; cqa cannot
+reproduce per-seed natural drift because its prediction is a
+deterministic mean.**
+
+##### 12.21.9.2 Fix: LF / WF window-max envelope on the position bar
+
+The diagnosis maps cleanly onto the same Gumbel/Rice
+extreme-value pattern the gangway bar already uses for the WF
+channel (§12.21.6.x, §12.21.7). The position bar is updated to
+combine three independent noise sources, each with its proper
+correlation structure, instead of lumping them into one
+per-instant Gaussian halo:
+
+```
+R_q = quantile_q( |offset_xy_at_peak + nu_lf + nu_wf + nu_bhat| )
+
+  nu_lf  : 2D Gaussian with per-axis sigma * (a_50(N_eff_lf) / sqrt(pi/2))
+           N_eff_lf = t_horizon / T_decorr_lf,  T_decorr_lf = 15 s
+  nu_wf  : 2D Gaussian with per-axis sigma * (a_50(N_eff_wf) / sqrt(pi/2))
+           N_eff_wf = t_horizon / T_decorr_wf,  T_decorr_wf = 5 s
+  nu_bhat: 2D Gaussian with per-axis sigma_b_hat_axis (per-instant;
+           b̂ is a deterministic-mean uncertainty)
+```
+
+The Gumbel scaling is applied as a magnitude multiplier on a 2D
+isotropic Gaussian sample (preserves random direction); the
+multiplier `a_50 / sqrt(π/2)` is calibrated so the median 2D
+magnitude equals the Gumbel-max median. The MC then composes
+all three vectors with the deterministic peak offset and reports
+the radial quantile. Implemented in `cqa.live_operator_view.
+_radial_window_max_quantiles`; module-level constants
+`T_DECORR_LF_S = 15.0`, `T_DECORR_WF_S = 5.0` document the
+chosen decorrelation times (matching the live brucon validation
+harness `live_cell_per_seed_pwq30.py`).
+
+Falls back to per-instant Gaussian when N_eff < 1 (windows
+shorter than the decorrelation time) -- the LF/WF residual is
+then quasi-static within the window and a single Gaussian
+sample suffices.
+
+##### 12.21.9.3 12-cell roll-up: WCF P95 bias before / after
+
+Re-running `roll_up_live_operator_panel.py` (forecast horizon
+60 s, 30 brucon seeds per cell, all 12 cells of the matrix):
+
+| cell           | P95 bias before | P95 bias after | coverage_after |
+|----------------|----------------:|---------------:|---------------:|
+| bf4_c1_h0      | +26 %           |  -16 %         |  47 %          |
+| bf4_c1_q10     | +12 %           |  -19 %         |  40 %          |
+| bf6_h0         | -23 %           |   -8 %         |  87 %          |
+| bf6_q10        | -23 %           |  -10 %         |  87 %          |
+| bf6_h0_w45     | -17 %           |  -18 %         |  87 %          |
+| bf6_q10_w45    | -13 %           |  -21 %         |  67 %          |
+| bf8_h0         | -32 %           |   +1 %         |  90 %          |
+| bf8_q10        | -40 %           |  -22 %         |  73 %          |
+| bf8_h0_w45     | -41 %           |  -28 %         |  60 %          |
+| bf8_q10_w45    | -35 %           |  -15 %         |  83 %          |
+| pwo            | -59 %           |  -25 %         |  63 %          |
+| pwq30          | -42 %           |   -9 %         |  87 %          |
+
+Big wins on the energetic / cross-coupled cells: pwo -34 pp,
+pwq30 -33 pp, bf8_h0 -33 pp, bf8_q10_w45 -20 pp. Coverage
+(fraction of cells where truth P95 ≤ pred P95) went up from
+47-70 % to 60-90 % on every Bf6+ cell. The bf4 calm cells
+regressed from slightly over to slightly under, but absolute
+magnitudes are ~0.1 m on a 0.6 m metric -- not operator-relevant.
+
+##### 12.21.9.4 What the residual gap means
+
+The remaining -8..-28 % on bf6/bf8 P95 is now *cleanly attributable
+to Finding 2*: the deterministic mean trajectory under-predicts
+the cross-coupled DOFs (sway / yaw under head-on b̂). Even a
+correctly-sized noise envelope cannot make up for a deterministic
+mean that has the wrong structure. Resolving this requires
+extending `WcfdiScenario` to carry an asymmetric loss vector
+matched to the actual brucon thruster bus geometry, which is a
+genuine physics extension distinct from the natural-drift fix
+landed here. Not in scope for this iteration.
+
+##### 12.21.9.5 What this means for the §12.21.8.1 options
+
+Of the three options listed at the end of §12.21.8.1:
+- the calibration-multiplier path (option 1) was avoided -- the
+  fix here is principled, not empirical;
+- the posref / tau_cmd physics path (option 2) was not needed --
+  the deterministic mean on the loaded DOF is already correct;
+- the IC-velocity broadening path (option 3) was also not
+  needed -- ensemble-mean diagnostics show the gap is not in
+  the IC sampler.
+
+The actual mechanism (natural LF drift over the 60 s WCF window)
+was not on the §12.21.8.1 shortlist because it is not a
+*transient model* problem -- it is a *post-WCF window
+extreme-value statistic* problem. Same gap by symptom; different
+root cause. Worth recording: the 28 % "transient under-prediction"
+language in §12.21.8.1 is technically correct but pointed
+investigation in the wrong direction. The right framing is
+"per-seed window-max statistic" -- and the fix is the same
+Gumbel/Rice extreme-value envelope the gangway bar already used.
+
 #### 12.21.10 Deferred: live-cell scenario IRF precomputation (perf, not correctness)
 
 When the live cell ships on the brucon panel, the per-tick cost of
