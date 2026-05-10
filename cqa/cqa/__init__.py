@@ -150,6 +150,11 @@ from .live_decision import (
     LiveSigmaPosterior,
     evaluate_decision_cell_live,
 )
+from .live_operator_view import (
+    LiveOperatorSummary,
+    summarise_for_operator_live,
+    plot_live_operator_summary,
+)
 from .time_series_realisation import (
     realise_vector_force_time_series,
     integrate_closed_loop_response,
@@ -273,6 +278,9 @@ __all__ = [
     "LiveObserverState",
     "LiveSigmaPosterior",
     "evaluate_decision_cell_live",
+    "LiveOperatorSummary",
+    "summarise_for_operator_live",
+    "plot_live_operator_summary",
     "realise_vector_force_time_series",
     "integrate_closed_loop_response",
     "realise_wave_motion_6dof",
