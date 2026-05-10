@@ -81,11 +81,37 @@ with single-snapshot coverage 50-70 % -- the latter is genuine
 sampling variability of single-realisation P95 vs a calibrated
 halo, not over-conservatism.
 
-WCF axis: still systematically under-predicts the realised LF peak
-by ~25-35 % across the matrix (with a -55 % outlier at pwo, which
-is the documented beam-on dF_x/dpsi gap from analysis.md sec.12).
-This is the residual gap of the live pipeline at this stage of
-development, not a bug in the operator panel.
+WCF axis: under-predicts the realised single-realisation post-WCF
+peak by ~15-20 % across most of the matrix. This was extensively
+diagnosed (see scripts/p7_brucon_validation):
+
+  * Adding nu_hat as IC (x0[3:6] = x0[9:12] = nu_hat) changes the
+    peak by +5 % only -- LF velocity at the WCF instant carries
+    little energy.
+  * Adding b_hat as IC (x0[12:15] = b_hat) explodes the prediction
+    3-4x, confirming the existing x0 = 0 IC is correct: the linear
+    augmented system is set up as a *delta around intact steady-
+    state*, with tau_env re-entering through tau_lost(t) as the
+    additional perturbation only.
+  * The deterministic mean trajectory itself (no noise, no halo) is
+    accurate to within +/-10 % of the brucon ensemble-mean post-WCF
+    transient peak across the matrix.
+  * The remaining 15-20 % gap is therefore a comparator-statistic
+    effect, not a model bug: the panel reports P95 of |R| at the
+    deterministic peak time under a single Gaussian halo at that
+    instant, while the truth statistic is the single-realisation
+    max over a 60-s window of a *correlated* noise process. Even
+    with strong correlation (LF tau_decorr ~60 s, comparable to the
+    transient horizon), max-over-window samples ~0.3-0.5 sigma above
+    the deterministic peak, which at typical sigma_R ~0.5-0.7 m and
+    peaks ~2 m gives the observed ~10-15 % inflation.
+  * iid-per-timestep noise gives ~+80 % over-prediction (confirms
+    correlation matters and any fix must respect LF/WF decorrelation
+    timescales).
+
+Known residual physics gap: pwo (beam-on, current = +20 deg) under-
+predicts by ~50 %, the documented missing dF_x/dpsi mirror term
+(analysis.md sec.12). NOT a comparator effect; tracked separately.
 """
 
 from __future__ import annotations

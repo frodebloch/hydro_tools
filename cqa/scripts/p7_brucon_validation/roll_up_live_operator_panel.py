@@ -129,6 +129,18 @@ def _validate_cell(tag: str) -> dict | None:
     wcf_p50_pred = np.array([r["wcf_p50_pred"] for r in rows])
     wcf_truth = np.array([r["wcf_peak_truth"] for r in rows])
 
+    # Apples-to-apples WCF truth: the panel pred is a *distribution*
+    # (P50/P95 of the post-WCF radial peak under noise), so the truth
+    # to compare against is the *distribution* of single-realisation
+    # post-WCF peaks across the ensemble of seeds, NOT the mean of
+    # those peaks. Mean(realised_peak) > P50(realised_peak) by ~10-20%
+    # for a noisy LF channel; the panel pred is calibrated to predict
+    # P50, not mean, of the post-WCF peak.
+    wcf_truth_p50 = float(np.quantile(wcf_truth, 0.50))
+    wcf_truth_p95 = float(np.quantile(wcf_truth, 0.95))
+    wcf_p50_pred_mean = float(wcf_p50_pred.mean())
+    wcf_p95_pred_mean = float(wcf_p95_pred.mean())
+
     return dict(
         tag=tag,
         n_seeds=len(rows),
@@ -136,15 +148,21 @@ def _validate_cell(tag: str) -> dict | None:
         intact_p95_truth_mean=int_p95_tr.mean(),
         intact_p95_cov=float(np.mean(int_p95_tr <= int_p95_pred)),
         intact_p95_err_pct=100 * np.mean(np.abs(int_p95_pred - int_p95_tr) / int_p95_tr),
-        # Signed bias: positive = pred over truth (conservative), negative = under truth.
         intact_p95_bias_pct=100 * (int_p95_pred - int_p95_tr).mean() / int_p95_tr.mean(),
         intact_p50_bias=float((int_p50_pred - int_p50_tr).mean()),
         intact_p50_bias_pct=100 * (int_p50_pred - int_p50_tr).mean() / int_p50_tr.mean(),
-        wcf_p95_pred_mean=wcf_p95_pred.mean(),
-        wcf_truth_mean=wcf_truth.mean(),
-        wcf_truth_p95=float(np.quantile(wcf_truth, 0.95)),
+        wcf_p95_pred_mean=wcf_p95_pred_mean,
+        wcf_p50_pred_mean=wcf_p50_pred_mean,
+        wcf_truth_mean=float(wcf_truth.mean()),
+        wcf_truth_p50=wcf_truth_p50,
+        wcf_truth_p95=wcf_truth_p95,
+        # Pred-vs-truth bias on matched quantiles.
+        wcf_p50_bias_pct=100 * (wcf_p50_pred_mean - wcf_truth_p50) / wcf_truth_p50,
+        wcf_p95_bias_pct=100 * (wcf_p95_pred_mean - wcf_truth_p95) / wcf_truth_p95,
+        # Coverage of the pred-P95 by the truth distribution: how
+        # many seeds had their realised peak <= the predicted P95.
+        # For a calibrated P95 this should be ~95%.
         wcf_p95_cov=float(np.mean(wcf_truth <= wcf_p95_pred)),
-        wcf_p50_bias_pct=100 * (wcf_p50_pred - wcf_truth).mean() / wcf_truth.mean(),
         # Composition of per-seed traffic-light verdicts (how often green/amber/red).
         n_red=sum(r["overall"] == "red" for r in rows),
         n_amber=sum(r["overall"] == "amber" for r in rows),
@@ -164,21 +182,28 @@ def main() -> int:
     print()
 
     # ---- Table ----
-    print("Live operator panel vs brucon LF truth -- 12-cell roll-up\n")
+    print("Live operator panel vs brucon LF truth -- 12-cell roll-up")
+    print("(Intact: pred = P50/P95 of |eta_hat + nu_LF|; truth = quantiles of")
+    print(" hypot(SurgeDev, SwayDev) over the 60-s pre-WCF window.)")
+    print("(WCF:    pred = P50/P95 of |eta_hat + delta_eta_mean(t_peak) + nu|;")
+    print(" truth = quantiles across seeds of single-realisation post-WCF max")
+    print(" of vector-demeaned hypot(SurgeDev-pre, SwayDev-pre).)\n")
     hdr = (f"{'cell':<14} {'N':>3}   "
-           f"{'intP95.pr':>9} {'intP95.tr':>9} {'cov%':>5} {'|err|%':>6} {'bias%':>6} {'P50bs%':>6}   "
-           f"{'wcfP95.pr':>9} {'wcfPK.tr':>9} {'wcfPK.P95':>9} {'cov%':>5} {'P50bias%':>9}   "
+           f"{'iP95.pr':>7} {'iP95.tr':>7} {'P95bs%':>7} {'iP50bs%':>8} {'cov%':>5}   "
+           f"{'wP50.pr':>7} {'wP50.tr':>7} {'P50bs%':>7} "
+           f"{'wP95.pr':>7} {'wP95.tr':>7} {'P95bs%':>7} {'cov%':>5}   "
            f"{'g/a/r':>9}")
     print(hdr)
     print("-" * len(hdr))
     for m in results:
         print(f"{m['tag']:<14} {m['n_seeds']:>3}   "
-              f"{m['intact_p95_pred_mean']:>9.3f} {m['intact_p95_truth_mean']:>9.3f} "
-              f"{100*m['intact_p95_cov']:>4.0f}% {m['intact_p95_err_pct']:>5.0f}% "
-              f"{m['intact_p95_bias_pct']:>+5.0f}% {m['intact_p50_bias_pct']:>+5.0f}%   "
-              f"{m['wcf_p95_pred_mean']:>9.3f} {m['wcf_truth_mean']:>9.3f} "
-              f"{m['wcf_truth_p95']:>9.3f} {100*m['wcf_p95_cov']:>4.0f}% "
-              f"{m['wcf_p50_bias_pct']:>+8.1f}%   "
+              f"{m['intact_p95_pred_mean']:>7.3f} {m['intact_p95_truth_mean']:>7.3f} "
+              f"{m['intact_p95_bias_pct']:>+6.0f}% {m['intact_p50_bias_pct']:>+7.0f}% "
+              f"{100*m['intact_p95_cov']:>4.0f}%   "
+              f"{m['wcf_p50_pred_mean']:>7.3f} {m['wcf_truth_p50']:>7.3f} "
+              f"{m['wcf_p50_bias_pct']:>+6.0f}% "
+              f"{m['wcf_p95_pred_mean']:>7.3f} {m['wcf_truth_p95']:>7.3f} "
+              f"{m['wcf_p95_bias_pct']:>+6.0f}% {100*m['wcf_p95_cov']:>4.0f}%   "
               f"{m['n_green']}/{m['n_amber']}/{m['n_red']:<5}")
 
     # ---- Plot: intact and WCF coverage across cells ----
