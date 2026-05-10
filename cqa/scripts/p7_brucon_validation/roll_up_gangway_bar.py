@@ -17,12 +17,10 @@ radial position bar:
             referenced to L0).
 
     truth : per seed, ``s_max_abs = max |dL_truth(t) - dL_pre|``
-            over the post-WCF window, where
-            ``dL_truth(t) = c3 . eta_full(t)`` and ``eta_full =
-            (SurgeDev + xHf, SwayDev + yHf, HeadingDev + headingHf)``
-            and ``dL_pre`` is the pre-WCF window mean of
-            ``dL_truth``. Quantiles **across seeds** of single-
-            realisation s_max_abs give the truth P50 / P95.
+            over the post-WCF window, where ``dL_truth(t) = c6 .
+            eta_full_6(t)`` and the demean is performed channel-
+            wise on the pre-WCF window. Quantiles **across seeds**
+            of single-realisation s_max_abs give the truth P50 / P95.
 
 The pred is similarly demeaned via
 ``pred_p* - gangway_dL_intact_offset`` so both pred and truth
@@ -38,21 +36,17 @@ indicate the WCFDI transient pulls back toward L0 rather than
 away). We clip to zero in the print only; the raw value is kept
 for the bias.
 
-Apples-to-apples scope (3-DOF horizontal projection only)
---------------------------------------------------------
-We do NOT have brucon roll/pitch/heave WF posteriors plumbed into
-``LiveSigmaPosterior`` yet, so this validation deliberately runs
-the operator panel in its **horizontal-only fallback**
-(``gangway_wf_coverage = "horizontal_3dof"``) and compares against
-a brucon "truth" trajectory built from the **full horizontal
-motion** (LF + WF) projected through the same 3-DOF telescope
-sensitivity. Roll/pitch/heave contributions to dL remain
-unvalidated and are deliberately omitted from both pred and truth
-so the comparison is apples-to-apples. The forthcoming roll/pitch
-posterior work (separate session) will re-run this validation in
-full 6-DOF mode against a truth that includes brucon's Roll/Pitch/
-Heave channels (which DO exist in the log, just not yet wired into
-the posterior).
+Coverage (full 6-DOF; matches the loader)
+-----------------------------------------
+``live_cell_per_seed_pwq30.build_live_sigma_posterior`` now plumbs
+WF roll/pitch/heave posteriors derived from brucon's ``Roll``,
+``Pitch`` and ``Heave`` channels (windowed-demeaned -- the LF
+component is effectively zero on a DP CSOV, and there is no
+``RollHf``/``PitchHf``/``HeaveHf`` split in the brucon log
+header), so the panel reports
+``gangway_wf_coverage = "full_6dof"`` for every seed and the
+truth comparator below uses the matching c6 6-DOF projection of
+brucon's full motion.
 
 Joint geometry (held fixed across all 12 cells)
 ----------------------------------------------
@@ -66,21 +60,14 @@ Forward-pointing horizontal gangway, mid-stroke length::
 This is a "hypothetical landing setpoint" -- the brucon scenarios
 are sea-trial DP runs without an actual W2W landing target, so the
 joint state was chosen to expose the in-plane variance (forward
-gangway -> surge dominates dL for head/quartering seas, contributes
-significantly via yaw lever-arm c3[2] = -9 m/rad for all headings).
-A single fixed geometry across cells gives a directly-comparable
-bias matrix.
+gangway -> surge dominates dL via c6[0]=-1, contributes via yaw
+lever-arm c6[5]=-9 m/rad, and now via pitch lever-arm c6[4]=+23
+m/rad as the dominant out-of-plane contributor).
 
 Run with::
 
     PYTHONPATH=. .venv/bin/python \\
         scripts/p7_brucon_validation/roll_up_gangway_bar.py
-
-The expected residual is the same comparator-statistic effect
-diagnosed for the position bars (single-realisation max over a
-post-WCF window of correlated noise vs panel quantile at one
-deterministic peak instant): ~10-20 % under-prediction in
-magnitude.
 """
 from __future__ import annotations
 
@@ -104,7 +91,11 @@ from live_cell_per_seed_pwq30 import (                            # noqa: E402
 from cqa.config import csov_default_config                       # noqa: E402
 from cqa.live_decision import LiveObserverState                  # noqa: E402
 from cqa.live_operator_view import summarise_for_operator_live   # noqa: E402
-from cqa.gangway import GangwayJointState, telescope_sensitivity # noqa: E402
+from cqa.gangway import (                                         # noqa: E402
+    GangwayJointState,
+    telescope_sensitivity,
+    telescope_sensitivity_6dof,
+)
 
 
 CELLS = [
@@ -130,7 +121,7 @@ def _set_cell(tag: str) -> None:
     live_cell.CALIB_NPZ = THIS / f"scenario_{tag}_calibration.npz"
 
 
-def _validate_cell(tag: str, cfg, c3: np.ndarray) -> dict | None:
+def _validate_cell(tag: str, cfg, c6: np.ndarray) -> dict | None:
     _set_cell(tag)
     calib_npz = live_cell.CALIB_NPZ
     if not calib_npz.exists():
@@ -149,30 +140,31 @@ def _validate_cell(tag: str, cfg, c3: np.ndarray) -> dict | None:
             heading_compass=float(d.get("heading_compass", 0.0)),
         )
         s = summarise_for_operator_live(cfg, obs, sigma_post, joint=JOINT)
-        # Sanity: we expect horizontal-only coverage everywhere here
-        # (no roll/pitch/heave posteriors plumbed yet).
-        assert s.gangway_wf_coverage == "horizontal_3dof"
+        # With the loader plumbing roll/pitch/heave WF posteriors
+        # always-on, the panel must now report full_6dof coverage.
+        assert s.gangway_wf_coverage == "full_6dof"
 
-        # Reload the brucon main log to project full-motion (LF + WF)
-        # onto the telescope axis.
+        # Reload the brucon main log to project full 6-DOF motion
+        # onto the telescope axis. Roll/Pitch/Heave channels are
+        # TOTAL motion (no HF split); we rely on the same windowed-
+        # demean used inside the loader to remove the LF component
+        # (which is effectively zero on a DP CSOV anyway -- the
+        # mean-trim shift is what gets removed).
         seed_dir = live_cell.WORK_ROOT / f"{tag}_seed{seed:04d}"
         main_p = next((p for p in seed_dir.glob("*.out")
                        if "estimator" not in p.name), None)
         M = _load_tsv(main_p)
         t_main = M["t"]
 
-        # Truth dL(t) = c3 . eta_full(t) where eta_full = LF + WF
-        # horizontal channels only (matches the panel's coverage).
-        # HeadingDev / headingHf are exported by brucon in DEGREES
-        # (see live_cell_per_seed_pwq30.load_seed for the full unit
-        # discussion); convert to radians before projecting through
-        # the c3[2] = -9 m/rad lever arm.
-        eta_full = np.column_stack([
+        eta_full_6 = np.column_stack([
             M["SurgeDev"] + M["xHf"],
             M["SwayDev"] + M["yHf"],
+            M["Heave"],
+            np.deg2rad(M["Roll"]),
+            np.deg2rad(M["Pitch"]),
             np.deg2rad(M["HeadingDev"] + M["headingHf"]),
         ])
-        dL_truth = eta_full @ c3
+        dL_truth = eta_full_6 @ c6
 
         win_m = (t_main >= live_cell.WIN_START) & (t_main <= live_cell.WIN_END)
         post_mask = ((t_main > live_cell.T_EVAL + 5.0)
@@ -244,16 +236,19 @@ def _validate_cell(tag: str, cfg, c3: np.ndarray) -> dict | None:
 def main() -> int:
     cfg = csov_default_config()
     c3 = telescope_sensitivity(JOINT, cfg.gangway)
+    c6 = telescope_sensitivity_6dof(JOINT, cfg.gangway)
 
     print(f"Joint:      h={JOINT.h:.1f} m, alpha={JOINT.alpha_g:.2f} rad, "
           f"beta={JOINT.beta_g:.2f} rad, L0={JOINT.L:.1f} m")
     print(f"c3:         {c3}  (m/m, m/m, m/rad)")
-    print(f"Coverage:   horizontal_3dof "
-          f"(roll/pitch/heave WF posteriors not yet wired)\n")
+    print(f"c6:         {c6}  "
+          f"(surge, sway, heave, roll, pitch, yaw)")
+    print(f"Coverage:   full_6dof "
+          f"(WF roll/pitch/heave posteriors plumbed in loader)\n")
 
     results = []
     for tag in CELLS:
-        m = _validate_cell(tag, cfg, c3)
+        m = _validate_cell(tag, cfg, c6)
         if m is None:
             print(f"  {tag}: skipped (no data)")
             continue
@@ -261,9 +256,10 @@ def main() -> int:
         print(f"  {tag}: validated {m['n_seeds']} seeds")
     print()
 
-    print("Gangway-telescope bar vs brucon truth (3-DOF horizontal projection)")
+    print("Gangway-telescope bar vs brucon truth (full 6-DOF projection)")
     print("Pred is |dL|_p* relative to the live LF \"now\" |dL| offset.")
-    print("Truth is per-seed max |dL_truth - dL_pre| over post-WCF window,")
+    print("Truth is per-seed max |dL_truth - dL_pre| over post-WCF window")
+    print("(c6 . eta_full_6 with eta_full_6 = surge,sway,heave,roll,pitch,yaw),")
     print("then quantiles across seeds.\n")
 
     hdr = (f"{'cell':<14} {'N':>3}  "
@@ -303,7 +299,7 @@ def main() -> int:
     ax.set_title(
         f"Gangway-telescope bar  -  12-cell brucon roll-up  "
         f"|dL| pred vs truth\n"
-        f"(joint forward, h=15 m, L0=25 m; horizontal-3DOF only)",
+        f"(joint forward, h=15 m, L0=25 m; full 6-DOF)",
         fontsize=11,
     )
     ax.legend(fontsize=9, loc="upper left")

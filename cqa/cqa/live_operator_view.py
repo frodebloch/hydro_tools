@@ -243,30 +243,24 @@ class LiveOperatorSummary:
     # tail. Switching to |dL| recovers the unimodal-positive
     # statistics the panel's halo model assumes.
     #
-    # 12-cell brucon roll-up of the |dL| bar in horizontal-3DOF
-    # mode (forward gangway, h=15 m, L0=25 m; see scripts/p7_brucon_
-    # validation/roll_up_gangway_bar.py):
+    # 12-cell brucon roll-up of the |dL| bar (forward gangway,
+    # h=15 m, L0=25 m; see scripts/p7_brucon_validation/roll_up_
+    # gangway_bar.py). Pre-vs-post 6-DOF posterior plumbing:
     #
-    #          P50 bias    P95 bias    coverage
-    #   bf4    -38..-45%   -31..-32%   43..57%
-    #   bf6    -64..-72%   -46..-53%   10..20%
-    #   bf8    -68..-69%   -45..-51%    7..23%
-    #   pwo    -93%        -78%         0%
-    #   pwq30  -84%        -61%         3%
+    #               horizontal_3dof    full_6dof    coverage(P95)
+    #   bf4         P95 -31..-32%      -6..-17%     70..77%
+    #   bf6         P95 -46..-53%      -15..-23%    63..70%
+    #   bf8         P95 -45..-51%      -19..-32%    53..77%
+    #   pwo         P95 -78%           -57%         20%
+    #   pwq30       P95 -61%           -38%         60%
     #
-    # Roughly 2x the position-bar gap. This is the EXPECTED
-    # outcome of the deferred 6-DOF roll/pitch/heave posterior
-    # work: c6[4] ~ +23 m/rad pitch lever and c6[3] ~ 20 m/rad
-    # roll lever mean even ~1 deg pitch RMS at bf6 alone
-    # contributes ~0.40 m to sigma_dL, comparable to the entire
-    # horizontal-only sigma_dL ~0.34 m we currently predict.
-    # Folded through the P95 statistic, true sigma_dL ~2x
-    # predicted -> P95 ~2x under-predicted, matching the table.
-    # The pwo/pwq30 cells additionally inherit the documented
-    # missing dF_x/dpsi mirror term (analysis.md sec.12).
-    # Operator-panel title and ``gangway_wf_coverage`` field
-    # surface this as "LOWER BOUND" until the 6-DOF posteriors
-    # are wired.
+    # The horizontal-3DOF mode is now LOWER-BOUND fallback only
+    # (when the WF roll/pitch/heave posteriors are not provided
+    # by the upstream sigma-estimator). Full-6DOF residuals on
+    # bf6/bf8 are within the same comparator-statistic envelope
+    # as the position-bar P95 gap (-11..-35%). pwo/pwq30
+    # additionally inherit the documented missing dF_x/dpsi
+    # mirror term (analysis.md sec.12).
     #
     # WF projection coverage:
     #   "horizontal_3dof" : only surge/sway/yaw WF posteriors used

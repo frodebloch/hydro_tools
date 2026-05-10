@@ -120,6 +120,15 @@ PRIOR_SIGMA_LF = 0.5          # m       (LF position prior std)
 PRIOR_SIGMA_LF_YAW = 0.01     # rad
 PRIOR_SIGMA_WF = 0.5          # m
 PRIOR_SIGMA_WF_YAW = 0.01     # rad
+# Roll/pitch/heave priors for the (always-WF) ship-motion channels. Brucon
+# DP CSOV runs have effectively zero LF roll/pitch (no static heel under
+# DP control on a symmetric vessel; mean trim is set by config and is
+# subtracted as the windowed mean here), so the brucon Roll/Pitch/Heave
+# channels can be treated as pure WF samples for the purpose of feeding
+# the WF sigma posteriors. Roll/pitch in radians (brucon exports them in
+# degrees -- converted before being pushed to the estimator).
+PRIOR_SIGMA_WF_RP = 0.0175    # rad     (~1 deg roll/pitch prior)
+PRIOR_SIGMA_WF_HEAVE = 0.3    # m
 PRIOR_N0 = 2.0                # weak
 
 # WCFDI scenario (matches forecast-pipeline default at this cell).
@@ -248,6 +257,17 @@ def load_seed(seed: int):
     samples_wf_x = M["xHf"][win_m]
     samples_wf_y = M["yHf"][win_m]
     samples_wf_yaw = np.deg2rad(M["headingHf"][win_m])   # DEG -> rad
+    # Roll/Pitch/Heave: brucon main-log channels are TOTAL motion
+    # (no LF/WF split exported -- there is no RollHf/PitchHf/HeaveHf
+    # in the log header). On a DP CSOV the LF component is
+    # effectively zero (no static heel from DP control on a symmetric
+    # vessel; mean trim is set by config and is removed as the
+    # windowed mean below), so the demeaned series is a clean WF
+    # sample. Roll/Pitch are exported in DEGREES (units convention
+    # discussed for HeadingDev above); heave in metres.
+    samples_wf_heave = M["Heave"][win_m]
+    samples_wf_roll = np.deg2rad(M["Roll"][win_m])
+    samples_wf_pitch = np.deg2rad(M["Pitch"][win_m])
 
     samples_lf_x = samples_lf_x - samples_lf_x.mean()
     samples_lf_y = samples_lf_y - samples_lf_y.mean()
@@ -255,6 +275,9 @@ def load_seed(seed: int):
     samples_wf_x = samples_wf_x - samples_wf_x.mean()
     samples_wf_y = samples_wf_y - samples_wf_y.mean()
     samples_wf_yaw = samples_wf_yaw - samples_wf_yaw.mean()
+    samples_wf_heave = samples_wf_heave - samples_wf_heave.mean()
+    samples_wf_roll = samples_wf_roll - samples_wf_roll.mean()
+    samples_wf_pitch = samples_wf_pitch - samples_wf_pitch.mean()
 
     # ----- realised post-WCF radial trajectory (body-frame) -----
     # Truth body-frame deviations from the pre-WCF mean.
@@ -286,6 +309,9 @@ def load_seed(seed: int):
         samples_wf_x=samples_wf_x,
         samples_wf_y=samples_wf_y,
         samples_wf_yaw=samples_wf_yaw,
+        samples_wf_heave=samples_wf_heave,
+        samples_wf_roll=samples_wf_roll,
+        samples_wf_pitch=samples_wf_pitch,
         t_pred_grid=t_pred_grid,
         t_plot_grid=t_plot_grid,
         truth_dx=truth_dx,
@@ -316,7 +342,14 @@ def _bayes_post(samples: np.ndarray, dt: float, T_decorr: float,
 
 def build_live_sigma_posterior(d: dict, sigma_R_b_hat_m: float = 0.0) -> LiveSigmaPosterior:
     """Build the LiveSigmaPosterior for one seed from the per-channel
-    pre-WCF samples."""
+    pre-WCF samples.
+
+    Includes the optional WF roll/pitch/heave posteriors (always-on
+    when the loader provides ``samples_wf_{heave,roll,pitch}``), so
+    downstream gangway-bar consumers see ``gangway_wf_coverage =
+    "full_6dof"`` instead of the horizontal-3DOF fallback. The
+    horizontal channels are unaffected.
+    """
     dt_m = d["win_dt"]
     plf_x, hlf_x = _bayes_post(d["samples_lf_x"], dt_m, T_DECORR_LF, PRIOR_SIGMA_LF)
     plf_y, hlf_y = _bayes_post(d["samples_lf_y"], dt_m, T_DECORR_LF, PRIOR_SIGMA_LF)
@@ -324,6 +357,14 @@ def build_live_sigma_posterior(d: dict, sigma_R_b_hat_m: float = 0.0) -> LiveSig
     pwf_x, hwf_x = _bayes_post(d["samples_wf_x"], dt_m, T_DECORR_WF, PRIOR_SIGMA_WF)
     pwf_y, hwf_y = _bayes_post(d["samples_wf_y"], dt_m, T_DECORR_WF, PRIOR_SIGMA_WF)
     pwf_z, hwf_z = _bayes_post(d["samples_wf_yaw"], dt_m, T_DECORR_WF, PRIOR_SIGMA_WF_YAW)
+    pwf_h = pwf_r = pwf_p = None
+    if "samples_wf_heave" in d:
+        pwf_h, _ = _bayes_post(d["samples_wf_heave"], dt_m, T_DECORR_WF,
+                               PRIOR_SIGMA_WF_HEAVE)
+        pwf_r, _ = _bayes_post(d["samples_wf_roll"], dt_m, T_DECORR_WF,
+                               PRIOR_SIGMA_WF_RP)
+        pwf_p, _ = _bayes_post(d["samples_wf_pitch"], dt_m, T_DECORR_WF,
+                               PRIOR_SIGMA_WF_RP)
 
     rng = np.random.default_rng(0)
     rad_lf = combine_radial_posterior(plf_x, plf_y, n_mc=4000, rng=rng,
@@ -347,6 +388,9 @@ def build_live_sigma_posterior(d: dict, sigma_R_b_hat_m: float = 0.0) -> LiveSig
         posterior_wf_x=pwf_x, posterior_wf_y=pwf_y, posterior_wf_yaw=pwf_z,
         radial_wf=rad_wf, validity_wf=_worst_badge(badges_wf),
         sigma_R_b_hat_m=float(sigma_R_b_hat_m),
+        posterior_wf_heave=pwf_h,
+        posterior_wf_roll=pwf_r,
+        posterior_wf_pitch=pwf_p,
     )
 
 
