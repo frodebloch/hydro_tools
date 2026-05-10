@@ -223,16 +223,50 @@ class LiveOperatorSummary:
     overall_traffic: str
 
     # ----- Gangway telescope axis (optional, present iff a joint is given) -----
-    # The telescope bar reports SIGNED telescope-length deviation
-    # ``dL = L_required - L0`` from the operator-set nominal length
-    # ``L0 = joint.L``, with ``dL > 0`` meaning the telescope must
-    # EXTEND further to keep the tip on the world-fixed landing point.
-    # Two thresholds are drawn: extend-margin ``L_max - L0`` (red on
-    # the right) and retract-margin ``-(L0 - L_min)`` (red on the
-    # left). The traffic light is the worst of (envelope_high vs
-    # extend-margin, envelope_low vs retract-margin) using the IMCA-
-    # style 60% / 80% of margin convention to match
-    # ``evaluate_decision_cell_live``.
+    # The telescope bar reports |dL| -- the magnitude of the
+    # telescope-length deviation required to keep the tip on the
+    # world-fixed landing point as the vessel moves. Mirrors the
+    # position bars (single non-negative axis with a single worst-
+    # margin threshold). Operationally simpler and matches the
+    # ``evaluate_decision_cell_live`` |c_L @ eta| envelope.
+    #
+    # The threshold (``gangway_stroke_m``) is the worst end-stop
+    # margin ``min(L_max - L0, L0 - L_min)``, with IMCA-style
+    # 60 % amber / 80 % red of stroke.
+    #
+    # An earlier prototype used SIGNED dL with separate extend/
+    # retract thresholds; brucon validation showed the signed
+    # response is bimodal under WCFDI (extend phase early, retract
+    # phase late) and a single-instant Gaussian halo at the
+    # deterministic dL peak under-predicts the magnitude P95 by
+    # 40-50 % in bf6/bf8 because it cannot reach the opposite-sign
+    # tail. Switching to |dL| recovers the unimodal-positive
+    # statistics the panel's halo model assumes.
+    #
+    # 12-cell brucon roll-up of the |dL| bar in horizontal-3DOF
+    # mode (forward gangway, h=15 m, L0=25 m; see scripts/p7_brucon_
+    # validation/roll_up_gangway_bar.py):
+    #
+    #          P50 bias    P95 bias    coverage
+    #   bf4    -38..-45%   -31..-32%   43..57%
+    #   bf6    -64..-72%   -46..-53%   10..20%
+    #   bf8    -68..-69%   -45..-51%    7..23%
+    #   pwo    -93%        -78%         0%
+    #   pwq30  -84%        -61%         3%
+    #
+    # Roughly 2x the position-bar gap. This is the EXPECTED
+    # outcome of the deferred 6-DOF roll/pitch/heave posterior
+    # work: c6[4] ~ +23 m/rad pitch lever and c6[3] ~ 20 m/rad
+    # roll lever mean even ~1 deg pitch RMS at bf6 alone
+    # contributes ~0.40 m to sigma_dL, comparable to the entire
+    # horizontal-only sigma_dL ~0.34 m we currently predict.
+    # Folded through the P95 statistic, true sigma_dL ~2x
+    # predicted -> P95 ~2x under-predicted, matching the table.
+    # The pwo/pwq30 cells additionally inherit the documented
+    # missing dF_x/dpsi mirror term (analysis.md sec.12).
+    # Operator-panel title and ``gangway_wf_coverage`` field
+    # surface this as "LOWER BOUND" until the 6-DOF posteriors
+    # are wired.
     #
     # WF projection coverage:
     #   "horizontal_3dof" : only surge/sway/yaw WF posteriors used
@@ -241,13 +275,11 @@ class LiveOperatorSummary:
     #   "full_6dof"       : all six WF DOFs included.
     # The position bars are unaffected by this choice.
     gangway_present: bool = False
-    gangway_dL_p05: float = 0.0
-    gangway_dL_p50: float = 0.0
-    gangway_dL_p95: float = 0.0
-    gangway_dL_intact_offset: float = 0.0  # signed mean dL right now
-    gangway_dL_wcf_offset_at_peak: float = 0.0  # signed mean dL at the WCF peak
-    gangway_extend_margin_m: float = 0.0  # +ve magnitude L_max - L0
-    gangway_retract_margin_m: float = 0.0  # +ve magnitude L0 - L_min
+    gangway_dL_p50: float = 0.0     # P50 of |dL|, m
+    gangway_dL_p95: float = 0.0     # P95 of |dL|, m
+    gangway_dL_intact_offset: float = 0.0  # |dL| live deterministic offset, m
+    gangway_dL_wcf_offset_at_peak: float = 0.0  # |dL| at deterministic WCF peak, m
+    gangway_stroke_m: float = 0.0   # min(L_max - L0, L0 - L_min), m
     gangway_sigma_dL_intact_m: float = 0.0
     gangway_sigma_dL_wcf_m: float = 0.0
     gangway_t_peak_s: float = 0.0
@@ -465,8 +497,11 @@ def summarise_for_operator_live(
     Tp_obs_s, n_mc, rng : tuning knobs (defaults are reasonable).
     joint : GangwayJointState, optional.
         If provided, a third "gangway telescope" bar is computed:
-        signed telescope-length deviation ``dL = L_required - L0``
-        with extend / retract margins as separate red thresholds.
+        magnitude of telescope-length deviation ``|dL| =
+        |L_required - L0|`` with a single worst-margin red threshold
+        ``min(L_max - L0, L0 - L_min)`` and matching 60 % / 80 %
+        amber/red rule (mirrors the position-bar style and the
+        ``evaluate_decision_cell_live`` |c_L @ eta| envelope).
         WF roll/pitch/heave use the optional posteriors from
         ``sigma_post`` when present (full 6-DOF projection); when
         absent, the bar falls back to a horizontal-only projection
@@ -538,9 +573,9 @@ def summarise_for_operator_live(
 
     # ---- Gangway telescope bar (optional) ----
     gw_present = False
-    gw_dL_p05 = gw_dL_p50 = gw_dL_p95 = 0.0
+    gw_dL_p50 = gw_dL_p95 = 0.0
     gw_dL_intact = gw_dL_wcf_at_peak = 0.0
-    gw_extend_margin = gw_retract_margin = 0.0
+    gw_stroke = 0.0
     gw_sigma_dL_intact = gw_sigma_dL_wcf = 0.0
     gw_t_peak = 0.0
     gw_traffic = "green"
@@ -551,54 +586,44 @@ def summarise_for_operator_live(
         L0 = float(joint.L)
         L_min = float(gw_cfg.telescope_min)
         L_max = float(gw_cfg.telescope_max)
-        gw_extend_margin = max(L_max - L0, 0.0)
-        gw_retract_margin = max(L0 - L_min, 0.0)
+        gw_stroke = max(min(L_max - L0, L0 - L_min), 0.0)
 
         c3 = telescope_sensitivity(joint, gw_cfg)
         gw_sigma_dL_intact, _ = _sigma_dL_intact(joint, cfg, sigma_post)
         gw_sigma_dL_wcf, gw_coverage = _sigma_dL_wcf(joint, cfg, sigma_post)
 
-        # Intact deterministic dL: signed projection of LF eta_hat onto
-        # the telescope axis.
-        gw_dL_intact = float(c3 @ eta_hat_lf)
+        # Intact deterministic |dL|: magnitude of LF eta_hat projected
+        # onto the telescope axis.
+        gw_dL_intact = float(np.abs(c3 @ eta_hat_lf))
 
-        # WCF deterministic dL trajectory: dL(t) = c3 . (eta_hat_LF +
-        # delta_eta_mean(t)). Pick the time of maximum |dL| for the
-        # peak-cue (operator cares about whichever direction the
-        # telescope is being driven hardest into an end-stop).
-        dL_t = (eta_hat_lf[None, :] + delta_eta_mean) @ c3
-        k_peak_dL = int(np.argmax(np.abs(dL_t)))
+        # WCF deterministic |dL| trajectory: |dL(t)| = |c3 . (eta_hat_LF
+        # + delta_eta_mean(t))|. Take time of maximum |dL|.
+        dL_t_signed = (eta_hat_lf[None, :] + delta_eta_mean) @ c3
+        dL_t = np.abs(dL_t_signed)
+        k_peak_dL = int(np.argmax(dL_t))
         gw_t_peak = float(t_grid[k_peak_dL])
         gw_dL_wcf_at_peak = float(dL_t[k_peak_dL])
 
-        # Quantiles of signed dL at the peak instant (Gaussian: mean +
-        # sigma_dL_wcf, two-sided P05/P50/P95). Per-call MC for
+        # Quantiles of |dL| at the peak instant. Underlying signed dL
+        # is N(mu, sigma_dL_wcf) with mu = dL_t_signed[k_peak_dL]; the
+        # magnitude follows a folded normal. Per-call MC for
         # consistency with the position bars (no special functions).
+        mu_signed = float(dL_t_signed[k_peak_dL])
         nu = (rng.standard_normal(n_mc) if gw_sigma_dL_wcf > 0.0
               else np.zeros(n_mc))
-        dL_samples = gw_dL_wcf_at_peak + gw_sigma_dL_wcf * nu
-        gw_dL_p05 = float(np.quantile(dL_samples, 0.05))
-        gw_dL_p50 = float(np.quantile(dL_samples, 0.50))
-        gw_dL_p95 = float(np.quantile(dL_samples, 0.95))
+        dL_abs_samples = np.abs(mu_signed + gw_sigma_dL_wcf * nu)
+        gw_dL_p50 = float(np.quantile(dL_abs_samples, 0.50))
+        gw_dL_p95 = float(np.quantile(dL_abs_samples, 0.95))
 
-        # Traffic light: worst of the extend / retract sides. Use the
-        # IMCA-style 60 % / 80 % of margin convention to match
-        # ``evaluate_decision_cell_live`` so this panel and the
-        # decision cell agree on the colour. P95 (one-sided extend)
-        # vs extend_margin; -P05 (one-sided retract) vs retract_margin.
-        ext_warn = 0.60 * gw_extend_margin
-        ext_alarm = 0.80 * gw_extend_margin
-        ret_warn = 0.60 * gw_retract_margin
-        ret_alarm = 0.80 * gw_retract_margin
-        if gw_extend_margin > 0.0:
-            t_ext = _imca_traffic(max(gw_dL_p95, 0.0), ext_warn, ext_alarm)
+        # Traffic light: same IMCA convention as the position bars and
+        # ``evaluate_decision_cell_live`` -- amber at 60% of stroke,
+        # red at 80% of stroke. Driven by P95 of |dL|.
+        if gw_stroke > 0.0:
+            gw_traffic = _imca_traffic(
+                gw_dL_p95, 0.60 * gw_stroke, 0.80 * gw_stroke,
+            )
         else:
-            t_ext = "green"
-        if gw_retract_margin > 0.0:
-            t_ret = _imca_traffic(max(-gw_dL_p05, 0.0), ret_warn, ret_alarm)
-        else:
-            t_ret = "green"
-        gw_traffic = _worst(t_ext, t_ret)
+            gw_traffic = "green"
         overall = _worst(overall, gw_traffic)
 
     return LiveOperatorSummary(
@@ -617,13 +642,11 @@ def summarise_for_operator_live(
         sigma_R_wcf_m=sigma_R_wcf,
         overall_traffic=overall,
         gangway_present=gw_present,
-        gangway_dL_p05=gw_dL_p05,
         gangway_dL_p50=gw_dL_p50,
         gangway_dL_p95=gw_dL_p95,
         gangway_dL_intact_offset=gw_dL_intact,
         gangway_dL_wcf_offset_at_peak=gw_dL_wcf_at_peak,
-        gangway_extend_margin_m=gw_extend_margin,
-        gangway_retract_margin_m=gw_retract_margin,
+        gangway_stroke_m=gw_stroke,
         gangway_sigma_dL_intact_m=gw_sigma_dL_intact,
         gangway_sigma_dL_wcf_m=gw_sigma_dL_wcf,
         gangway_t_peak_s=gw_t_peak,
@@ -651,12 +674,12 @@ def plot_live_operator_summary(summary: LiveOperatorSummary, fig=None):
       * Top: "RIGHT NOW (intact)"
       * Bot: "IF WCF NOW"
     Three bars when ``summary.gangway_present`` is True; the third
-    "GANGWAY (telescope)" bar uses a SIGNED dL axis with a separate
-    red threshold for the extend (right) and retract (left) sides
-    plus the corresponding 60 %-of-margin amber thresholds.
+    "GANGWAY (telescope)" bar uses an unsigned |dL| axis with a single
+    worst-margin red threshold (80 % of stroke) and matching amber
+    (60 % of stroke), mirroring the position-bar style.
 
-    P50 shown as light open marker, P95 (or P05/P95 for the gangway
-    bar) shown as filled diamond. Bar tint = traffic-light colour.
+    P50 shown as light open marker, P95 shown as filled diamond. Bar
+    tint = traffic-light colour.
 
     Title prints both/all numbers in plain language plus the time-
     to-peak for the WCF row.
@@ -728,7 +751,7 @@ def plot_live_operator_summary(summary: LiveOperatorSummary, fig=None):
 
     # Gangway (bottom, optional)
     if summary.gangway_present:
-        _draw_signed_dL_bar(axes[2], summary)
+        _draw_abs_dL_bar(axes[2], summary)
 
     fig.suptitle(
         f"Live operator panel  -  overall: {summary.overall_traffic.upper()}",
@@ -738,77 +761,48 @@ def plot_live_operator_summary(summary: LiveOperatorSummary, fig=None):
     return fig
 
 
-def _draw_signed_dL_bar(ax, summary: LiveOperatorSummary):
-    """Render the signed-dL telescope bar.
+def _draw_abs_dL_bar(ax, summary: LiveOperatorSummary):
+    """Render the |dL| telescope bar (mirrors the position-bar style).
 
-    Layout: x = signed dL [m], 0 = nominal length L0. Right side =
-    EXTEND (positive dL), left side = RETRACT (negative dL). Two red
-    end-stop lines at +extend_margin and -retract_margin, two amber
-    thresholds at 60 % of the respective margin. P05 / P50 / P95 of
-    the SIGNED dL distribution at the WCF peak instant. The mean
-    intact dL is drawn as a small "now" tick at the LF-only value.
+    x = |dL| in metres, single non-negative axis. P50 (open circle)
+    + P95 (filled diamond), 60%-of-stroke amber dashed and 80%-of-
+    stroke red dashed thresholds, traffic-light tint matching
+    ``summary.gangway_traffic``.
     """
     col = _TRAFFIC_COLOURS[summary.gangway_traffic]
-    ext = summary.gangway_extend_margin_m
-    ret = summary.gangway_retract_margin_m
-    half = max(ext, ret, abs(summary.gangway_dL_p95),
-               abs(summary.gangway_dL_p05), 0.5) * 1.15
+    stroke = summary.gangway_stroke_m
+    bar_max = max(stroke * 1.05, summary.gangway_dL_p95 * 1.2, 0.5)
 
-    # Bar tint spans the full visible signed range so the operator
-    # sees the whole travel envelope.
-    ax.barh(0, 2 * half, left=-half, height=0.5, color=col, alpha=0.25,
+    ax.barh(0, bar_max, height=0.5, color=col, alpha=0.25,
             edgecolor=col, linewidth=2)
-
-    # End-stop and warning thresholds (drawn only on the side where a
-    # margin actually exists).
-    if ext > 0.0:
-        ax.axvline(0.60 * ext, color="#ff9900", ls="--", lw=2,
-                   label=f"amber > {0.60 * ext:.2f} m")
-        ax.axvline(ext, color="#d62728", ls="--", lw=2,
-                   label=f"L_max  ({ext:+.2f} m)")
-    if ret > 0.0:
-        ax.axvline(-0.60 * ret, color="#ff9900", ls="--", lw=2)
-        ax.axvline(-ret, color="#d62728", ls="--", lw=2,
-                   label=f"L_min ({-ret:+.2f} m)")
-
-    # Markers: P05 (left whisker), P50 (open circle), P95 (right
-    # diamond). All at y = 0.
-    ax.plot(summary.gangway_dL_p05, 0, marker="<", markersize=10,
-            markerfacecolor=col, markeredgecolor="black",
-            markeredgewidth=1.5,
-            label=f"P05 = {summary.gangway_dL_p05:+.2f} m")
     ax.plot(summary.gangway_dL_p50, 0, marker="o", markersize=11,
             markerfacecolor="white", markeredgecolor="#333333",
             markeredgewidth=2,
-            label=f"P50 = {summary.gangway_dL_p50:+.2f} m")
-    ax.plot(summary.gangway_dL_p95, 0, marker=">", markersize=10,
+            label=f"P50 = {summary.gangway_dL_p50:.2f} m")
+    ax.plot(summary.gangway_dL_p95, 0, marker="D", markersize=12,
             markerfacecolor=col, markeredgecolor="black",
-            markeredgewidth=1.5,
-            label=f"P95 = {summary.gangway_dL_p95:+.2f} m")
-
-    # Live (intact) dL tick: small black mark at the deterministic
-    # signed offset right now.
-    ax.plot(summary.gangway_dL_intact_offset, 0.30, marker="v",
-            markersize=8, color="black",
-            label=f"now {summary.gangway_dL_intact_offset:+.2f} m")
-
-    # Origin guide.
-    ax.axvline(0.0, color="black", lw=0.8, alpha=0.5)
-    ax.set_xlim(-half, half)
+            markeredgewidth=2,
+            label=f"P95 = {summary.gangway_dL_p95:.2f} m")
+    if stroke > 0.0:
+        ax.axvline(0.60 * stroke, color="#ff9900", ls="--", lw=2,
+                   label=f"amber > {0.60 * stroke:.2f} m")
+        ax.axvline(0.80 * stroke, color="#d62728", ls="--", lw=2,
+                   label=f"red > {0.80 * stroke:.2f} m")
+    ax.set_xlim(0, bar_max)
     ax.set_ylim(-0.5, 0.5)
     ax.set_yticks([])
-    ax.set_xlabel("signed telescope dL  [m]   (+ = extend, - = retract)")
+    ax.set_xlabel("|telescope length deviation| from nominal  [m]")
 
     coverage_note = ("" if summary.gangway_wf_coverage == "full_6dof"
                      else "  (LOWER BOUND: roll/pitch/heave WF posteriors not provided)")
     ax.set_title(
         f"GANGWAY (telescope)   [{summary.gangway_traffic.upper()}]\n"
-        f"P05/P50/P95 = {summary.gangway_dL_p05:+.2f} / "
-        f"{summary.gangway_dL_p50:+.2f} / "
-        f"{summary.gangway_dL_p95:+.2f} m   "
+        f"P50 = {summary.gangway_dL_p50:.2f} m   "
+        f"P95 = {summary.gangway_dL_p95:.2f} m   "
         f"(WCF peak in ~{summary.gangway_t_peak_s:.0f} s, "
+        f"stroke = {stroke:.2f} m, "
         f"sigma_dL = {summary.gangway_sigma_dL_wcf_m:.2f} m){coverage_note}",
         fontsize=11, loc="left",
     )
-    ax.legend(loc="upper right", fontsize=8, framealpha=0.95, ncol=2)
+    ax.legend(loc="upper right", fontsize=8, framealpha=0.95)
     ax.grid(True, axis="x", alpha=0.3)

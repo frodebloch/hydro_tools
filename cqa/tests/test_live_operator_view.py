@@ -296,8 +296,10 @@ def test_gangway_bar_present_when_joint_provided():
     assert math.isfinite(s.gangway_sigma_dL_intact_m)
     assert math.isfinite(s.gangway_sigma_dL_wcf_m)
     assert s.gangway_sigma_dL_wcf_m >= s.gangway_sigma_dL_intact_m  # WCF includes WF + b_hat
-    # Quantile ordering.
-    assert s.gangway_dL_p05 < s.gangway_dL_p50 < s.gangway_dL_p95
+    # |dL| quantile ordering (folded normal is monotone, P50 <= P95).
+    assert 0.0 <= s.gangway_dL_p50 <= s.gangway_dL_p95
+    # Stroke is the worst end-stop margin and must be non-negative.
+    assert s.gangway_stroke_m >= 0.0
     # Coverage flag: no roll/pitch/heave WF posteriors -> horizontal_3dof.
     assert s.gangway_wf_coverage == "horizontal_3dof"
     # WCF peak time inside the integration window.
@@ -394,22 +396,17 @@ def test_gangway_full_6dof_increases_sigma_when_pitch_provided():
     assert s_f.gangway_sigma_dL_wcf_m > 1.15 * s_h.gangway_sigma_dL_wcf_m
 
 
-def test_gangway_signed_dL_extends_for_forward_drift():
-    """A vessel drifted forward (eta_n > 0) with a forward-pointing
-    gangway means the rotation centre has moved AWAY from the world-
-    fixed landing point along +e_L; the telescope must EXTEND, so
-    signed dL > 0.
+def test_gangway_dL_intact_offset_is_magnitude_of_c3_dot_eta():
+    """The intact-axis gangway offset is the magnitude |c3 . eta_hat|.
 
-    Specifically: c3 = (-1, 0, -9), eta_hat = (+0.5, 0, 0) gives
-    intact dL = c3 . eta_hat = -0.5. Sign is NEGATIVE because cqa's
-    convention is "Delta_L > 0 means MORE telescope is required",
-    and a positive eta_n is a vessel deviation in +N which keeps the
-    same vessel-to-tip vector for a forward-pointing gangway when
-    the landing point was set BEHIND the vessel (Delta_L = -e_L .
-    Delta_p_rc; Delta_p_rc = +N for a forward drift, e_L_world = +N
-    too -> Delta_L = -1 * eta_n). The test pins the SIGN of the
-    intact-offset value so a future refactor cannot silently flip
-    the convention."""
+    Pinned semantics for the |dL| revert: the bar reports the
+    non-negative deviation magnitude (folded-normal halo at the
+    deterministic peak), so the internal sign convention of c3
+    (c3[0] = -1 for a forward-pointing gangway, "Delta_L > 0 means
+    MORE telescope is required") is exposed only through the
+    absolute value. This test pins the magnitude formula so a
+    future refactor cannot silently drop the projection.
+    """
     from cqa.gangway import telescope_sensitivity
     cfg = _config_with_K(0.0)
     sigma = _make_sigma_post()
@@ -418,24 +415,23 @@ def test_gangway_signed_dL_extends_for_forward_drift():
     joint = _gw_joint_forward()
     s = summarise_for_operator_live(cfg, obs, sigma, joint=joint)
     c3 = telescope_sensitivity(joint, cfg.gangway)
-    expected = float(c3 @ np.array(eta_hat))
+    expected = abs(float(c3 @ np.array(eta_hat)))   # |c3 . eta| = 0.5 m
     assert s.gangway_dL_intact_offset == pytest.approx(expected, rel=1e-9)
-    # And sign matches: c3[0] = -1 < 0 and eta_n = +0.5 > 0 -> dL < 0.
-    assert s.gangway_dL_intact_offset < 0.0
+    assert s.gangway_dL_intact_offset >= 0.0
 
 
-def test_gangway_traffic_red_when_dL_p95_exceeds_extend_alarm():
-    """Punitive b_hat that drives the WCF transient hard along +e_L
-    should push dL_p95 past 0.8 * extend_margin -> RED gangway bar."""
+def test_gangway_traffic_red_when_dL_p95_exceeds_red_threshold():
+    """Punitive forward b_hat that drives a big surge excursion under
+    WCFDI must push |dL|_p95 past 0.8 * stroke -> RED gangway bar."""
     cfg = _config_with_K(0.0)
-    # Big forward bias -> big +e_L excursion under WCFDI for forward-
-    # pointing gangway. Small extend margin via L0 close to L_max.
+    # Big forward bias -> big surge excursion under WCFDI for a
+    # forward-pointing gangway. Tiny stroke via L0 close to L_max.
     obs = _make_obs_state(b_hat_kN=(800.0, 0.0, 0.0))
     sigma = _make_sigma_post(sigma_lf=0.5, sigma_wf=0.8,
                              sigma_R_b_hat_m=0.3)
-    joint = _gw_joint_forward(L=31.5, h=15.0)  # extend_margin = 0.5 m
+    joint = _gw_joint_forward(L=31.5, h=15.0)  # stroke = min(0.5, 13.5) = 0.5 m
     s = summarise_for_operator_live(cfg, obs, sigma, joint=joint)
-    assert s.gangway_extend_margin_m == pytest.approx(0.5, abs=1e-9)
+    assert s.gangway_stroke_m == pytest.approx(0.5, abs=1e-9)
     assert s.gangway_traffic == "red"
     assert s.overall_traffic == "red"
 
