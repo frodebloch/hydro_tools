@@ -67,13 +67,25 @@ For the WCF axis we report the time at which the deterministic
 
 Validation
 ----------
-See ``scripts/p7_brucon_validation/validate_live_operator_panel_pwq30.py``.
-At pwq30 (Bf6+ class, 30 brucon seeds):
-  intact P95 coverage near 95%, |err|/truth ~30-40% (P95 is sensitive
-  to the realisation noise floor at small absolute values).
-  WCF P95 coverage 70%, ~25% under-prediction of the realised LF
-  peak; this is the documented residual gap of the live pipeline at
-  this cell, not a bug in the operator panel.
+See ``scripts/p7_brucon_validation/validate_live_operator_panel.py``
+and the 12-cell roll-up
+``scripts/p7_brucon_validation/roll_up_live_operator_panel.py``.
+
+Intact axis (12 cells, 30 brucon seeds each, Bf4 -> Bf8 +/- 10 deg
+spread, head + 45 deg windsea + the two propeller-walk cells): the
+panel reports the actual offset+noise distance from the DP setpoint
+(|eta_hat_LF + nu|), and is compared against the un-demeaned brucon
+LF radius hypot(SurgeDev, SwayDev). Resulting bias on the P95 is
+small and slightly conservative across the matrix (~+0 to +20 %),
+with single-snapshot coverage 50-70 % -- the latter is genuine
+sampling variability of single-realisation P95 vs a calibrated
+halo, not over-conservatism.
+
+WCF axis: still systematically under-predicts the realised LF peak
+by ~25-35 % across the matrix (with a -55 % outlier at pwo, which
+is the documented beam-on dF_x/dpsi gap from analysis.md sec.12).
+This is the residual gap of the live pipeline at this stage of
+development, not a bug in the operator panel.
 """
 
 from __future__ import annotations

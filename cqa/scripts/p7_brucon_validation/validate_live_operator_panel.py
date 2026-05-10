@@ -1,11 +1,17 @@
-"""Validate the LIVE operator-panel summary against brucon truth at pwq30.
+"""Validate the LIVE operator-panel summary against brucon truth.
+
+Cell-agnostic: pass ``--tag <cell_tag>`` to run on any cell that has a
+calibration artefact (``scenario_<tag>_calibration.npz``) and brucon
+work-dirs (``work/<tag>_seed*/``). All 12 cells in the brucon
+validation matrix share T_WCF = 560 s (see run_validation_matrix.py).
 
 Apples-to-apples comparison
 ---------------------------
 The live operator summary predicts the LF body-frame radial deviation
 |eta_hat_LF + delta_eta_mean(t) + nu|, where:
   - eta_hat_LF, delta_eta_mean(t) are LF (no waves)
-  - nu is small-time noise (LF + WF + b_hat sigmas in quadrature)
+  - nu is small-time noise (LF + WF + b_hat sigmas in quadrature on
+    the WCF axis; LF only on the intact axis)
 The "WF" component of nu is the WAVE FREQUENCY noise on the LF observer
 estimate, NOT the wave-induced position swing of the vessel.
 
@@ -28,10 +34,14 @@ whole point of the observer).
 Run with::
 
     PYTHONPATH=. .venv/bin/python \\
-        scripts/p7_brucon_validation/validate_live_operator_panel_pwq30.py
+        scripts/p7_brucon_validation/validate_live_operator_panel.py --tag pwq30
+    PYTHONPATH=. .venv/bin/python \\
+        scripts/p7_brucon_validation/validate_live_operator_panel.py --tag bf6_h0
+    ...
 """
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -42,13 +52,11 @@ THIS = Path(__file__).resolve().parent
 sys.path.insert(0, str(THIS.parent.parent))
 sys.path.insert(0, str(THIS))
 
-from live_cell_per_seed_pwq30 import (   # noqa: E402
-    SEEDS,
-    TAG,
-    T_EVAL,
-    WIN_START,
-    WIN_END,
-    WORK_ROOT,
+# Import the per-seed helpers from the pwq30 module. They are cell-
+# agnostic apart from a few module-level globals that we override below
+# via the same ``_apply_args`` path the main pwq30 script uses.
+import live_cell_per_seed_pwq30 as live_cell                     # noqa: E402
+from live_cell_per_seed_pwq30 import (                            # noqa: E402
     _load_tsv,
     load_seed,
     build_live_sigma_posterior,
@@ -59,23 +67,56 @@ from cqa.live_decision import LiveObserverState                  # noqa: E402
 from cqa.live_operator_view import summarise_for_operator_live   # noqa: E402
 
 
-CALIB_NPZ = THIS / "scenario_pwq30_calibration.npz"
 PRE_WCF_T_LO = -30.0   # rel. T_EVAL
 PRE_WCF_T_HI = 5.0     # rel. T_EVAL  (T_WCF is at +5 s)
 POST_WCF_T_LO = 5.0
 POST_WCF_T_HI = 120.0
 
 
+def _parse_args():
+    p = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p.add_argument("--tag", default="pwq30",
+                   help="Cell tag (work-dir prefix and calibration npz "
+                        "stem). Default: pwq30.")
+    p.add_argument("--t-wcf", type=float, default=560.0,
+                   help="WCF injection time in seconds (default: 560.0).")
+    p.add_argument("--seeds", default="1000-1030",
+                   help="Seed range as 'lo-hi' (Python-style half-open) "
+                        "(default: 1000-1030).")
+    return p.parse_args()
+
+
+def _apply_args(args) -> Path:
+    """Override globals on live_cell_per_seed_pwq30 so its load_seed /
+    build_live_sigma_posterior pick up the requested cell. Returns the
+    path to the calibration npz."""
+    live_cell.TAG = args.tag
+    live_cell.T_WCF = float(args.t_wcf)
+    live_cell.T_EVAL = live_cell.T_WCF - 5.0
+    live_cell.WIN_END = live_cell.T_WCF - 1.0
+    live_cell.WIN_START = live_cell.WIN_END - live_cell.WIN_S
+    lo, hi = (int(s) for s in args.seeds.split("-"))
+    live_cell.SEEDS = list(range(lo, hi))
+    calib = THIS / f"scenario_{args.tag}_calibration.npz"
+    live_cell.CALIB_NPZ = calib
+    return calib
+
+
 def main() -> int:
-    if not CALIB_NPZ.exists():
-        print(f"Missing calibration: {CALIB_NPZ}", file=sys.stderr)
+    args = _parse_args()
+    calib_npz = _apply_args(args)
+    if not calib_npz.exists():
+        print(f"Missing calibration: {calib_npz}", file=sys.stderr)
         return 1
-    sigma_R_b_hat_m = float(np.load(CALIB_NPZ, allow_pickle=True)["sigma_R_b_hat_m"])
+    sigma_R_b_hat_m = float(np.load(calib_npz, allow_pickle=True)["sigma_R_b_hat_m"])
 
     cfg = csov_default_config()
 
     rows = []  # one per seed
-    for seed in SEEDS:
+    for seed in live_cell.SEEDS:
         d = load_seed(seed)
         if d is None:
             continue
@@ -89,21 +130,23 @@ def main() -> int:
         s = summarise_for_operator_live(cfg, obs, sigma_post)
 
         # Re-load main .out to get LF truth (SurgeDev / SwayDev).
-        main_p = next((p for p in (WORK_ROOT / f"{TAG}_seed{seed:04d}").glob("*.out")
+        seed_dir = live_cell.WORK_ROOT / f"{live_cell.TAG}_seed{seed:04d}"
+        main_p = next((p for p in seed_dir.glob("*.out")
                        if "estimator" not in p.name), None)
         M = _load_tsv(main_p)
         t_main = M["t"]
-        win_m = (t_main >= WIN_START) & (t_main <= WIN_END)
+        win_m = (t_main >= live_cell.WIN_START) & (t_main <= live_cell.WIN_END)
         sd_pre_mean = float(M["SurgeDev"][win_m].mean())
         wd_pre_mean = float(M["SwayDev"][win_m].mean())
         surge_lf = M["SurgeDev"] - sd_pre_mean
         sway_lf = M["SwayDev"] - wd_pre_mean
         R_lf = np.hypot(surge_lf, sway_lf)
 
-        # Pre-WCF window (intact): t in [WIN_START, WIN_END] (60 s pre-WCF).
+        # Pre-WCF window (intact): 60 s pre-WCF.
         intact_mask = win_m
-        # Post-WCF window: t > T_WCF (= T_EVAL + 5 s).
-        post_mask = (t_main > T_EVAL + 5.0) & (t_main <= T_EVAL + 120.0)
+        # Post-WCF window: t > T_WCF.
+        post_mask = ((t_main > live_cell.T_EVAL + 5.0)
+                     & (t_main <= live_cell.T_EVAL + 120.0))
 
         intact_R_lf = R_lf[intact_mask]
         post_R_lf = R_lf[post_mask]
@@ -215,10 +258,10 @@ def main() -> int:
     ax.grid(True, alpha=0.3)
     ax.legend(fontsize=8, loc="upper left")
 
-    fig.suptitle("Live operator panel vs brucon  -  pwq30 (30 seeds)",
-                 fontsize=12)
+    fig.suptitle(f"Live operator panel vs brucon  -  {args.tag} "
+                 f"({len(rows)} seeds)", fontsize=12)
     fig.tight_layout()
-    out = THIS / "validate_live_operator_panel_pwq30.png"
+    out = THIS / f"validate_live_operator_panel_{args.tag}.png"
     fig.savefig(out, dpi=140)
     plt.close(fig)
     print(f"\nSaved: {out}")
