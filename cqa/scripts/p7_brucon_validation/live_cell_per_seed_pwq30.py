@@ -189,7 +189,24 @@ def load_seed(seed: int):
     eta_hat = np.array([
         M["SurgeDev"][i_eval_m],
         M["SwayDev"][i_eval_m],
-        M["HeadingDev"][i_eval_m],          # rad (verified -- yaw deviation small, ~mrad)
+        np.deg2rad(M["HeadingDev"][i_eval_m]),  # brucon exports HeadingDev
+                                                # in DEGREES (matches all
+                                                # other angle channels in
+                                                # the .out file: heading,
+                                                # RateOfTurn, headingHf).
+                                                # The earlier "rad,
+                                                # verified" comment was
+                                                # incorrect -- it held
+                                                # only by coincidence on
+                                                # bf4 cells where the
+                                                # absolute deviation in
+                                                # degrees is small enough
+                                                # to look like radians.
+                                                # Fixed when adding the
+                                                # gangway bar surfaced
+                                                # the unit error via the
+                                                # c3[2]=-9 m/rad lever
+                                                # arm.
     ])
     # RateOfTurn is logged in deg/min (apps/dp/dp_cms_export.cpp).
     nu_hat = np.array([
@@ -206,7 +223,7 @@ def load_seed(seed: int):
     eta_wave = np.array([
         M["xHf"][i_eval_m],
         M["yHf"][i_eval_m],
-        M["headingHf"][i_eval_m],           # rad
+        np.deg2rad(M["headingHf"][i_eval_m]),  # DEG -> rad (see HeadingDev note above)
     ])
     heading_compass = np.deg2rad(M["heading"][i_eval_m])
 
@@ -227,10 +244,10 @@ def load_seed(seed: int):
     # estimator zero-mean fluctuations to digest.
     samples_lf_x = M["SurgeDev"][win_m]
     samples_lf_y = M["SwayDev"][win_m]
-    samples_lf_yaw = M["HeadingDev"][win_m]
+    samples_lf_yaw = np.deg2rad(M["HeadingDev"][win_m])  # DEG -> rad
     samples_wf_x = M["xHf"][win_m]
     samples_wf_y = M["yHf"][win_m]
-    samples_wf_yaw = M["headingHf"][win_m]
+    samples_wf_yaw = np.deg2rad(M["headingHf"][win_m])   # DEG -> rad
 
     samples_lf_x = samples_lf_x - samples_lf_x.mean()
     samples_lf_y = samples_lf_y - samples_lf_y.mean()
