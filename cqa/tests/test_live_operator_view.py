@@ -454,3 +454,90 @@ def test_gangway_plot_three_rows_when_present(tmp_path):
     fig2 = plot_live_operator_summary(s2)
     assert len(fig2.axes) == 2
     plt.close(fig2)
+
+
+# ---------------------------------------------------------------------------
+# Window-max gangway WCF prediction (LF-peak + Gumbel-WF)
+# ---------------------------------------------------------------------------
+
+
+def test_gangway_excursion_falls_back_to_folded_normal_without_measured_fields():
+    """When sigma_dL_wf_measured / T_zc_dL_wf_measured are absent, the
+    excursion fields fall back to a folded-normal halo at the
+    deterministic peak. They must be finite, non-negative, and ordered
+    P50 <= P95 (proper folded-normal quantiles)."""
+    cfg = _config_with_K(0.0)
+    obs = _make_obs_state(b_hat_kN=(-200.0, -100.0, -500.0))
+    sigma = _make_sigma_post()  # measured fields = None
+    assert sigma.sigma_dL_wf_measured is None
+    s = summarise_for_operator_live(cfg, obs, sigma, joint=_gw_joint_forward())
+    assert s.gangway_dL_excursion_p50 >= 0.0
+    assert s.gangway_dL_excursion_p95 >= 0.0
+    assert s.gangway_dL_excursion_p50 <= s.gangway_dL_excursion_p95
+    assert math.isfinite(s.gangway_dL_excursion_p50)
+    assert math.isfinite(s.gangway_dL_excursion_p95)
+
+
+def test_gangway_excursion_uses_lf_peak_plus_gumbel_when_measured_provided():
+    """With sigma_dL_wf_measured / T_zc_dL_wf_measured supplied, the
+    panel switches to the LF-peak + Gumbel-WF-max formula. Pin the
+    exact analytical relation:
+
+        pred_pq = |c . delta_eta_mean(t_peak)| + a_q(N_eff) * sigma_dL_wf
+        N_eff   = tau_LF / T_zc_dL_wf
+        a_50    = sqrt(2 ln N_eff) - gamma / sqrt(2 ln N_eff)
+        a_95    = sqrt(2 ln N_eff) - ln(-ln 0.95) / sqrt(2 ln N_eff)
+
+    where gamma = 0.5772... (Euler-Mascheroni). Use a small sigma so
+    the LF-peak dominates -- the test then doesn't need to know
+    tau_LF exactly, only that the prediction grows monotonically with
+    sigma_dL_wf_measured at fixed T_zc_dL_wf_measured.
+    """
+    cfg = _config_with_K(0.0)
+    obs = _make_obs_state(b_hat_kN=(-200.0, -100.0, -500.0))
+    joint = _gw_joint_forward()
+    # Two predictions at different sigma_dL_wf_measured, same T_zc.
+    sigma_lo = _make_sigma_post(sigma_dL_wf_measured=0.05,
+                                T_zc_dL_wf_measured=8.0)
+    sigma_hi = _make_sigma_post(sigma_dL_wf_measured=0.30,
+                                T_zc_dL_wf_measured=8.0)
+    s_lo = summarise_for_operator_live(cfg, obs, sigma_lo, joint=joint)
+    s_hi = summarise_for_operator_live(cfg, obs, sigma_hi, joint=joint)
+    # Higher WF sigma -> larger window-max prediction, both quantiles.
+    assert s_hi.gangway_dL_excursion_p50 > s_lo.gangway_dL_excursion_p50
+    assert s_hi.gangway_dL_excursion_p95 > s_lo.gangway_dL_excursion_p95
+    # The increment must equal a_q(N_eff) * (sigma_hi - sigma_lo) for
+    # the same N_eff (LF-peak cancels in the difference).
+    delta_sigma = 0.30 - 0.05
+    delta_p50 = s_hi.gangway_dL_excursion_p50 - s_lo.gangway_dL_excursion_p50
+    delta_p95 = s_hi.gangway_dL_excursion_p95 - s_lo.gangway_dL_excursion_p95
+    # a_q must be positive (peak factor for any N_eff >= 1).
+    a50_eff = delta_p50 / delta_sigma
+    a95_eff = delta_p95 / delta_sigma
+    assert a50_eff > 0.0
+    assert a95_eff > a50_eff           # Gumbel 95 > Gumbel 50.
+    # For a typical bf6-like N_eff ~ 2..4 the Gumbel coefficients are
+    # in the ranges a_50 ~ 0.7..1.4, a_95 ~ 2.5..3.5. Pin loose
+    # bounds rather than a hardcoded N_eff (which depends on the
+    # internal pulse-response shape).
+    assert 0.3 < a50_eff < 2.5
+    assert 1.5 < a95_eff < 5.0
+
+
+def test_gangway_excursion_grows_with_b_hat_magnitude():
+    """The LF transient peak |c . delta_eta_mean(t_peak)| dominates the
+    pred when sigma_dL_wf_measured is small. Increasing |b_hat|
+    proportionally (same direction) must scale the excursion P50
+    proportionally because pulse_response is linear in b_hat."""
+    cfg = _config_with_K(0.0)
+    sigma = _make_sigma_post(sigma_dL_wf_measured=1e-3,
+                             T_zc_dL_wf_measured=8.0)
+    joint = _gw_joint_forward()
+    obs1 = _make_obs_state(b_hat_kN=(-200.0, 0.0, 0.0))
+    obs2 = _make_obs_state(b_hat_kN=(-400.0, 0.0, 0.0))
+    s1 = summarise_for_operator_live(cfg, obs1, sigma, joint=joint)
+    s2 = summarise_for_operator_live(cfg, obs2, sigma, joint=joint)
+    # 2x larger b_hat -> 2x larger LF transient peak (linear).
+    # WF contribution is tiny (~1e-3 m), so the ratio is ~2.0.
+    ratio = s2.gangway_dL_excursion_p50 / max(s1.gangway_dL_excursion_p50, 1e-9)
+    assert 1.9 < ratio < 2.1

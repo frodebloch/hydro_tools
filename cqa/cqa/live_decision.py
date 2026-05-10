@@ -252,6 +252,31 @@ class LiveSigmaPosterior:
     posterior_wf_roll: Optional[SigmaPosterior] = None
     posterior_wf_pitch: Optional[SigmaPosterior] = None
 
+    # Direct gangway-telescope WF posterior. When the live system has a
+    # real gangway telescoping measurement (or, in brucon validation, a
+    # synthetic dL = c6 . eta_full_6 over the same pre-WCF window the
+    # other posteriors use), the upstream sigma-estimator computes the
+    # standard deviation and zero-up-crossing period of the demeaned
+    # gangway WF channel directly. The panel uses these scalars in the
+    # gangway WCF prediction:
+    #
+    #   pred = |c . delta_eta_mean(t_peak)|     (LF transient peak)
+    #          + a_q(N_eff) * sigma_dL_wf_measured  (extreme-value WF)
+    #
+    # with N_eff = tau_LF / T_zc_dL_wf_measured and tau_LF computed from
+    # the integrated LF transient itself (duration above 0.8*peak). This
+    # keeps the WCF calc strictly observer-state + Bayesian-posterior
+    # driven (no Tp / Hs / sea-state lookup) and avoids per-DOF
+    # aggregation: the gangway WF channel already contains the
+    # joint-projected vessel WF plus any gangway-mounted instrument
+    # noise, so no double-count with the per-DOF posteriors above.
+    #
+    # Both default to ``None``. When either is None or non-positive, the
+    # panel falls back to the per-instant folded-normal halo at the LF
+    # deterministic peak (the previous behaviour).
+    sigma_dL_wf_measured: Optional[float] = None
+    T_zc_dL_wf_measured: Optional[float] = None
+
 
 # ---------------------------------------------------------------------------
 # Helpers

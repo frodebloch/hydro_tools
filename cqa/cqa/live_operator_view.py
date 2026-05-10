@@ -245,22 +245,50 @@ class LiveOperatorSummary:
     #
     # 12-cell brucon roll-up of the |dL| bar (forward gangway,
     # h=15 m, L0=25 m; see scripts/p7_brucon_validation/roll_up_
-    # gangway_bar.py). Pre-vs-post 6-DOF posterior plumbing:
+    # gangway_bar.py). Bias evolution as comparator + posterior
+    # plumbing matured (P95 bias / coverage; cells grouped):
     #
-    #               horizontal_3dof    full_6dof    coverage(P95)
-    #   bf4         P95 -31..-32%      -6..-17%     70..77%
-    #   bf6         P95 -46..-53%      -15..-23%    63..70%
-    #   bf8         P95 -45..-51%      -19..-32%    53..77%
-    #   pwo         P95 -78%           -57%         20%
-    #   pwq30       P95 -61%           -38%         60%
+    #               horiz_3dof   6dof+folded   6dof+excursion   6dof+LF+Gumbel
+    #               (initial)    (asym fix)    (subtract bug)   (window-max)
+    #   bf4         P95 -31..-32%  -6..-17%      +3..-11%        +12..+26%  90..97%
+    #   bf6         P95 -46..-53% -15..-23%     -12..-19%        -13..-23%  60..80%
+    #   bf8         P95 -45..-51% -19..-32%     -17..-29%        -32..-41%  47..60%
+    #   pwo         P95 -78%      -57%          -52%             -59%       17%
+    #   pwq30       P95 -61%      -38%          -34%             -42%       57%
     #
-    # The horizontal-3DOF mode is now LOWER-BOUND fallback only
-    # (when the WF roll/pitch/heave posteriors are not provided
-    # by the upstream sigma-estimator). Full-6DOF residuals on
-    # bf6/bf8 are within the same comparator-statistic envelope
-    # as the position-bar P95 gap (-11..-35%). pwo/pwq30
-    # additionally inherit the documented missing dF_x/dpsi
-    # mirror term (analysis.md sec.12).
+    # The 6dof+LF+Gumbel column uses the new window-max model:
+    # pred_pq = |c.delta_eta_mean(t_peak)| + a_q(N_eff) *
+    # sigma_dL_wf_measured, with N_eff = tau_LF / T_zc_dL_wf_measured
+    # and a_q from the Gumbel/Rice extreme-value formula. tau_LF is
+    # the duration the |LF transient| stays above 0.8*peak. The
+    # WF-only sigma comes from a windowed-demean of the gangway
+    # WF channel (synthesized in brucon validation as c6 .
+    # eta_wf_full over the same pre-WCF window the per-DOF
+    # posteriors use). All quantities are observer-state +
+    # posterior driven; no Tp / Hs / sea-state lookup.
+    #
+    # P50 improved on every cell (e.g. bf6_h0 -52% -> -42%, bf8_h0
+    # -47% -> -41%). P95 got somewhat worse on bf8/pwo because the
+    # window-max model removes the spurious noise width that the
+    # folded-normal halo had been using to mask the LF transient
+    # under-prediction. The residual on bf6/bf8/pwo is now cleanly
+    # attributable to the LF transient model itself: e.g. on
+    # bf8_h0 seed 1000 the predicted LF surge peak is 1.13 m at
+    # t=32s while the truth peaks at 2.05 m at t=76s -- 1.8x
+    # under-prediction and ~45 s mis-located in time. This is the
+    # same dF/dpsi mirror-term physics gap that the position bar
+    # also has (analysis.md sec.12); the position bar's larger
+    # sigma_R envelope masks it more effectively in cell-aggregate.
+    # Resolving the LF transient model will improve both bars at
+    # once. The gangway comparator itself is now apples-to-apples.
+    #
+    # Note: when sigma_dL_wf_measured / T_zc_dL_wf_measured are not
+    # supplied on LiveSigmaPosterior, the panel falls back to the
+    # previous folded-normal halo at the deterministic peak (per-
+    # instant statistic). This is structurally low for the window-
+    # max truth comparator, but matches the panel's previous
+    # behaviour when the upstream estimator has no gangway-channel
+    # measurement to feed in.
     #
     # WF projection coverage:
     #   "horizontal_3dof" : only surge/sway/yaw WF posteriors used
@@ -273,6 +301,16 @@ class LiveOperatorSummary:
     gangway_dL_p95: float = 0.0     # P95 of |dL|, m
     gangway_dL_intact_offset: float = 0.0  # |dL| live deterministic offset, m
     gangway_dL_wcf_offset_at_peak: float = 0.0  # |dL| at deterministic WCF peak, m
+    # Excursion-only quantiles: folded-normal of the WCFDI-induced *change*
+    # in dL relative to the live LF baseline, i.e. |c . delta_eta_mean(t_peak)
+    # + WF_noise + b_hat_noise| with the eta_hat_lf baseline removed from
+    # the deterministic mean. These are the apples-to-apples companions to a
+    # truth statistic of max|dL_truth(t) - dL_pre|. The operator-facing
+    # gangway_dL_p50/p95 above (which include the live LF baseline) remain
+    # the right thing for "will the telescope hit the end-stop"; the
+    # excursion fields are what the brucon validation comparator must use.
+    gangway_dL_excursion_p50: float = 0.0
+    gangway_dL_excursion_p95: float = 0.0
     gangway_stroke_m: float = 0.0   # min(L_max - L0, L0 - L_min), m
     gangway_sigma_dL_intact_m: float = 0.0
     gangway_sigma_dL_wcf_m: float = 0.0
@@ -569,6 +607,7 @@ def summarise_for_operator_live(
     gw_present = False
     gw_dL_p50 = gw_dL_p95 = 0.0
     gw_dL_intact = gw_dL_wcf_at_peak = 0.0
+    gw_dL_exc_p50 = gw_dL_exc_p95 = 0.0
     gw_stroke = 0.0
     gw_sigma_dL_intact = gw_sigma_dL_wcf = 0.0
     gw_t_peak = 0.0
@@ -609,6 +648,99 @@ def summarise_for_operator_live(
         gw_dL_p50 = float(np.quantile(dL_abs_samples, 0.50))
         gw_dL_p95 = float(np.quantile(dL_abs_samples, 0.95))
 
+        # Excursion-only quantiles: the WCFDI-induced *change* in dL
+        # relative to the live LF baseline. The apples-to-apples
+        # comparator quantity for max|dL_truth(t) - dL_pre| over the
+        # post-WCF window. Two regimes:
+        #
+        # (a) "measured" -- when sigma_post.sigma_dL_wf_measured and
+        #     T_zc_dL_wf_measured are both provided (the upstream
+        #     sigma-estimator is monitoring the gangway WF channel
+        #     directly): combine the LF deterministic peak with a
+        #     Gumbel/Rice extreme-value WF contribution sized to the
+        #     near-peak duration of the LF transient. Formally:
+        #
+        #         pred_pq = |c3 . delta_eta_mean(t_peak)|
+        #                   + a_q(N_eff) * sigma_dL_wf_measured
+        #         N_eff   = tau_LF / T_zc_dL_wf_measured
+        #         tau_LF  = duration over which |c3 . delta_eta_mean(t)|
+        #                   stays >= 0.8 * peak
+        #         a_50    = sqrt(2 ln N_eff) - 0.5772 / sqrt(2 ln N_eff)
+        #         a_95    = sqrt(2 ln N_eff) - ln(-ln 0.95)
+        #                                       / sqrt(2 ln N_eff)
+        #
+        #     The LF-peak and worst WF crest are added linearly. This
+        #     is conservative: in reality the LF transient sits at
+        #     its max only briefly and the worst WF crest will not
+        #     coincide with it, but assuming coincidence gives a
+        #     defensible upper bound on the worst-case window-max
+        #     telescope excursion. Strictly observer-state +
+        #     Bayesian-posterior driven (no Tp / Hs / sea-state
+        #     lookup).
+        #
+        # (b) "folded-normal fallback" -- when the measured fields
+        #     are absent: collapse to a single-instant folded-normal
+        #     halo at the deterministic peak instant with sigma =
+        #     sigma_dL_wcf (per-DOF posterior projection through c6,
+        #     plus b_hat-axial). This is what the previous version
+        #     of this panel did. Reported P50 is structurally low
+        #     vs window-max truth (single-instant statistic vs
+        #     extreme-value statistic) but cheap and self-contained.
+        mu_signed_exc = float(delta_eta_mean[k_peak_dL] @ c3)
+        dL_LF_peak = float(abs(mu_signed_exc))
+        s_meas = sigma_post.sigma_dL_wf_measured
+        T_zc_meas = sigma_post.T_zc_dL_wf_measured
+        if (s_meas is not None and T_zc_meas is not None
+                and s_meas > 0.0 and T_zc_meas > 0.0):
+            # tau_LF: duration the |LF transient| stays above 0.8*peak.
+            dL_LF_t_abs = np.abs(delta_eta_mean @ c3)
+            peak_abs = float(dL_LF_t_abs.max())
+            if peak_abs > 0.0:
+                near_peak = dL_LF_t_abs >= 0.8 * peak_abs
+                # Contiguous-block duration around the peak (use the
+                # longest contiguous true-block to ignore minor
+                # secondary lobes).
+                if near_peak.any():
+                    starts = np.where(np.diff(near_peak.astype(int))
+                                      == 1)[0] + 1
+                    ends = np.where(np.diff(near_peak.astype(int))
+                                    == -1)[0] + 1
+                    if near_peak[0]:
+                        starts = np.r_[0, starts]
+                    if near_peak[-1]:
+                        ends = np.r_[ends, near_peak.size]
+                    blocks = list(zip(starts, ends))
+                    # Pick the block containing the peak instant.
+                    k = int(np.argmax(dL_LF_t_abs))
+                    tau_LF_s = 0.0
+                    for s_i, e_i in blocks:
+                        if s_i <= k < e_i:
+                            tau_LF_s = float(t_grid[e_i - 1]
+                                             - t_grid[s_i])
+                            break
+                    if tau_LF_s <= 0.0:
+                        tau_LF_s = float(t_grid[1] - t_grid[0])
+                else:
+                    tau_LF_s = float(t_grid[1] - t_grid[0])
+            else:
+                tau_LF_s = T_zc_meas
+            # Gumbel peak factors. Floor N_eff at 1 (single crest)
+            # to keep ln defined; if tau_LF < T_zc the WF gets one
+            # half-cycle within the LF peak duration -- treat as 1.
+            N_eff = max(tau_LF_s / float(T_zc_meas), 1.0)
+            ln_term = float(np.sqrt(2.0 * np.log(max(N_eff, 1.001))))
+            # 0.5772... = Euler-Mascheroni constant; Gumbel mean.
+            # ln(-ln(0.95)) ~= -2.9702 -> negative => +2.9702/ln_term.
+            a_50 = ln_term - 0.5772156649 / ln_term
+            a_95 = ln_term - float(np.log(-np.log(0.95))) / ln_term
+            gw_dL_exc_p50 = dL_LF_peak + a_50 * float(s_meas)
+            gw_dL_exc_p95 = dL_LF_peak + a_95 * float(s_meas)
+        else:
+            # Fallback: per-instant folded-normal at deterministic peak.
+            dL_exc_samples = np.abs(mu_signed_exc + gw_sigma_dL_wcf * nu)
+            gw_dL_exc_p50 = float(np.quantile(dL_exc_samples, 0.50))
+            gw_dL_exc_p95 = float(np.quantile(dL_exc_samples, 0.95))
+
         # Traffic light: same IMCA convention as the position bars and
         # ``evaluate_decision_cell_live`` -- amber at 60% of stroke,
         # red at 80% of stroke. Driven by P95 of |dL|.
@@ -640,6 +772,8 @@ def summarise_for_operator_live(
         gangway_dL_p95=gw_dL_p95,
         gangway_dL_intact_offset=gw_dL_intact,
         gangway_dL_wcf_offset_at_peak=gw_dL_wcf_at_peak,
+        gangway_dL_excursion_p50=gw_dL_exc_p50,
+        gangway_dL_excursion_p95=gw_dL_exc_p95,
         gangway_stroke_m=gw_stroke,
         gangway_sigma_dL_intact_m=gw_sigma_dL_intact,
         gangway_sigma_dL_wcf_m=gw_sigma_dL_wcf,

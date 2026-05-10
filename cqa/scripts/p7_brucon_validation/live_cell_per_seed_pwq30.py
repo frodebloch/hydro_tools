@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -53,7 +54,7 @@ THIS = Path(__file__).resolve().parent
 sys.path.insert(0, str(THIS.parent.parent))
 
 from cqa.config import csov_default_config
-from cqa.gangway import GangwayJointState
+from cqa.gangway import GangwayJointState, telescope_sensitivity_6dof
 from cqa.online_estimator import (
     BayesianSigmaEstimator,
     combine_radial_posterior,
@@ -340,7 +341,30 @@ def _bayes_post(samples: np.ndarray, dt: float, T_decorr: float,
     return est.posterior(), est.health()
 
 
-def build_live_sigma_posterior(d: dict, sigma_R_b_hat_m: float = 0.0) -> LiveSigmaPosterior:
+def _zero_up_crossing_period(x: np.ndarray, dt: float) -> float:
+    """Mean zero-up-crossing period of a (demeaned) 1D series.
+
+    Counts indices ``i`` where ``x[i] <= 0 < x[i+1]``. Returns
+    ``T_zc = (t_{N-1} - t_0) / N_zc`` if ``N_zc >= 2``, else ``nan``.
+    Pure helper; no estimator state.
+    """
+    x = np.asarray(x, dtype=float)
+    if x.size < 4:
+        return float("nan")
+    crossings = np.where((x[:-1] <= 0.0) & (x[1:] > 0.0))[0]
+    n_zc = crossings.size
+    if n_zc < 2:
+        return float("nan")
+    span_s = (crossings[-1] - crossings[0]) * dt
+    return float(span_s / max(n_zc - 1, 1))
+
+
+def build_live_sigma_posterior(
+    d: dict,
+    sigma_R_b_hat_m: float = 0.0,
+    joint: Optional[GangwayJointState] = None,
+    cfg=None,
+) -> LiveSigmaPosterior:
     """Build the LiveSigmaPosterior for one seed from the per-channel
     pre-WCF samples.
 
@@ -349,6 +373,15 @@ def build_live_sigma_posterior(d: dict, sigma_R_b_hat_m: float = 0.0) -> LiveSig
     downstream gangway-bar consumers see ``gangway_wf_coverage =
     "full_6dof"`` instead of the horizontal-3DOF fallback. The
     horizontal channels are unaffected.
+
+    When ``joint`` and ``cfg`` are supplied, also synthesizes a
+    pre-WCF dL_WF sample series by projecting the per-DOF WF samples
+    through the 6-DOF telescope sensitivity ``c6 = telescope_
+    sensitivity_6dof(joint, cfg.gangway)``, demeans, and reports back
+    the resulting ``sigma_dL_wf_measured`` (m) and
+    ``T_zc_dL_wf_measured`` (s, mean zero-up-crossing period). These
+    feed the LF-peak + Gumbel-WF-max gangway WCF prediction in the
+    panel.
     """
     dt_m = d["win_dt"]
     plf_x, hlf_x = _bayes_post(d["samples_lf_x"], dt_m, T_DECORR_LF, PRIOR_SIGMA_LF)
@@ -382,6 +415,44 @@ def build_live_sigma_posterior(d: dict, sigma_R_b_hat_m: float = 0.0) -> LiveSig
         rank = {"OK": 0, "WARMING": 1, "UNSETTLED": 2, "INVALID": 3}
         return max(badges, key=lambda b: rank.get(b.level, 0))
 
+    # ----- Direct gangway-channel WF posterior -----
+    # When the joint geometry is supplied, project the per-DOF WF
+    # samples through c6 to synthesize a pre-WCF dL_WF series, then
+    # measure sigma and T_zc directly. This is the gangway-axis
+    # equivalent of what an instrumented gangway would report from
+    # its own telescoping channel; in real deployment the vessel
+    # would carry the measurement, here we reconstruct it from the
+    # already-loaded brucon DOF samples (apples-to-apples with the
+    # rest of the loader).
+    #
+    # WF-only (no LF): the Gumbel/Rice extreme-value formula in the
+    # panel assumes a narrow-band Gaussian noise where the peak
+    # factor a_q multiplies sigma by sqrt(2 ln N_eff). The LF
+    # channel has a much longer correlation time than the WF, so
+    # its "effective N_eff" over a 30 s near-peak window is ~1, not
+    # tau_LF / T_zc_WF. Including its variance into a single
+    # combined sigma would make the Gumbel formula massively
+    # overcount the LF tail. The LF deterministic peak is already
+    # accounted for additively via |c . delta_eta_mean(t_peak)|, so
+    # the residual LF stochastic variance (about that deterministic
+    # mean) is small here. Keep WF-only.
+    sigma_dL_wf_meas = None
+    T_zc_dL_wf_meas = None
+    if joint is not None and cfg is not None:
+        c6 = telescope_sensitivity_6dof(joint, cfg.gangway)
+        wf_stack = np.column_stack([
+            d["samples_wf_x"],
+            d["samples_wf_y"],
+            d["samples_wf_heave"],
+            d["samples_wf_roll"],
+            d["samples_wf_pitch"],
+            d["samples_wf_yaw"],
+        ])
+        dL_wf_samples = wf_stack @ c6
+        dL_wf_samples = dL_wf_samples - dL_wf_samples.mean()
+        sigma_dL_wf_meas = float(dL_wf_samples.std(ddof=1))
+        T_zc_dL_wf_meas = _zero_up_crossing_period(dL_wf_samples, dt_m)
+
     return LiveSigmaPosterior(
         posterior_lf_x=plf_x, posterior_lf_y=plf_y, posterior_lf_yaw=plf_z,
         radial_lf=rad_lf, validity_lf=_worst_badge(badges_lf),
@@ -391,6 +462,8 @@ def build_live_sigma_posterior(d: dict, sigma_R_b_hat_m: float = 0.0) -> LiveSig
         posterior_wf_heave=pwf_h,
         posterior_wf_roll=pwf_r,
         posterior_wf_pitch=pwf_p,
+        sigma_dL_wf_measured=sigma_dL_wf_meas,
+        T_zc_dL_wf_measured=T_zc_dL_wf_meas,
     )
 
 

@@ -61,7 +61,9 @@ def _ok_badge() -> ValidityBadge:
 
 
 def _make_sigma_post(sigma_lf: float = 0.3, sigma_wf: float = 0.5,
-                     sigma_R_b_hat_m: float = 0.1) -> LiveSigmaPosterior:
+                     sigma_R_b_hat_m: float = 0.1,
+                     sigma_dL_wf_measured: float | None = None,
+                     T_zc_dL_wf_measured: float | None = None) -> LiveSigmaPosterior:
     """Compose a non-degenerate LiveSigmaPosterior with everything OK."""
     plf = _trivial_sigma_posterior(sigma_lf)
     pwf = _trivial_sigma_posterior(sigma_wf)
@@ -73,6 +75,8 @@ def _make_sigma_post(sigma_lf: float = 0.3, sigma_wf: float = 0.5,
         posterior_wf_x=pwf, posterior_wf_y=pwf, posterior_wf_yaw=pwf,
         radial_wf=rad_wf, validity_wf=_ok_badge(),
         sigma_R_b_hat_m=sigma_R_b_hat_m,
+        sigma_dL_wf_measured=sigma_dL_wf_measured,
+        T_zc_dL_wf_measured=T_zc_dL_wf_measured,
     )
 
 

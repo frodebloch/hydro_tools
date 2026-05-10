@@ -11,10 +11,28 @@ under WCFDI) with a single worst-margin red threshold
 fashion as ``roll_up_live_operator_panel.py`` does for the WCF
 radial position bar:
 
-    pred  : panel ``gangway_dL_p50`` / ``gangway_dL_p95`` (folded-
-            normal halo about the deterministic |dL| peak instant
-            under the LF + WF + b_hat-radial sigma envelope, all
-            referenced to L0).
+    pred  : panel ``gangway_dL_excursion_p50`` /
+            ``gangway_dL_excursion_p95``. Two regimes (gated on
+            whether ``sigma_post.sigma_dL_wf_measured`` and
+            ``sigma_post.T_zc_dL_wf_measured`` are populated):
+
+            (a) "window-max" -- with both measured fields present,
+                the panel returns the LF-peak + Gumbel-WF-max
+                statistic::
+
+                    pred_pq = |c . delta_eta_mean(t_peak)|
+                              + a_q(N_eff) * sigma_dL_wf_measured
+
+                with N_eff = tau_LF / T_zc_dL_wf_measured, tau_LF =
+                duration the |LF transient| stays >= 0.8*peak, a_q
+                from the Gumbel/Rice peak factor (a_50 = sqrt(2 ln
+                N_eff) - gamma/sqrt(2 ln N_eff), gamma = Euler-
+                Mascheroni). This is the apples-to-apples
+                companion to a max-over-window truth statistic.
+
+            (b) "folded-normal fallback" -- single-instant folded-
+                normal halo at the deterministic peak. Structurally
+                low for the window-max truth comparator.
 
     truth : per seed, ``s_max_abs = max |dL_truth(t) - dL_pre|``
             over the post-WCF window, where ``dL_truth(t) = c6 .
@@ -22,19 +40,56 @@ radial position bar:
             wise on the pre-WCF window. Quantiles **across seeds**
             of single-realisation s_max_abs give the truth P50 / P95.
 
-The pred is similarly demeaned via
-``pred_p* - gangway_dL_intact_offset`` so both pred and truth
-report the *change* in |dL| relative to the pre-WCF mean position
-(apples-to-apples; cancels any non-zero LF offset that the live
-state happens to carry).
+Direct gangway-channel WF posterior
+-----------------------------------
+The loader synthesizes a pre-WCF ``dL_wf_samples = c6 . eta_wf_full``
+series by projecting the per-DOF WF samples through the 6-DOF
+telescope sensitivity, demeans, and reports back
+``sigma_dL_wf_measured`` (m, std of the demeaned series) and
+``T_zc_dL_wf_measured`` (s, mean zero-up-crossing period). This is
+WF-only on purpose: the Gumbel formula assumes a narrow-band Gaussian
+process where the peak factor multiplies sigma by sqrt(2 ln N_eff),
+which would massively overcount the LF tail if the LF channel were
+included (the LF has an effective N_eff of ~1 over a 30 s near-peak
+window). The LF deterministic peak is already accounted for additively
+via |c . delta_eta_mean(t_peak)|, so combining LF-deterministic +
+WF-stochastic is the right decomposition.
 
-Note: ``gangway_dL_*`` quantiles are non-negative magnitudes and so
-is the deterministic offset, but the demean is a magnitude-of-
-magnitudes subtraction so the result can in principle be negative
-when the WCF peak is *smaller* than the live offset (rare; would
-indicate the WCFDI transient pulls back toward L0 rather than
-away). We clip to zero in the print only; the raw value is kept
-for the bias.
+Earlier comparator-shape mistakes (now fixed)
+---------------------------------------------
+Two predecessors of the current pred formulation were considered and
+rejected:
+
+  * ``pred = gangway_dL_p* - gangway_dL_intact_offset`` (magnitude of
+    magnitudes subtraction). NOT equivalent to the apples-to-apples
+    excursion: folds the WF noise around a non-zero ``c3 .
+    eta_hat_lf + c3 . delta_eta_mean`` mean, then subtracts ``|c3 .
+    eta_hat_lf|``, biasing the magnitude and double-counting the
+    live offset when its sign differs from the WCFDI excursion.
+
+  * ``pred = folded_normal(c . delta_eta_mean(t_peak), sigma_dL_wcf)``
+    at the deterministic peak instant (per-instant statistic).
+    Structurally low when truth is max-over-window: for Gaussian
+    noise over N=20 crests, max/median ratio ~2.5 -- exactly the
+    P50 gap the user flagged.
+
+The current LF + Gumbel-WF formulation eliminates both issues. The
+operator-facing ``gangway_dL_*`` (which include the live LF baseline)
+remain the right thing for the panel UI.
+
+Residual physics gap
+--------------------
+After the comparator fix, P50 bias improves on every cell (e.g.
+bf6_h0 -52% -> -42%, bf8_h0 -47% -> -41%). P95 bias on energetic
+cells (bf8 -32%, pwo -59%) is now cleanly attributable to the LF
+transient model itself: on bf8_h0 seed 1000 the predicted LF surge
+peak is 1.13 m at t=32s but truth peaks at 2.05 m at t=76s -- 1.8x
+under and ~45 s mis-located in time. This is the documented
+dF/dpsi mirror term physics gap (analysis.md sec.12) which the
+position bar inherits too; the position bar's larger sigma_R
+envelope masks it more effectively in cell-aggregate, but the
+gangway's tighter Gumbel halo exposes it directly. Resolving the
+LF transient model will improve both bars at once.
 
 Coverage (full 6-DOF; matches the loader)
 -----------------------------------------
@@ -133,7 +188,9 @@ def _validate_cell(tag: str, cfg, c6: np.ndarray) -> dict | None:
         d = load_seed(seed)
         if d is None:
             continue
-        sigma_post = build_live_sigma_posterior(d, sigma_R_b_hat_m=sigma_R_b_hat_m)
+        sigma_post = build_live_sigma_posterior(
+            d, sigma_R_b_hat_m=sigma_R_b_hat_m, joint=JOINT, cfg=cfg,
+        )
         obs = LiveObserverState(
             eta_hat=d["eta_hat"], nu_hat=d["nu_hat"], b_hat=d["b_hat"],
             eta_wave=d["eta_wave"],
@@ -175,11 +232,15 @@ def _validate_cell(tag: str, cfg, c6: np.ndarray) -> dict | None:
         # max |hypot(SurgeDev-sd_pre, SwayDev-wd_pre)| over post-WCF.
         s_max_abs = float(np.max(np.abs(dL_truth[post_mask] - dL_pre)))
 
-        # Panel pred is referenced to L0 (an absolute magnitude). To
-        # get apples-to-apples deltas-around-pre, subtract the live
-        # "now" |dL| offset from the predicted P50/P95.
-        pred_p50 = s.gangway_dL_p50 - s.gangway_dL_intact_offset
-        pred_p95 = s.gangway_dL_p95 - s.gangway_dL_intact_offset
+        # Apples-to-apples comparator: truth is max|dL_truth - dL_pre|
+        # (vector-demeaned post-WCF excursion). The matching prediction
+        # is the folded-normal of the WCFDI-induced *change* in dL with
+        # the live LF baseline removed -- exposed by the panel as
+        # gangway_dL_excursion_p50/p95. The operator-facing
+        # gangway_dL_p50/p95 (which include the live LF baseline) are
+        # the right thing for the UI but NOT for this comparator.
+        pred_p50 = s.gangway_dL_excursion_p50
+        pred_p95 = s.gangway_dL_excursion_p95
         pred_det = (s.gangway_dL_wcf_offset_at_peak
                     - s.gangway_dL_intact_offset)
 
