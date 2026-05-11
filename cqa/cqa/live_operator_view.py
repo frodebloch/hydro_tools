@@ -794,7 +794,10 @@ def summarise_for_operator_live(
     # ---- WCF axis ----
     aug = _build_aug_for_live(cfg, Tp_obs_s=Tp_obs_s)
     t_grid = np.linspace(0.0, t_horizon_s, n_t)
-    tau_env = np.asarray(obs_state.b_hat, dtype=float)
+    # Apply b_hat steady-state bias correction; see analysis.md §12.21.13 and
+    # VesselParticulars.b_hat_bias_correction_factor.
+    b_corr = float(cfg.vessel.b_hat_bias_correction_factor)
+    tau_env = b_corr * np.asarray(obs_state.b_hat, dtype=float)
     gamma_imm = float(scenario.gamma_immediate)
     T_realloc = float(scenario.T_realloc) if scenario.T_realloc > 0 else 1e-9
     beta_t = 1.0 + (gamma_imm - 1.0) * np.exp(-t_grid / T_realloc)

@@ -414,7 +414,10 @@ def evaluate_decision_cell_live(
                 f"!= (len(t_grid)={len(t_grid)}, 3)")
         # Still compute tau_env for legacy / diagnostic; not needed for the
         # deterministic trajectory.
-        tau_env = np.asarray(obs_state.b_hat, dtype=float)
+        # Apply b_hat steady-state bias correction (see analysis.md §12.21.13
+        # and VesselParticulars.b_hat_bias_correction_factor).
+        b_corr = float(cfg.vessel.b_hat_bias_correction_factor)
+        tau_env = b_corr * np.asarray(obs_state.b_hat, dtype=float)
         aug = None  # not built in the precomputed branch
     else:
         # ---- Mean environmental force from the observer's bias estimate ----
@@ -428,7 +431,13 @@ def evaluate_decision_cell_live(
         # Verified at pwq30: Order_pre_sway = +110 kN -> b_hat_sway = -110 kN
         # -> tau_env_sway = -110 kN (env pushes vessel in -y), consistent
         # with brucon truth (vessel drifts -y post-WCF).
-        tau_env = np.asarray(obs_state.b_hat, dtype=float)
+        # Apply b_hat steady-state bias correction (see analysis.md §12.21.13
+        # and VesselParticulars.b_hat_bias_correction_factor): the brucon NPO
+        # bias state with tau_b=1000s and K_p~1e-3 settles to ~0.91*F_env in
+        # SS; the missing ~9% goes into the PI integrator term, which vanishes
+        # post-WCF. The factor (default 1.10 for CSOV) restores F_env on b_hat.
+        b_corr = float(cfg.vessel.b_hat_bias_correction_factor)
+        tau_env = b_corr * np.asarray(obs_state.b_hat, dtype=float)
 
         # ---- Build the cqa-27 augmented system at the observer's Tp ----
         aug = _build_aug_for_live(cfg, Tp_obs_s=Tp_obs_s)

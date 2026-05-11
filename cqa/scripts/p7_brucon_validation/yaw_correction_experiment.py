@@ -195,7 +195,10 @@ def main():
             continue
         sigma_post = build_live_sigma_posterior(d, sigma_R_b_hat_m=sigma_R_b_hat_m)
         eta_hat_lf = np.asarray(d["eta_hat"], dtype=float)
-        b_hat = np.asarray(d["b_hat"], dtype=float)
+        # Apply b_hat steady-state bias correction to match production
+        # cqa.live_decision (analysis.md sec.12.21.13).
+        b_corr = float(cfg.vessel.b_hat_bias_correction_factor)
+        b_hat = b_corr * np.asarray(d["b_hat"], dtype=float)
 
         # Variant A: cqa baseline
         gamma_imm = float(scenario.gamma_immediate)

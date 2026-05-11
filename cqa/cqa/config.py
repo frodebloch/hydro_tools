@@ -56,6 +56,34 @@ class VesselParticulars:
     # (yields the un-corrected pulse_response output).
     lift_coupling_K_per_rad: float = 0.0
 
+    # Steady-state correction factor for the b_hat snapshot supplied by
+    # the DP bias estimator. With the brucon NPO architecture (passive
+    # observer, see libs/dp/dp_estimator/nonlinear_passive_observer.cpp)
+    # the bias state evolves as
+    #     b_dot = -(1/tau_b) * b + K_p * eps_pos + K_v * eps_vel
+    # which converges in steady state to
+    #     b_force_ss = F_env_true * a / (a + 1),
+    #     a = K_p * tau_b * (m + m_a)
+    # for a constant true env force F_env_true. The PI integrator picks
+    # up the residual fraction `1 / (a + 1)`. With the CSOV gains
+    # (tau_b=1000s, K_p=0.0012 surge/sway, K_p=0.002 yaw) the empirical
+    # ratio is b_hat / F_env_true = 0.91 +/- 0.02 across all 12
+    # validation cells (any DOF, sea state, heading; see
+    # scripts/p7_brucon_validation/cross_cell_bhat_ratio.py). In intact
+    # operation the integrator covers the gap; in post-WCF operation
+    # the failed thrusters were contributing to the integrator term so
+    # the hull experiences the full F_env, not b_hat. Multiplying b_hat
+    # by 1/0.91 ~ 1.10 before forming tau_lost recovers the true env
+    # load magnitude on the hull. See analysis.md sec.12.21.13.
+    #
+    # When deployed inside brucon (or onto a real DP system) the static
+    # factor should be replaced by a runtime-derived correction:
+    #     F_env_eff = b_hat_force + (m + m_a) * eps_pos_obs / tau_b
+    # which uses the observed position deviation and is robust to
+    # non-stationary loads and gain variations. Plumbing eps_pos_obs
+    # and the gains through is the deployment TODO.
+    b_hat_bias_correction_factor: float = 1.0
+
     @property
     def displacement_mass(self) -> float:
         return self.rho_water * self.lpp * self.beam * self.draft * self.block_coefficient
@@ -328,6 +356,12 @@ def csov_default_config() -> CqaConfig:
         # Calibrated from brucon ensemble at Bf 6 / Bf 8 colinear
         # head + quartering cells (see calibrate_lift_coupling.py).
         lift_coupling_K_per_rad=3.40,
+        # Empirical b_hat / F_env_true ratio measured at 0.91 +/- 0.02
+        # across all 12 brucon validation cells (per-DOF, all sea states
+        # and headings); see scripts/p7_brucon_validation/cross_cell_bhat_ratio.py
+        # and analysis.md sec.12.21.13. Apply 1/0.91 ~ 1.10 to b_hat
+        # before forming tau_lost in the WCFDI scenario.
+        b_hat_bias_correction_factor=1.10,
     )
     # Damping: pick linear coefficients that give realistic open-loop time
     # constants for an 8000 t CSOV. We target ~60 s surge open-loop time
