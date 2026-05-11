@@ -4505,3 +4505,443 @@ for the next assistant):**
    within ±2.5° throughout, the artefact was the wrap.
 
 
+#### 12.21.12 Mechanism 1: WcfdiScenario per-DOF cap is too coarse — yaw sign is consistently wrong across all cells
+
+Following the §12.21.11 falsification of the heading-coupled env-force
+hypothesis, the residual P95 under-prediction on Bf 8 oblique cells
+must come from the controlled-vessel dynamics. The first candidate is
+the `WcfdiScenario` representation of the lost thrust:
+
+  tau_lost(t) = (1 - β(t)) · b̂,   β(t) = 1 + (γ_imm - 1)·exp(-t/T_realloc)
+
+This collapses the post-WCFDI thrust deficit to a symmetric per-DOF
+exponential recovery, parameterised by `alpha=(αx, αy, αψ)` (cap
+reduction per DOF), `γ_imm` (immediate factor) and `T_realloc` (time
+constant). It assumes the missing thrust per DOF is a clean fraction of
+the env load the DP was opposing intact-steady-state.
+
+**Diagnostic built:**
+`scripts/p7_brucon_validation/compare_tau_lost_vs_scenario.py`
+compares brucon's truth `(Tx/Ty/Tz - Order)` (ensemble-mean) against
+the cqa scenario `(1-β(t))·b̂` per-seed + ensemble-mean, with
+`(Fb - Order)` and `(Alloc - Order)` overlaid as faint diagnostic
+context lines.
+
+**Brucon force column semantics (verified against brucon source
+2026-05, libs/simulator/dp_runfast_simulator/dp_runfast_simulator.cpp
+and include/brucon/simulator/dp_runfast_simulator.h:217-228):**
+
+| col | source method | meaning |
+|---|---|---|
+| `Tx/Ty/Tz` | `thruster_simulator_wrapper_.total_thrust()` | simulator-side total body-frame thrust applied to the rigid-body solver |
+| `OrderTau{Surge,Sway,Yaw}` | `controller_wrapper_.tau()` | DP controller's commanded thrust |
+| `AllocTau{Surge,Sway,Yaw}` | `allocator_wrapper_.allocated_tau()` | what the allocator could assign given its view of thruster state |
+| `FbTau{Surge,Sway,Yaw}` | `allocator_wrapper_.tau_feedback()` | DP allocator's tau_feedback, reconstructed from per-thruster feedback signals |
+
+In brucon's WCFDI mode the lua just calls `SetThrusterActive(idx,
+false)` which sends an `ActivateThruster` command **only** to
+`thruster_simulator_wrapper_`. The allocator/feedback path is NOT cut.
+So Tx drops correctly (simulator stops integrating the failed
+thrusters' contribution) while FbTau continues to echo the orders as
+if all thrusters were healthy. The DP loop closes on Order/Alloc
+(`use_feedback_tau_ = false` in the DP allocator config), so the
+Fb-vs-Tx divergence is purely cosmetic to the control system but
+**identifies (Tx − Order) as the truest hull-experienced tau_lost.**
+My earlier assumption (§12.21.11 ancillary, since corrected) that
+"Fb is the truest" was wrong: Fb is what the DP **controller** sees,
+not what the **hull** experiences.
+
+**Sign convention:** cqa and brucon share the same body frame
+(+x forward, +y starboard, +z down, +ψ CW from above; Fossen
+2011 §2.1 style). Verified by `live_decision.py:107` which maps
+`b_hat[0..2] := -OrderTau{Surge,Sway,Yaw}` directly from brucon
+with no frame conversion. The cqa scenario formula at line 443 is
+`tau_lost = (beta_t - 1) * (-tau_env)` with `tau_env = +b̂`, which is
+`(1-β)·b̂`. At t=0+ with γ_imm=0.5 this equals +0.5·b̂. The first
+version of the comparator script had a sign-flipped formula (legacy
+of a docstring transcription error); fixed in this commit.
+
+**Result on bf8_h0_w45 (worst residual gap, −28% P95):**
+
+| DOF | brucon peak (T−Order) | cqa scenario peak | gap |
+|---|---|---|---|
+| surge | −148 kN | −105 kN | cqa ~30% under-magnitude, sign matches |
+| sway  | −308 kN | −158 kN | cqa ~50% under-magnitude, sign matches |
+| yaw   | **+5000 kNm** | **−5600 kNm** | **OPPOSITE SIGN**, similar magnitude |
+
+The brucon truth also has a different SHAPE than the cqa exponential:
+it's closer to a rectangular pulse for ~3 s followed by quick recovery
+to zero by ~10 s, while cqa's `T_realloc=10 s` produces a clean
+exponential that doesn't reach zero until ~30 s.
+
+**Yaw sign survey across all 12 cells:**
+`scripts/p7_brucon_validation/survey_tau_lost_yaw_sign.py`
+
+```
+cell           |  b_hat_yaw [kNm] |  tau_lost_yaw_peak [kNm]  | cqa | brucon | match
+---------------------------------------------------------------------------------
+bf4_c1_h0      |        -2392.5   |    +4276.9  (t=3.4s)      |  -  |   +    | FLIP
+bf4_c1_q10     |        -2788.8   |    +4566.5  (t=3.4s)      |  -  |   +    | FLIP
+bf6_h0         |          -36.4   |    +4528.2  (t=2.0s)      |  -  |   +    | FLIP
+bf6_q10        |        -2217.0   |    +3955.6  (t=3.1s)      |  -  |   +    | FLIP
+bf6_h0_w45     |        -5344.7   |    +3490.2  (t=3.5s)      |  -  |   +    | FLIP
+bf6_q10_w45    |        -6135.3   |    +4286.7  (t=3.7s)      |  -  |   +    | FLIP
+bf8_h0         |          -44.1   |    +7910.4  (t=2.4s)      |  -  |   +    | FLIP
+bf8_q10        |        -4647.9   |    +6750.1  (t=3.1s)      |  -  |   +    | FLIP
+bf8_h0_w45     |       -11834.8   |    +4902.1  (t=4.1s)      |  -  |   +    | FLIP
+bf8_q10_w45    |       -13717.2   |    +6286.0  (t=4.2s)      |  -  |   +    | FLIP
+pwo            |         +392.4   |    +8047.8  (t=3.7s)      |  +  |   +    | OK*
+pwq30          |        -1163.6   |    +4739.9  (t=2.9s)      |  -  |   +    | FLIP
+```
+
+* pwo: sign matches but |brucon peak| ≈ +8000 vs cqa scenario prediction
+~+200 (b̂_yaw is small in absolute terms). The sign match is coincidental.
+
+**Sway sign survey (control):** all 12 cells show
+`sign(brucon sway peak) == sign(b̂_sway)`. Magnitudes are 1×–3× cqa's
+prediction on the high-magnitude cells. Sway behaviour is consistent
+with the cqa scenario model (modulo magnitude calibration).
+
+**Verdict — yaw is structurally outside the WcfdiScenario model:**
+
+The yaw tau_lost peak is **positive (CW perturbation, ~+4000–8000 kNm)
+in 12 / 12 cells, independent of b̂_yaw's sign**. This is the signature
+of a **fixed-direction allocator/reorient transient**, not a linear
+fraction of the intact thrust the DP was issuing.
+
+User's mechanism (per stern-azimuth bias state at WCF):
+  - Pre-WCF the two stern azimuths (PortMP, StbdMP) may be anti-biased
+    (toed inwards) under low aft side-force demand, or both turned the
+    same way under high demand.
+  - The WCFDI kills bus_port = Bow1 + PortMP. The DP allocator
+    immediately re-allocates the lost thrust onto StbdMP, which may
+    have to swing ~180° to take over PortMP's forward role.
+  - During the swing, StbdMP's force vector traverses through angles
+    that produce a transient yaw moment uncorrelated with the env
+    yaw moment.
+  - The fact that every cell produces the SAME sign (+CW) is
+    explained by the fixed geometry of the failure (which thrusters
+    die and which has to reorient), independent of which way the
+    env was pushing.
+
+This means `WcfdiScenario(alpha, gamma_imm, T_realloc)` is
+fundamentally too coarse: no choice of αψ ∈ [0, 1] applied to the
+cqa formula `tau_lost = (1-β)·b̂_yaw` can produce a positive yaw
+tau_lost when b̂_yaw is negative.
+
+**Implication for the bf8-oblique residual P95 gap:**
+
+The cqa-predicted WCF yaw response is **systematically wrong in
+direction** when the env yaw moment is non-trivial. The position MC
+loop translates the wrong-signed yaw τ_lost into a wrong-signed
+heading transient, which in turn produces a sway position offset of
+the wrong sign (via the lift-coupling term `dF_y/dψ = -F_x·K`). On
+head-seas cells (`bf*_h0` family) b̂_yaw is small so the yaw error
+matters little. On oblique cells (`bf*_h0_w45`, `_q10`, `_q10_w45`)
+b̂_yaw is large (5–14 MNm) and the sign error matters a lot. This
+matches the observed bias pattern: small or no gap on head-seas
+cells, growing gap on increasingly oblique high-Bf cells.
+
+**Path to closing the gap (deferred, scoped):**
+
+The proper extension is to model `tau_lost` not as a per-DOF cap
+fraction but as a per-bus loss vector with a reorient transient.
+The user noted that when porting to brucon the allocator is
+already available as a runtime artefact, so the cqa-side scenario
+could be replaced by a faithful allocator-loop simulation:
+
+  1. Snapshot the DP allocator state at t_eval (intact, with current
+     env load).
+  2. Trip the same bus that the operator's WCFDI scenario assumes.
+  3. Step the allocator forward for ~30 s with `tau_env = +b̂` held
+     constant (matching the existing cqa-27 model assumption).
+  4. Use `(Tx, Ty, Tz) − Order` from that simulated trajectory as
+     the `tau_lost_t` input to `pulse_response_with_lift_coupling`.
+
+In the standalone-cqa prototype (no brucon allocator dependency),
+the equivalent extension would be:
+
+  - Pre-tabulate `tau_lost_t(theta_rel)` shapes from the brucon
+    ensembles per (bus_id, sea-state-relative angle) tuple, OR
+  - Fit a 6-DoF analytical model:
+      tau_lost_t = tau_residual_step · g_step(t) + tau_residual_swing · g_swing(t)
+    where `tau_residual_step` is the immediate cap loss
+    (b_hat-dependent), `tau_residual_swing` is a fixed-magnitude
+    fixed-direction perturbation from the StbdMP reorient
+    (geometry-driven, b_hat-independent), and the g_* are
+    different time profiles.
+
+For this turn the diagnostic is recorded and the WcfdiScenario
+extension is deferred. The bf8-oblique residual is now physically
+attributed.
+
+**Diagnostic outputs (regenerable, gitignored):**
+- `scripts/p7_brucon_validation/compare_tau_lost_vs_scenario_{bf8_h0, bf8_h0_w45, bf8_q10, bf8_q10_w45}.png`
+
+**New scripts:**
+- `scripts/p7_brucon_validation/compare_tau_lost_vs_scenario.py`
+  (per-cell time-series comparison of brucon truth vs cqa scenario
+  tau_lost, plus Fb/Alloc context)
+- `scripts/p7_brucon_validation/survey_tau_lost_yaw_sign.py`
+  (12-cell sign-survey of yaw and sway tau_lost peaks vs b̂)
+
+**RETRACTION (added in §12.21.13):** the "yaw sign FLIP causes the
+bf8-oblique gap" conclusion above is **falsified** by the hybrid
+τ_lost experiment in §12.21.13. Correcting the yaw τ_lost (variant B)
+or replacing all 3 DOFs with brucon truth (variant C) makes the P95
+prediction *worse*, not better. The yaw sign FLIP is real (the survey
+table above stands), but it does not drive the position P95 gap. The
+yaw sign discrepancy is partially an artefact of using `(T − Order)`
+as the brucon truth, which conflates the genuine thrust loss with the
+DP controller's reaction; the cleaner truth `(T_pre − T_post)` shows
+the yaw component is small and not directional.
+
+The actual mechanism behind the bf8-oblique gap is documented in
+§12.21.13: a **systematic ~9% under-estimation of b̂ vs the true env
+force on the hull**, which is a steady-state property of the brucon
+NPO bias estimator with τ_b = 1000 s, K_p = 0.0012.
+
+#### 12.21.13 The bf8-oblique gap is in b̂, not in τ_lost
+
+This section refines and partially retracts §12.21.11 and §12.21.12.
+The bf8-oblique WCF P95 under-prediction (−15 to −28% across cells) is
+**not** driven by the τ_lost representation in `WcfdiScenario`, nor by
+the per-DOF magnitudes (yaw or otherwise). It is driven primarily by a
+**systematic ~9% under-estimation of b̂ vs the true env force on the
+hull**, with a small residual presumably in the closed-loop IRF.
+
+##### Hybrid τ_lost experiment (falsifies §12.21.12 yaw mechanism)
+
+`scripts/p7_brucon_validation/yaw_correction_experiment.py` runs four
+variants of the WCF position pipeline on bf8_q10_w45, all sharing the
+same b̂, σ envelope, and IRF, differing only in the τ_lost forcing:
+
+| variant | yaw τ_lost source | P95 [m] | bias vs truth (5.15 m) |
+|---|---|---|---|
+| A baseline | cqa (1−β)·b̂_yaw | 4.38 | **−14.9%** |
+| B yaw-fix | brucon `(T_pre − T)_yaw` | 4.34 | −15.8% |
+| D zero-yaw | 0 | 4.30 | −16.6% |
+| C fully bru | brucon `(T_pre − T)` all 3 DOFs | 4.05 | −21.4% |
+
+Variant A (cqa baseline) is the **best** of the four. Replacing the
+yaw τ_lost with brucon truth (B), zeroing it (D), or replacing all 3
+DOFs (C) makes the P95 prediction *worse*. **Yaw τ_lost modelling is
+not the gap.**
+
+(The earlier §12.21.12 conclusion was based on `(T − Order)` as the
+"truth", which conflates thrust loss with controller PI reaction;
+under the cleaner `(T_pre − T)` definition the yaw sign survey still
+shows a +CW transient but it is much smaller and its position-bar
+impact is negligible.)
+
+##### Per-seed correlation: cqa A_R correlates with R_LF only
+
+`scripts/p7_brucon_validation/decompose_truth_lf_wf.py` decomposes the
+per-seed brucon "truth" peak into LF (`SurgeDev/SwayDev` demeaned) and
+WF (`xHf/yHf`) components in the post-WCF window:
+
+| channel | per-seed mean | P95 across 30 seeds |
+|---|---|---|
+| cqa A_R (deterministic) | 2.60 | 4.41 (P95 of A_R) |
+| brucon R_LF peak | 3.50 | 5.56 |
+| brucon R_WF peak | 1.52 | 1.92 |
+| brucon R_TOT peak | 4.22 | 5.98 |
+
+Per-seed correlations (A_R vs brucon truth, n=30):
+- A_R vs R_LF: Pearson r = +0.44 (p = 0.016) ← significant
+- A_R vs R_WF: r = +0.19 (p = 0.31) ← noise
+- A_R vs R_TOT: r = +0.47 (p = 0.009)
+
+Cqa's deterministic predictor **is** tracking the per-seed LF
+variation (the WCF position channel cqa is supposed to predict). The
+gap is in the per-seed magnitude: A_R / R_LF mean = 2.60 / 3.50 =
+0.74, i.e. cqa under-predicts by 26% on average per seed.
+
+##### MF-band hypothesis (proposed and rejected)
+
+An earlier hypothesis was that env-force fluctuation in the MF band
+(20–200 s period) was a missing forcing channel that cqa's b̂ snapshot
++ WF wave filter both miss. PSD analysis confirmed the MF band exists
+and is large (σ_MF on Fy ~80 kN, comparable to σ_WF), but the
+per-seed correlation test rejected it as a per-seed predictor:
+`scripts/p7_brucon_validation/perseed_mf_correlation.py` shows
+near-zero correlation between (post-WCF MF peak in the 60 s window)
+and (per-seed truth R_LF peak) on all DOFs (Pearson |r| < 0.3, p > 0.1).
+
+The MF band is real but its impact on the post-WCF radial peak is not
+predictable from a snapshot. It contributes to the *marginal* σ
+envelope (which cqa already captures via the LF Gumbel σ_LF
+calibrated from data — see §12.21.9), so it is not a missing channel.
+
+##### σ_LF and σ_WF cqa vs brucon (settled pre-WCF window)
+
+After fixing the pre-WCF window definition (the brucon sim has a
+~7 minute initial settling transient on Bf8 cells; using the full
+pre-WCF window gives a contaminated σ ~4 m R-axial which is wrong),
+the cleanly-measured settled-window σ on `[T_WCF-60, T_WCF-5]` s is:
+
+| channel | cqa axis-σ | brucon axis-σ | ratio |
+|---|---|---|---|
+| LF_x (surge) | 0.446 | 0.550 | 0.81 |
+| LF_y (sway) | 0.500 | 0.576 | 0.87 |
+| WF_x | 0.629 | 0.616 | 1.02 |
+| WF_y | 0.340 | 0.349 | 0.97 |
+
+**WF is well-calibrated** (within 3%). **LF is mildly under-calibrated**
+(~15–20% low). Neither explains the 26% per-seed magnitude gap — both
+are σ envelope effects, not deterministic R_det effects.
+
+##### The actual mechanism: b̂ steady-state under-estimates F_env by ~9%
+
+The brucon NPO bias estimator has dynamics (per
+`libs/dp/dp_estimator/nonlinear_passive_observer.cpp:254-266`):
+
+  ḃ = −(1/τ_b)·b + K_p · ε_pos + K_v · ε_vel
+
+with `τ_b = 1000 s`, `K_p = 0.0012` (surge/sway) or `0.002` (yaw),
+`K_v = 0`, per `modules/config_csov/observer.prototxt.in`. The bias
+*state* `b` is in acceleration units; the bias *force* fed to the
+controller is `b̂_force = (m + m_a) · b̂`.
+
+In steady state with constant true env force F_env, the loop reaches
+equilibrium at:
+- Position deviation: `ε_pos_ss = F_env / [(m + m_a) · K_p · τ_b]`
+- Bias force: `b̂_force_ss = F_env − (m + m_a) · K_p · τ_b · ε_pos_ss`
+- The controller's PI integrator term picks up the residual.
+
+For CSOV (m + m_a)_y ≈ 25 × 10⁶ kg, K_p = 0.0012, τ_b = 1000 s:
+- Predicted ε_pos for F_env_y = 518 kN: 0.017 m
+- Observed brucon `EstInnovSway` mean over settled window: 0.018 m ✓
+
+The bias does not converge to F_env — it converges to a **fixed
+fraction of F_env** determined by the loop gains. The unconverged
+fraction is supplied by the controller's integrator, which holds the
+position offset steady. **In intact operation this is invisible**
+(total compensating thrust = F_env). **In post-WCF operation** the
+controller's integrator term is gone (the failed thrusters were
+contributing to it), so the hull experiences the full F_env, but cqa
+treats the env load as `b̂` (only ~91% of F_env). Hence the
+systematic under-prediction of τ_lost magnitude.
+
+##### Cross-cell verification
+
+`scripts/p7_brucon_validation/cross_cell_bhat_ratio.py` computes per-cell
+b̂ snapshot at T_WCF-5s vs brucon true F_env mean over settled
+[T_WCF-60, T_WCF-5] s window. n=30 seeds × 12 cells:
+
+| cell | r_x | r_y | r_z |
+|---|---|---|---|
+| bf4_c1_h0 | 0.90 | 0.91 | 0.91 |
+| bf4_c1_q10 | 0.91 | 0.91 | 0.91 |
+| bf6_h0 | 0.92 | (Fy≈0) | (Mz≈0) |
+| bf6_q10 | 0.91 | 0.89 | 0.89 |
+| bf6_h0_w45 | 0.90 | 0.90 | 0.90 |
+| bf6_q10_w45 | 0.90 | 0.90 | 0.90 |
+| bf8_h0 | 0.89 | (Fy≈0) | (Mz≈0) |
+| bf8_q10 | 0.91 | 0.92 | 0.93 |
+| bf8_h0_w45 | 0.90 | 0.88 | 0.89 |
+| bf8_q10_w45 | 0.91 | 0.91 | 0.91 |
+| pwo | (Fx≈0) | 0.91 | 0.99 |
+| pwq30 | 0.91 | 0.91 | 0.94 |
+
+(Cells with mean F ≈ 0 produce noisy ratios from division by ~zero;
+those entries are omitted.)
+
+**The ratio is universally ~0.90–0.91** across cells, DOFs, sea
+states, and headings. Aggregate per-axis pooled mean (excluding
+near-zero cells): r_x ≈ 0.91, r_y ≈ 0.91, r_z ≈ 0.91. This is a
+**clean static bias** that admits a simple correction.
+
+##### Fix: scalar bias correction in cqa vessel config
+
+A `b_hat_bias_correction_factor: 1.10` (= 1/0.91) is added to the
+CSOV vessel config and applied to the b̂ snapshot at the cqa entry
+points (`live_decision.py` and `decision_matrix.py`) before computing
+τ_lost. Predicted impact on bf8_q10_w45 P95 gap:
+- A_R goes from 2.60 to ~2.86 (10% bigger τ_lost → 10% bigger R_det).
+- A_P95 ≈ 4.64 vs truth 5.15 → **−10% bias** (was −15%).
+- Closes ~⅓ of the gap. The remaining ~10% is attributed to the
+  closed-loop IRF gain (see "Deferred: IRF gain hypothesis" below).
+
+When cqa is deployed inside brucon (or a real DP system), the static
+1.10 should be replaced by a runtime-derived correction:
+
+  F_env_eff = b̂_force + (m + m_a) · ε_pos_observed / τ_b
+
+where `ε_pos_observed` is the position deviation between the measured
+position and the observer's LF position estimate (`SurgeDev/SwayDev`,
+or directly `EstInnov*` from brucon). This is robust to non-stationary
+loads and to variations in observer-gain configuration, but requires
+plumbing ε_pos and the gains into cqa. For the prototype the scalar
+is sufficient; the runtime form is documented as the deployment
+TODO.
+
+##### Deferred: IRF gain hypothesis
+
+After the b̂ correction, a residual ~10% under-prediction remains on
+bf8_q10_w45 P95. Candidate mechanisms (none investigated this turn):
+
+1. **PI integrator wind-up timing:** during the 10 s realloc, the
+   cqa-27 model's integrator may evolve differently from brucon's,
+   changing the effective stiffness of the loop response.
+2. **Observer-gain mismatch:** cqa-27 uses default observer gains;
+   exact match to brucon's NPO is not guaranteed.
+3. **Added-mass / damping mismatch:** brucon may use slightly
+   different vessel-coefficient values.
+4. **Realloc transient pulse shape:** cqa's `(1−β(t))·b̂` is a single
+   first-order decay; brucon's actual reallocation produces a
+   different shape.
+5. **Coupled-DOF effects:** lift coupling K=3.40/rad calibrated on
+   pwq30 may not transfer cleanly to bf8-oblique.
+
+Investigating any of these is plausible but each is a substantial
+effort (1–2 days minimum) for a 10% gap that is well within
+expected modelling uncertainty given the assumption stack already
+present in cqa. The 10% under-prediction is documented as a known
+property; conservative deployment should include a corresponding
+safety margin or a re-calibration pass against operational data.
+
+##### Brucon simulator-side TODO (deployment prerequisite)
+
+Brucon's `SetThrusterActive(false)` cleanly drops the failed thruster
+from the simulator-side total thrust, but leaves the per-thruster rpm
+dynamics and feedback path running for ~10 s. This is conceptually
+right (a real-world feedback sensor would lag a power-loss event) but
+**kinetically too slow**: a real thruster losing power would have its
+thrust AND its rpm/feedback collapse together within ~1 s as the
+propeller decelerates under hydrodynamic load. When cqa is deployed
+inside brucon (using `FbTau` as the live observer state, since that
+is what the production DP controller uses), the slow Fb decay will
+artificially inflate the post-WCF transient cqa sees. This must be
+fixed in the brucon simulator before cqa-in-brucon validation numbers
+are meaningful.
+
+##### Summary of mechanism investigation outcomes
+
+| hypothesis | conclusion |
+|---|---|
+| §12.21.11 heading-coupled env force | falsified |
+| §12.21.12 yaw sign FLIP in WcfdiScenario | falsified (this section) |
+| MF (20–200 s) band missing forcing | not per-seed predictive (rejected) |
+| σ_LF cqa under-calibration | minor (~15%), not the gap |
+| **b̂ steady-state under-estimates F_env (~9%)** | **confirmed, applied** |
+| residual ~10% on closed-loop IRF | deferred, documented |
+
+##### New scripts (this turn)
+
+- `scripts/p7_brucon_validation/yaw_correction_experiment.py`
+  — 4-variant (cqa baseline / yaw-fix / fully-brucon / zero-yaw)
+  hybrid τ_lost test on bf8_q10_w45.
+- `scripts/p7_brucon_validation/diagnose_env_force_mf_band.py`
+  — single-seed PSD of total env force on hull, banded MF/WF/VHF.
+- `scripts/p7_brucon_validation/cross_cell_mf_band.py`
+  — 12-cell ensemble-mean MF/WF/VHF band-σ rollup.
+- `scripts/p7_brucon_validation/perseed_mf_correlation.py`
+  — per-seed MF peak vs brucon truth correlation test.
+- `scripts/p7_brucon_validation/decompose_truth_lf_wf.py`
+  — per-seed brucon truth split into LF / WF / TOT components,
+  σ_LF / σ_WF cqa-vs-brucon calibration check.
+- `scripts/p7_brucon_validation/cross_cell_bhat_ratio.py`
+  — 12-cell b̂ snapshot vs brucon true F_env ratio.
+
+
