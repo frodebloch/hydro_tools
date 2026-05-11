@@ -4385,3 +4385,123 @@ cached, identical to how `expm(A*dt)` is already cached inside
 
 Tag for this future task: `perf-irf-precompute`.
 
+#### 12.21.11 Heading-coupled env-force hypothesis: tested and falsified
+
+After §12.21.9 the residual WCF P95 under-prediction concentrates on
+the high-sea oblique cells (bf8_q10 −22 %, bf8_h0_w45 −28 %, bf8_q10_w45
+−15 %, pwo −25 %). User hypothesis tested in this section:
+
+> When the WCF hits, the loss of port-bus thrusters causes the heading
+> to drift off the weather more than we have modelled, and the resulting
+> change in **environmental force totals** on the now-oblique vessel
+> drives the late-time excursion that cqa misses.
+
+The cqa pipeline freezes `tau_env = +b̂(t_eval)` for the entire post-WCF
+horizon, so any sustained ensemble-mean change in env-force totals
+post-WCF would be a real model gap.
+
+**Test 1: indirect (rotated-pdstrip-QTF reconstruction).**
+`brucon_drift_heading_coupling.py`, generalised this turn for
+arbitrary tag/Hs/Tp/theta_rel. For each cell, build a 1-D mean-drift
+LUT in `theta_rel` from the pdstrip RAO+QTF, evaluate it at
+`theta_rel_intact + Δψ(t)` per seed, and report ensemble-mean ΔF.
+
+| cell | Δψ peak ens-mean | ΔF_drift_sway peak | F_drift_intact_sway |
+|---|---|---|---|
+| pwq30 | +1.42° @ 20 s | −4.3 kN | −109 kN |
+| bf8_h0_w45 | +0.80° @ 20 s | −6.2 kN | 0 (head waves) |
+| bf8_q10 | +1.74° @ 20 s | −13.2 kN | −74 kN |
+
+All ΔF values are well below the script's own decision threshold of
+O(20–50 kN) for "mechanism confirmed". But this test only models
+**wave-drift** angular sensitivity, not wind or current. It is also a
+reconstruction, not a direct measurement.
+
+**Test 2: direct (read brucon's logged env-force time-series).**
+`brucon_force_change_post_wcf.py` and `plot_env_forces_full_run.py`.
+Brucon already logs WindX, WindY, WindMz, DriftX, DriftY, DriftMz,
+CurX, CurY, CurMz at every timestep — the **full body-frame
+environmental force totals**, in **kN/kNm** (NOT N/Nm; user-confirmed).
+This is the truth-source: no QTF reconstruction needed.
+
+`plot_env_forces_full_run_<tag>.png` shows per-seed grey + ensemble-mean
+overlay across the full 740 s run on each cell, with a vertical
+T_WCF=560 s line and HeadingDev panel.
+
+Visual reading on bf8_h0, bf8_h0_w45, bf8_q10, pwo:
+
+* **Ensemble-mean post-WCF heading transient is REAL**: pwo +2.8° peak
+  at t≈580 s (decays by t=620), bf8_h0 +1.5° peak, bf8_h0_w45 ≤1°.
+  HeadingDev panel shows a clean ensemble-mean spike at the WCF time
+  on all four cells.
+* **Ensemble-mean WindX/WindY/WindMz/DriftX/DriftY/DriftMz show NO
+  visible step at T_WCF.** They continue their slow random walk
+  through the event seamlessly. The intact-regime ensemble-mean values
+  ([100, 560] s) are essentially the same as the post-WCF window means
+  ([565, 680] s).
+* **Apparent CurX/CurY DO show a small spike** coincident with the
+  heading transient (~5 kN on pwo, similar on bf8_h0). This is the
+  apparent-current effect: as heading rotates, the body-frame
+  projection of (Vc − Vvessel) changes. Magnitude is O(5 kN), tiny
+  relative to b̂ posteriors of O(50–200 kN) on these cells.
+
+**Verdict: hypothesis falsified for the env-force channel.** The
+post-WCF heading transient exists (1–3°) but does not translate into
+a measurable body-frame env-force change in the dominant wind/drift
+channels. The cqa frozen-tau_env assumption is therefore safe for
+these cells with respect to the env-force totals.
+
+This means the residual WCF P95 under-prediction on the high-sea
+oblique cells is NOT explained by missing env-force change. The
+mechanism must be **internal to the controlled-vessel dynamics**:
+
+* The brucon DP integrator/observer doing something the cqa
+  observer + 27-state model does not capture (e.g. integrator
+  windup during the alloc-recovery transient, observer bias-update
+  dynamics that cqa's `pulse_response_with_lift_coupling` ignores).
+* `pulse_response_with_lift_coupling` cross-coupling K=3.40/rad too
+  small — but this would mainly affect un-loaded-DOF response shape
+  (Finding 2 of §12.21.9), not the loaded-DOF P95 magnitude that the
+  bf8-oblique residual is about.
+* `WcfdiScenario.alpha=(0.5, 0.7, 0.5)` — symmetric per-DOF cap
+  reduction. If `bus_port` thrust loss has an inherent residual yaw
+  moment because the lost thrusters had non-zero r×F arms that the
+  alpha-tuple smears, the residual would directly drive the loaded
+  DOF as well as yaw.
+
+**Open question for next investigation (deferred — operationally
+acceptable on intact + WCF for the realistic operating points; only
+the bf8 oblique cells have the residual we want to understand):**
+why does cqa under-predict WCF P95 by ~−15..−28 % specifically on the
+Bf 8 oblique cells (bf8_q10, bf8_h0_w45, bf8_q10_w45) when the env-force
+totals show no sustained shift through the WCF event?
+
+**Files (gitignored artefacts, regenerable):**
+
+* `cqa/scripts/p7_brucon_validation/plot_env_forces_full_run.py` — the
+  full-run visualisation tool used here. Run with `--tags
+  bf8_h0,bf8_h0_w45,bf8_q10,pwo` (default) to regenerate the PNGs.
+* `cqa/scripts/p7_brucon_validation/brucon_force_change_post_wcf.py` —
+  scalar window-mean ΔF table. Confirms the visual finding numerically
+  (ensemble-mean ΔWind/ΔDrift body-frame totals < 1 kN/kNm post-WCF).
+* `cqa/scripts/p7_brucon_validation/brucon_drift_heading_coupling.py` —
+  generalised to take `--tag`, with CELL_DEFAULTS table for the 12
+  validation cells.
+* `cqa/scripts/p7_brucon_validation/plot_env_forces_full_run_*.png` —
+  generated visualisations, one per cell.
+
+**Two readability errors I made during this investigation (recorded
+for the next assistant):**
+
+1. brucon's force columns are in **kN and kNm**, not SI N/Nm. The
+   first version of `brucon_force_change_post_wcf.py` divided by 1e3
+   under the wrong assumption and reported numbers ~1000× too small.
+2. `heading` (NED compass heading) wraps at ±180°, so a simple `mean`
+   across a window that straddles the wrap gives nonsense. Use
+   `HeadingDev` (deviation from setpoint, no wrap-around in this
+   regime) for ensemble statistics, OR use `np.unwrap` on the heading
+   first. The first time series I read appeared to show heading
+   "running away" from the setpoint by ±150°; in fact heading stays
+   within ±2.5° throughout, the artefact was the wrap.
+
+

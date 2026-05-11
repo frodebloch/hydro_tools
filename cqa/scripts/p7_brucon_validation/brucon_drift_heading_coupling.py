@@ -34,6 +34,7 @@ Method
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 import sys
 import numpy as np
@@ -51,25 +52,34 @@ from cqa.drift import mean_drift_force_pdstrip  # noqa: E402
 
 # Match calibrated_wcfdi_brucon_validation.py:
 ENSEMBLE_DIR = THIS / "work"
-TAG = "pwq30"
 SEEDS = list(range(1000, 1030))
 T_WCF_S = 560.0
 T_PRE_WIN = 30.0
 T_POST_WIN = 120.0
 
-# Sea state matches pwq30:
-HS = 4.19571865443425
-TP = 10.22443464601827
-# Bow-quartering 30° port: relative wave direction into vessel = +30°
-# (cqa convention: 0 = head, +pi/2 = port beam).
-THETA_REL_INTACT = np.deg2rad(30.0)
+# CELL_DEFAULTS[tag] = (HS, TP, theta_rel_deg).
+# theta_rel_deg follows the cqa convention: 0 = head, +90 = port beam.
+CELL_DEFAULTS: dict[str, tuple[float, float, float]] = {
+    "pwq30":       (4.19571865443425, 10.22443464601827, 30.0),
+    "pwo":         (4.19571865443425, 10.22443464601827, 90.0),
+    "bf6_h0":      (3.1, 8.5,  0.0),
+    "bf6_q10":     (3.1, 8.5,  10.0),
+    "bf6_h0_w45":  (3.1, 8.5,  0.0),
+    "bf6_q10_w45": (3.1, 8.5,  10.0),
+    "bf8_h0":      (5.7, 10.0, 0.0),
+    "bf8_q10":     (5.7, 10.0, 10.0),
+    "bf8_h0_w45":  (5.7, 10.0, 0.0),
+    "bf8_q10_w45": (5.7, 10.0, 10.0),
+    "bf4_c1_h0":   (1.5, 6.0,  0.0),
+    "bf4_c1_q10":  (1.5, 6.0,  10.0),
+}
 
 PDSTRIP_PATH = "/home/blofro/src/brucon/build/bin/vessel_simulator_config/csov_pdstrip.dat"
 
 
-def load_seed_heading(seed: int):
-    seed_dir = ENSEMBLE_DIR / f"{TAG}_seed{seed:04d}"
-    out_path = seed_dir / f"{TAG}_seed{seed:04d}.out"
+def load_seed_heading(tag: str, seed: int):
+    seed_dir = ENSEMBLE_DIR / f"{tag}_seed{seed:04d}"
+    out_path = seed_dir / f"{tag}_seed{seed:04d}.out"
     if not out_path.exists():
         return None
     res = parse_output(out_path)
@@ -88,9 +98,31 @@ def load_seed_heading(seed: int):
 
 
 def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--tag", default="pwq30",
+                    help=f"Cell tag. Known: {','.join(CELL_DEFAULTS.keys())}")
+    ap.add_argument("--hs", type=float, default=None)
+    ap.add_argument("--tp", type=float, default=None)
+    ap.add_argument("--theta-rel-deg", type=float, default=None,
+                    help="Wave-relative direction into vessel (cqa convention: "
+                    "0=head, +90=port beam).")
+    args = ap.parse_args()
+    tag = args.tag
+    if tag not in CELL_DEFAULTS and (args.hs is None or args.tp is None
+                                     or args.theta_rel_deg is None):
+        ap.error(f"unknown tag {tag}; provide --hs --tp --theta-rel-deg")
+    hs_d, tp_d, th_d = CELL_DEFAULTS.get(tag, (0.0, 0.0, 0.0))
+    HS = args.hs if args.hs is not None else hs_d
+    TP = args.tp if args.tp is not None else tp_d
+    THETA_REL_INTACT = np.deg2rad(args.theta_rel_deg
+                                  if args.theta_rel_deg is not None else th_d)
+    print(f"cell {tag}: HS={HS:.3f} m, TP={TP:.3f} s, "
+          f"theta_rel_intact={np.rad2deg(THETA_REL_INTACT):+.1f} deg "
+          f"(cqa convention: 0=head, +90=port beam)")
+
     seeds_data = []
     for s in SEEDS:
-        d = load_seed_heading(s)
+        d = load_seed_heading(tag, s)
         if d is not None:
             seeds_data.append(d)
     print(f"Loaded {len(seeds_data)}/{len(SEEDS)} seeds")
@@ -137,7 +169,7 @@ def main():
     # Sanity: print F_drift at intact heading
     F_intact = mean_drift_force_pdstrip(rao, Hs=HS, Tp=TP,
                                         theta_wave_rel=THETA_REL_INTACT)
-    print(f"F_drift @ intact theta_rel = 30deg : "
+    print(f"F_drift @ intact theta_rel = {np.rad2deg(THETA_REL_INTACT):+.1f} deg : "
           f"surge={F_intact[0]/1e3:+.2f} kN, sway={F_intact[1]/1e3:+.2f} kN, "
           f"yaw={F_intact[2]/1e3:+.2f} kNm")
 
@@ -206,9 +238,9 @@ def main():
     ax.set_ylabel("Δsway [m]")
     ax.grid(alpha=0.3); ax.legend(fontsize=8)
 
-    fig.suptitle("Heading-coupled mean-drift force re-balance test", y=1.00)
+    fig.suptitle(f"Heading-coupled mean-drift force re-balance test [{tag}]", y=1.00)
     plt.tight_layout()
-    out_png = THIS / "brucon_drift_heading_coupling.png"
+    out_png = THIS / f"brucon_drift_heading_coupling_{tag}.png"
     plt.savefig(out_png, dpi=120, bbox_inches="tight")
     print(f"saved {out_png}")
 
