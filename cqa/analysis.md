@@ -5008,4 +5008,126 @@ The residual gap on bf8-oblique cells is now attributable to:
 3. IRF gain / observer-loop dynamics (explicitly deferred — risk
    of wild-goose chase given <10 % remaining gap on most cells).
 
+#### 12.21.15 Brucon simulator pre-WCF settling is incomplete
+
+**This finding invalidates the absolute-magnitude comparison
+methodology used in §12.21.9 through §12.21.14.** Pre-WCF stationarity
+of the brucon LF and bias channels was implicitly assumed; the
+12-cell roll-ups demean over a 60-s window
+`[T_WCF-61, T_WCF-1]` and treat the result as the stationary
+intact reference for both the σ_LF posterior calibration and the
+post-WCF transient peak. Inspecting the brucon LF deviation
+channel over its full simulation history reveals this assumption
+to be wrong.
+
+##### 12.21.15.1 What the data shows
+
+`scripts/p7_brucon_validation/time_traces_vs_brucon.py` plots, for
+a given cell, `R(t) = hypot(SurgeDev - sd_pre, SwayDev - wd_pre)`
+where `sd_pre, wd_pre` are demean references computed over a
+user-specified window. Running with `--t-pre 500 --demean-window
+500` (showing the full 500 s of pre-WCF simulated history,
+demeaned over that same 500 s) reveals a universal pattern:
+
+  * a large ensemble-mean overshoot in the first ~100-150 s of
+    simulator time, peaking at ~10 m on bf8_q10_w45 and ~2.8 m
+    on bf6_h0
+  * decay over the next ~150-200 s back toward a local minimum at
+    sim time ≈ 280 s (i.e. t = -280 s from T_WCF=560 s)
+  * slow climb again over the next 150 s, reaching ~4-5 m on
+    bf8_q10_w45 and ~1.6 m on bf6_h0 **at T_WCF itself**
+
+The shape is structurally identical across cells; only the amplitude
+scales with sea state. The first ~250-300 s are dominated by
+initial-condition transients in the slow states (LF observer, bias
+estimator with τ_b = 1000 s, possibly the integrator term). The
+"60 s pre-WCF intact baseline" used by every prior analysis falls
+in a region where the LF channel is still drifting upward toward
+its long-run mean, not stationary.
+
+##### 12.21.15.2 Why the 60-s demean window looked plausible
+
+The 60-s demean window `[T_WCF-61, T_WCF-1]` picks the local
+mean of the LF signal *at that exact 60-s window*. Because the
+signal is drifting, the local mean closely tracks the local
+value, and the demeaned signal therefore looks low and centred
+near zero. This is a classical methodological artefact: demeaning
+a non-stationary signal over a short window suppresses the
+long-timescale variation and produces a deceptively
+small-σ-looking residual.
+
+Concrete numbers from `time_traces_vs_brucon.py --tag bf8_q10_w45`:
+
+  * with `--demean-window 60`: pre-WCF mean(R) = 0.80 m,
+    post-WCF peak mean = 2.31 m
+  * with `--demean-window 500`: pre-WCF mean(R) = 4.80 m,
+    post-WCF peak mean = 4.54 m
+
+Same brucon time series, same post-WCF window, but the "deviation
+from baseline" is a factor 5-6 larger when the baseline is taken
+over a longer window. The right answer depends on the operator-
+relevant question; both numbers are well-defined; but the prior
+methodology was implicitly committing to the 60-s answer without
+making the choice visible.
+
+##### 12.21.15.3 Implications for prior conclusions
+
+1. **σ_LF cqa/brucon ratio (0.81/0.87 in §12.21.13) is biased.**
+   The 60-s demean window underestimates true brucon σ_LF because
+   it absorbs the slow drift into the mean. The actual mismatch
+   between cqa σ_LF (~0.5 m at bf8) and the true stationary
+   brucon σ_LF is likely smaller, possibly with cqa
+   over-predicting instead of under.
+
+2. **The "post-WCF persistence" pattern is contaminated.** The
+   observation that brucon R(t) stays elevated through t=60 s
+   after WCF (vs cqa returning toward 0) is partly the initial-
+   condition settling transient continuing through the post-WCF
+   window. WcfdiScenario's β(∞)=1 (full recovery) is no longer
+   in clear conflict with the data; the conflict was an artefact
+   of the demean choice.
+
+3. **b̂ steady-state bias correction (1.10 factor, §12.21.13).**
+   The ratio b̂/F_env_true ≈ 0.91 was derived analytically from
+   the brucon NPO gains and verified empirically against
+   `cross_cell_bhat_ratio.py`. The analytical part is sound (it
+   is a property of the NPO equations, not of the data) so the
+   1.10 correction remains structurally justified. But the
+   *empirical* verification of the 0.91 ratio used data from a
+   window that is still settling — the actual measured ratio
+   may be biased and should be re-evaluated against a longer
+   pre-WCF window once the brucon settling issue is fixed.
+
+4. **12-cell roll-up gap pattern.** All the bias percentages in
+   §12.21.9.3 and §12.21.14 are measured against a contaminated
+   reference. The absolute magnitudes of the gaps are unreliable;
+   the relative pattern (which cells are worse than others) may
+   still be informative because the settling transient is
+   universal in shape across cells.
+
+##### 12.21.15.4 Required brucon-side fix
+
+The minimal change is to **extend each brucon simulation's
+pre-WCF settling time** until the ensemble-mean LF deviation
+channel is genuinely flat. Looking at the bf8_q10_w45 plot, the
+slowest ensemble drift settles by t ≈ -150 (sim time ≈ 410 s);
+allowing ~100-200 s of additional headroom suggests
+**T_WCF ≥ 600 s with a 60-s demean window**, or better,
+**T_WCF ≥ 900 s with a 300-s demean window**, so that the
+demean reference is computed over a span much longer than any
+residual slow drift.
+
+This is a brucon-side simulator config change (the matrix runner
+that produces the `bf*_seed*/` directories under
+`scripts/p7_brucon_validation/work/`); the cqa-side validation
+scripts will pick up the fix automatically once the new data is
+generated. After regeneration the 12-cell roll-up and the b̂
+ratio measurement should be re-run.
+
+##### 12.21.15.5 Files
+- `scripts/p7_brucon_validation/time_traces_vs_brucon.py`
+  — per-seed brucon-truth vs cqa-prediction R(t) over a
+  configurable pre+post window, with a per-instant cqa σ-spread
+  band built from the live posterior. Discovery vehicle for the
+  pre-WCF non-stationarity.
 
