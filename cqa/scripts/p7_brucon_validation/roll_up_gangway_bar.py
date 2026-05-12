@@ -105,19 +105,20 @@ brucon's full motion.
 
 Joint geometry (held fixed across all 12 cells)
 ----------------------------------------------
-Forward-pointing horizontal gangway, mid-stroke length::
+Port-pointing horizontal gangway, mid-stroke length::
 
-    h        = 15.0  m  (rotation centre 15 m above the gangway base)
-    alpha_g  = 0.0   rad
-    beta_g   = 0.0   rad
-    L0       = 25.0  m  (stroke = min(7, 7) = 7 m)
+    h        = 15.0     m  (rotation centre 15 m above the gangway base)
+    alpha_g  = -pi/2    rad  (boom slewed to port, along -y body)
+    beta_g   = 0.0      rad
+    L0       = 25.0     m  (stroke = min(7, 7) = 7 m)
 
-This is a "hypothetical landing setpoint" -- the brucon scenarios
-are sea-trial DP runs without an actual W2W landing target, so the
-joint state was chosen to expose the in-plane variance (forward
-gangway -> surge dominates dL via c6[0]=-1, contributes via yaw
-lever-arm c6[5]=-9 m/rad, and now via pitch lever-arm c6[4]=+23
-m/rad as the dominant out-of-plane contributor).
+This matches the CSOV's forward gangway, whose base is at body
+(5, -9, -8) m on the port side of the deck (analysis.md sec.12.21.16).
+The resulting telescope sensitivity is c3 = (0, +1, +5) and
+c6 = (0, +1, 0, +23, 0, +5): sway-dominated in-plane variance, with
+roll and yaw lever-arms as the dominant out-of-plane contributors.
+The earlier "forward-pointing" (alpha_g=0) configuration projected
+the wrong vessel-deviation channel and is fixed here.
 
 Run with::
 
@@ -151,6 +152,7 @@ from cqa.gangway import (                                         # noqa: E402
     telescope_sensitivity,
     telescope_sensitivity_6dof,
 )
+from _constants import FORWARD_GANGWAY_JOINT_CSOV                # noqa: E402
 
 
 CELLS = [
@@ -162,8 +164,9 @@ CELLS = [
 T_WCF = 560.0
 SEED_LO, SEED_HI = 1000, 1030
 
-# Fixed joint geometry (see module docstring).
-JOINT = GangwayJointState(h=15.0, alpha_g=0.0, beta_g=0.0, L=25.0)
+# Fixed joint geometry (see module docstring): CSOV port-pointing forward
+# gangway. Sourced from _constants.py so the orientation cannot drift.
+JOINT = GangwayJointState(**FORWARD_GANGWAY_JOINT_CSOV)
 
 
 def _set_cell(tag: str) -> None:
@@ -360,7 +363,7 @@ def main() -> int:
     ax.set_title(
         f"Gangway-telescope bar  -  12-cell brucon roll-up  "
         f"|dL| pred vs truth\n"
-        f"(joint forward, h=15 m, L0=25 m; full 6-DOF)",
+        f"(joint port, h=15 m, L0=25 m; full 6-DOF)",
         fontsize=11,
     )
     ax.legend(fontsize=9, loc="upper left")

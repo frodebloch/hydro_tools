@@ -468,13 +468,15 @@ def build_live_sigma_posterior(
 
 
 def _trivial_joint(cfg) -> GangwayJointState:
-    """Gangway joint at mid-stroke, 0 yaw, 0 elevation. The validation
-    focuses on vessel position (which is what brucon logs); gangway tip
-    motion is exercised inside the live cell but is irrelevant for the
-    truth comparison here."""
+    """Gangway joint at mid-stroke, port-pointing, 0 elevation. The
+    validation focuses on vessel position (which is what brucon logs);
+    gangway tip motion is exercised inside the live cell but is
+    irrelevant for the truth comparison here. We still use the CSOV's
+    actual port-pointing orientation so that any standalone-run
+    gangway bar reflects the realistic geometry."""
     L_min = float(cfg.gangway.telescope_min)
     L_max = float(cfg.gangway.telescope_max)
-    return GangwayJointState(h=2.0, alpha_g=0.0, beta_g=0.0,
+    return GangwayJointState(h=2.0, alpha_g=-np.pi / 2.0, beta_g=0.0,
                              L=0.5 * (L_min + L_max))
 
 

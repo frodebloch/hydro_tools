@@ -103,11 +103,13 @@ def setup_cqa() -> tuple:
 
     # Use the body-frame gangway base position straight from the config.
     # Mid-stroke L = 25 (telescope_min=18, telescope_max=32 per cfg.gangway).
+    # The CSOV's forward gangway is on the port side of the deck and the
+    # boom points to port (alpha_g = -pi/2); see analysis.md sec.12.21.16.
     gw = cfg.gangway
     L_mid = 0.5 * (gw.telescope_min + gw.telescope_max)
     joint = GangwayJointState(
         h=gw.rotation_centre_height_above_base,
-        alpha_g=0.0,
+        alpha_g=-np.pi / 2.0,
         beta_g=0.0,
         L=L_mid,
     )

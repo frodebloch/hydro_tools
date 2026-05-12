@@ -5131,3 +5131,89 @@ ratio measurement should be re-run.
   band built from the live posterior. Discovery vehicle for the
   pre-WCF non-stationarity.
 
+#### 12.21.16 Gangway joint orientation bug: forward-pointing instead of port
+
+The brucon-validation gangway-bar rollups
+(`roll_up_gangway_bar.py`, `live_cell_per_seed_pwq30.py` standalone,
+`run_comparison.py`, `compare_pipeline_vs_brucon_pwq30.py`) all
+hardcoded the forward gangway joint with **`alpha_g = 0`**
+(boom pointing forward, along +x body). This is the wrong orientation
+for the CSOV: the forward gangway base is at body (5, −9, −8) m,
+i.e. on the **port** side of the deck, and the boom is meant to
+point to **port** (`alpha_g = −π/2`, along −y body), so that the
+gangway tip lands on a fixed point off the port beam — the standard
+W2W layout for a port-side gangway SOV.
+
+##### 12.21.16.1 Sensitivity vectors before / after
+
+With `base_position_body = (5, −9, −8)`, `h = 15` (rotation centre
+height), and `β = 0` (horizontal boom):
+
+**Wrong (alpha_g = 0, forward):**
+```
+e_L_body = (1,  0, 0)
+p_rc_body = (5, −9, −23)
+c3 = (−1,  0, −9)
+c6 = (−1,  0,  0,  0, +23, −9)
+```
+
+**Right (alpha_g = −π/2, port):**
+```
+e_L_body = (0, −1, 0)
+p_rc_body = (5, −9, −23)
+c3 = ( 0, +1, +5)
+c6 = ( 0, +1,  0, +23, 0, +5)
+```
+
+The c3 vector flips from **surge-dominated** (with a 9 m yaw lever
+arm of the wrong sign for a port-side landing) to **sway-dominated**
+(with a 5 m yaw lever arm and +23 m roll lever arm in c6 as the
+dominant out-of-plane contribution).
+
+##### 12.21.16.2 Physical consistency check
+
+For weather hitting the **starboard bow** (e.g. cell `bf8_q10_w45`:
+waves from compass 190 with vessel heading 180 → +10° relative to
+the bow, on the starboard side), the vessel is pushed toward
+**port-aft** in body frame: `SurgeDev < 0`, `SwayDev < 0`.
+
+- Wrong (forward) projection: `dL = c3 · (Δη_body) = −SurgeDev + 0 − 9·ψ`
+  → SurgeDev<0 → **dL > 0 (extend)**. But this is the projection
+  along the +x body axis — i.e. it's the change in distance from CO
+  to a forward-mounted virtual landing point, which doesn't exist
+  for this vessel.
+- Right (port) projection: `dL = c3 · (Δη_body) = SwayDev + 5·ψ`
+  → SwayDev<0 → **dL < 0 (shorten)**. The vessel slides toward port,
+  toward the world-fixed landing point off the port beam, so the
+  telescope must retract — matches operator intuition.
+
+This is the discrepancy that surfaced when comparing the brucon
+ensemble mean (gangway shortens during WCF) against the cqa
+prediction (gangway extends), which had used the forward-pointing
+c3.
+
+##### 12.21.16.3 Impact on prior 12-cell numbers
+
+All brucon-validation gangway-bar results published in
+`roll_up_gangway_bar.py` rollups, including any quoted
+`gangway_dL_p50` / `p95` numbers in §12.21.9–14 commentary, used
+the wrong sensitivity vectors and therefore projected the wrong
+combination of vessel-deviation channels. They are quantitatively
+unreliable until the rerun.
+
+Conversely, the position-bar P50/P95 numbers (the `INTACT` and
+`WCF` bars in the operator panel) do **not** depend on the gangway
+joint and are unaffected by this bug. The σ-posterior validation
+in §12.21.9–14 stands.
+
+##### 12.21.16.4 Fix
+
+Centralised the port-pointing forward-gangway joint in
+`scripts/p7_brucon_validation/_constants.py` as
+`FORWARD_GANGWAY_JOINT_CSOV`, and replaced the four hardcoded
+`alpha_g = 0` sites in the brucon-validation scripts. The fix is
+cqa-side (no brucon rerun required for this specific bug), but the
+gangway-bar rollups must still be re-run together with the
+§12.21.15 `settle_s = 1500` brucon rerun before the numbers can
+be trusted.
+

@@ -50,7 +50,11 @@ HEADING_COMPASS = np.deg2rad(180.0)     # vessel bow south -> beam port to weath
 
 def main():
     cfg = csov_default_config()
-    joint = GangwayJointState(L=25.0, h=12.0, alpha_g=0.0, beta_g=np.deg2rad(15.0))
+    # CSOV forward gangway: port-pointing (alpha_g = -pi/2). See
+    # analysis.md sec.12.21.16. beta_g=15 deg kept from the original
+    # comparison setup.
+    joint = GangwayJointState(L=25.0, h=12.0, alpha_g=-np.pi / 2.0,
+                              beta_g=np.deg2rad(15.0))
     slot = ForecastSlot(
         label="pwq30", Vw=14.0, Hs=HS, Tp=TP, Vc=0.0,
         theta_env_compass=THETA_ENV_COMPASS,
