@@ -41,7 +41,7 @@ CELLS = [
     "bf8_h0",    "bf8_q10",    "bf8_h0_w45", "bf8_q10_w45",
     "pwo",       "pwq30",
 ]
-T_WCF = 560.0
+from _constants import T_WCF_S as T_WCF  # noqa: E402  # active script: refresh sec.12.21.16
 SEED_LO, SEED_HI = 1000, 1030
 
 

@@ -52,6 +52,7 @@ import numpy as np
 
 THIS = Path(__file__).resolve().parent
 sys.path.insert(0, str(THIS.parent.parent))
+sys.path.insert(0, str(THIS))  # for _constants
 
 from cqa.config import csov_default_config
 from cqa.gangway import GangwayJointState, telescope_sensitivity_6dof
@@ -74,7 +75,7 @@ WORK_ROOT = THIS / "work"
 TAG = "pwq30"
 SEEDS = list(range(1000, 1030))
 
-T_WCF = 560.0
+from _constants import T_WCF_S as T_WCF  # noqa: E402  # active script: refresh sec.12.21.16
 T_EVAL = T_WCF - 5.0          # snapshot time for the live cell
 WIN_S = 60.0                  # Bayesian sigma window length
 WIN_END = T_WCF - 1.0         # end of the live-window (just before the WCF)

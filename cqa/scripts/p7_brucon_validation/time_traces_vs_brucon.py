@@ -50,7 +50,7 @@ from cqa.transient_obs import (                                # noqa: E402
 from cqa.transient import WcfdiScenario                        # noqa: E402
 
 
-T_WCF = 560.0
+from _constants import T_WCF_S as T_WCF  # noqa: E402  # active script: refresh sec.12.21.16
 T_PRE_S = 60.0       # default pre-WCF window length, override with --t-pre
 T_HORIZON_S = 60.0   # post-WCF window from t=0 to t=T_HORIZON_S
 N_T_POST = 241       # post-WCF time grid for cqa pulse response
@@ -67,10 +67,13 @@ def load_brucon_truth_R(tag: str, t_grid_full: np.ndarray,
     R_seeds[i, k] = hypot(SurgeDev - sd_pre, SwayDev - wd_pre) for
     seed i resampled to absolute time T_WCF + t_grid_full[k]. Pre-WCF
     baseline computed over [T_WCF - demean_win_s - 1, T_WCF - 1].
+
+    If demean_win_s <= 0, the raw SurgeDev/SwayDev are used (no
+    demean). This is the apples-to-apples comparison against the
+    cqa prediction, which is `eta_hat_xy + delta_eta(t)` in the
+    same setpoint-relative body-frame coordinate system.
     """
     work = live_cell.WORK_ROOT
-    win_start = T_WCF - demean_win_s - 1.0
-    win_end = T_WCF - 1.0
     R_list: list[np.ndarray] = []
     seed_ids: list[int] = []
     for seed in range(SEED_RANGE[0], SEED_RANGE[1]):
@@ -79,9 +82,15 @@ def load_brucon_truth_R(tag: str, t_grid_full: np.ndarray,
         if main_p is None:
             continue
         M = _load_tsv(main_p)
-        win_m = (M["t"] >= win_start) & (M["t"] <= win_end)
-        sd_pre = float(M["SurgeDev"][win_m].mean())
-        wd_pre = float(M["SwayDev"][win_m].mean())
+        if demean_win_s > 0:
+            win_start = T_WCF - demean_win_s - 1.0
+            win_end = T_WCF - 1.0
+            win_m = (M["t"] >= win_start) & (M["t"] <= win_end)
+            sd_pre = float(M["SurgeDev"][win_m].mean())
+            wd_pre = float(M["SwayDev"][win_m].mean())
+        else:
+            sd_pre = 0.0
+            wd_pre = 0.0
         t_abs = T_WCF + t_grid_full
         s_x = np.interp(t_abs, M["t"], M["SurgeDev"]) - sd_pre
         s_y = np.interp(t_abs, M["t"], M["SwayDev"]) - wd_pre
@@ -224,7 +233,9 @@ def main():
     ap.add_argument("--demean-window", type=float, default=60.0,
                     help="Pre-WCF demean baseline window length in s, "
                          "anchored to t in [T_WCF - demean_window - 1, T_WCF - 1] "
-                         "(default 60).")
+                         "(default 60). Set <=0 to disable demean and use "
+                         "raw SurgeDev/SwayDev directly (apples-to-apples "
+                         "vs cqa's setpoint-relative coordinate).")
     args = ap.parse_args()
     tag = args.tag
     t_pre_s = float(args.t_pre)
@@ -248,10 +259,12 @@ def main():
     # ---- brucon truth ----
     R_truth, ids_truth = load_brucon_truth_R(tag, t_grid_full, demean_win_s)
     R_truth_mean = R_truth.mean(axis=0)
+    demean_label = (f"demean baseline = last {demean_win_s:.0f} s"
+                    if demean_win_s > 0 else "RAW (no demean, setpoint=0)")
     print(f"Brucon truth: {len(ids_truth)} seeds, "
           f"pre-WCF mean R over [-{t_pre_s:.0f},0] = {R_truth[:, :n_pre].mean():.2f} m, "
           f"post-WCF peak mean = {R_truth_mean[n_pre:].max():.2f} m  "
-          f"(demean baseline = last {demean_win_s:.0f} s)")
+          f"({demean_label})")
 
     # ---- cqa ----
     cqa = cqa_per_seed_traces(tag, t_grid_post, t_grid_pre, live_cell.CALIB_NPZ)
@@ -317,11 +330,12 @@ def main():
     ax.set_title(
         f"Radial deviation: brucon truth vs cqa live prediction  |  "
         f"{tag}  |  n={R_truth.shape[0]} seeds  |  "
-        f"pre-WCF intact + post-WCF transient",
+        f"{demean_label}",
         fontsize=11,
     )
     plt.tight_layout()
-    out = THIS / f"time_traces_vs_brucon_{tag}.png"
+    demean_tag = (f"demean{int(demean_win_s)}s" if demean_win_s > 0 else "raw")
+    out = THIS / f"time_traces_vs_brucon_{tag}_{demean_tag}.png"
     plt.savefig(out, dpi=120)
     print(f"\nsaved {out}")
 

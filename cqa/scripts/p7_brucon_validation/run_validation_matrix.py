@@ -46,6 +46,7 @@ THIS = Path(__file__).resolve().parent
 sys.path.insert(0, str(THIS))
 
 from harness import ScenarioSpec, run_ensemble, CSOV_WCF_GROUPS  # noqa: E402
+from _constants import ACTIVATE_SK_S, SETTLE_S, POST_FAILURE_S, T_WCF_S  # noqa: E402
 
 WORK_DIR = THIS / "work"
 N_SEEDS = 30
@@ -57,13 +58,15 @@ VESSEL_HEADING_COMPASS = 180.0
 # WCFDI failure: bus_port (Bow1 + PortMP). Matches pwq30 / pwo.
 FAILED_THRUSTERS = CSOV_WCF_GROUPS["bus_port"]
 
-# Lua run timings (must match pwq30 / pwo so T_WCF = 560 s in all cells,
-# and the validation scripts pick up the data correctly without further
-# parameterisation):
-ACTIVATE_SK_S = 60.0      # precondition window before SK activates
-SETTLE_S = 500.0          # intact-DP window before WCFDI
-POST_FAILURE_S = 180.0    # WCFDI transient window
-# -> failure_time = 60 + 500 = 560 s, total = 740 s (matches pwq30 lua).
+# Lua run timings come from _constants.py (single source of truth for the
+# brucon-validation matrix). settle_s=1500 chosen so the bias estimator
+# (tau_b = 1000 s) has > 1*tau_b free DP after station-keeping activation,
+# eliminating the pre-WCF demean-window contamination diagnosed in
+# analysis.md sec.12.21.15. -> failure_time = 60 + 1500 = 1560 s,
+# total = 1740 s. Existing data generated with the older
+# settle_s=500/T_WCF=560 layout will no longer match these timings; the
+# downstream validation scripts will loudly fail rather than silently
+# read off the wrong sim time, which is intentional.
 
 # DNV-ST-0111 Beaufort table (image provided 2026-05).
 BF6 = dict(Vw=13.8, Hs=3.1, Tp=8.5, Vc=0.75)

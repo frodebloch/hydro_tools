@@ -63,7 +63,7 @@ from cqa.transient_obs import (                               # noqa: E402
 from cqa.transient import WcfdiScenario                       # noqa: E402
 
 
-T_WCF = 560.0
+from _constants import T_WCF_S as T_WCF  # noqa: E402  # active script: refresh sec.12.21.16
 T_HORIZON_S = 60.0
 N_T = 121
 TP_OBS_S = 10.0
