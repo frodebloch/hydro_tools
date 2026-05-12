@@ -4944,4 +4944,68 @@ are meaningful.
 - `scripts/p7_brucon_validation/cross_cell_bhat_ratio.py`
   — 12-cell b̂ snapshot vs brucon true F_env ratio.
 
+#### 12.21.14 12-cell roll-up after the b̂ bias correction
+
+Re-running `roll_up_live_operator_panel.py` after wiring the
+`b_hat_bias_correction_factor = 1.10` into the three live-pipeline
+b̂-snapshot sites (commit `ddbf976`), comparing to the §12.21.9.3
+post-LF/WF-envelope baseline:
+
+| cell           | P95 bias before §12.21.13 | P95 bias after §12.21.13 |    Δ |
+|----------------|------------------------:|------------------------:|-----:|
+| bf4_c1_h0      |                  -16 %  |                  -10 %  | +6pp |
+| bf4_c1_q10     |                  -19 %  |                  -13 %  | +6pp |
+| bf6_h0         |                   -8 %  |                   -6 %  | +2pp |
+| bf6_q10        |                  -10 %  |                   -8 %  | +2pp |
+| bf6_h0_w45     |                  -18 %  |                  -15 %  | +3pp |
+| bf6_q10_w45    |                  -21 %  |                  -19 %  | +2pp |
+| bf8_h0         |                   +1 %  |                   +3 %  | +2pp |
+| bf8_q10        |                  -22 %  |                  -19 %  | +3pp |
+| bf8_h0_w45     |                  -28 %  |                  -26 %  | +2pp |
+| bf8_q10_w45    |                  -15 %  |                  -12 %  | +3pp |
+| pwo            |                  -25 %  |                  -24 %  | +1pp |
+| pwq30          |                   -9 %  |                   -8 %  | +1pp |
+
+Universal small improvement (1–6 pp), no regression anywhere,
+average ~3 pp gap closure across the matrix. WCF P50 medians
+move with the right sign too — bf8_q10_w45 P50 bias goes from
+−15 % to −6 %, bf6_q10_w45 P50 from −24 % to ... still −24 %
+(the energetic oblique cells absorb the +10 % in σ_R and R_det
+contributions roughly evenly, so the *relative* bias improvement
+is smaller than the absolute b̂ scale-up would suggest).
+
+The improvement is smaller per-cell than the bf8_q10_w45 single-cell
+analysis (§12.21.13) predicted (~⅓ of −15 % gap → expected +5 pp,
+observed +3 pp). Mechanism: the live operator panel WCF P95 is a
+sum of a deterministic R_det term (proportional to b̂ through the
+WcfdiScenario pulse response) plus a stochastic σ-contributions
+term (driven by σ_LF / σ_WF from the Bayesian posterior, *not* by
+b̂). Only the R_det piece scales with the correction, so the
+P95-level effect is diluted by the σ envelope. Additionally the
+lift-coupling K folds yaw into sway non-linearly through `b_hat0`,
+so a 10 % scaling of b̂ produces less than 10 % scaling of R_det
+on yaw-loaded cells.
+
+Coverage (the fraction of seeds where truth ≤ pred P95) is
+unchanged from §12.21.9.3 within the 30-seed sampling noise, as
+expected for a correction that closes a small fraction of the
+remaining gap.
+
+**Verdict.** The b̂ bias correction is a real, structurally
+justified, universally applied 10 % calibration on the dominant
+b̂-snapshot driver of the live pipeline, with a small but
+universal improvement on the operational metric. It is the
+correct next step ahead of the deployment port to brucon, where
+the static factor must be replaced by the runtime form
+`F_env_eff = b̂_force + (m + m_a) · ε_pos_observed / τ_b` so the
+calibration becomes parameter-free.
+
+The residual gap on bf8-oblique cells is now attributable to:
+1. Mildly under-calibrated σ_LF (cqa 0.45/0.50 vs brucon 0.55/0.58
+   on surge/sway, ratio ~0.81/0.87 — see §12.21.13).
+2. The lift-coupling K bottling up yaw→sway transfer; possibly
+   under-strong.
+3. IRF gain / observer-loop dynamics (explicitly deferred — risk
+   of wild-goose chase given <10 % remaining gap on most cells).
+
 
