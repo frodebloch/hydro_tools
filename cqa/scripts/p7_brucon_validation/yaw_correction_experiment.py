@@ -75,23 +75,19 @@ def load_brucon_taulost_ensemble(tag: str, t_grid: np.ndarray) -> np.ndarray:
     """Return ensemble-mean tau_lost(t) = (Tx,Ty,Tz)_post - (Tx,Ty,Tz)_pre_mean
     aligned to t_grid (t=0 = T_WCF), shape (n_t, 3) in N/Nm.
 
-    NOTE: tau_lost truth is now defined as the hull-experienced thrust
-    DEVIATION from pre-WCF intact mean, i.e. the unbalanced force the
-    closed-loop system must absorb. This is independent of the DP
-    feedback path's transient (FbTau) and of the controller's order
-    response (OrderTau), both of which are post-event reactions, not
-    causes. See analysis.md sec.12.21.13.
+    Authoritative sign convention (decision_matrix.py:519-527, sec.12.21.17):
 
-    Sign: tau_lost = T_post - T_pre, so a thrust LOSS gives NEGATIVE
-    tau_lost (hull thrust dropped), and the position response is driven
-    by env_load - T_post = (env_load - T_pre) - (T_post - T_pre) =
-    -tau_lost (since env_load = T_pre at intact equilibrium). So in the
-    cqa pulse-response framework where positive tau_lost drives
-    positive position offset, we want tau_lost = -(T_post - T_pre).
+        tau_lost := T_post - T_pre = (beta - 1) * T_pre
 
-    But for direct comparison with cqa formula which produces
-    (1-beta)*b_hat = positive in direction of env_load, we need brucon
-    truth in the same convention: tau_lost_for_cqa = (T_pre - T_post).
+    Injected through B_lost = +Minv in transient_obs.pulse_response, this
+    matches production live_decision.py:452 which uses
+    tau_lost = (1 - beta) * tau_env, equivalent under T_pre = -tau_env.
+
+    A thrust LOSS (post < pre in magnitude) gives a tau_lost vector pointing
+    in the SAME direction as the unbalanced env load, driving the position
+    response that direction. Earlier versions of this script used the
+    opposite sign (T_pre - T_post); the fix below restores the authoritative
+    convention. See analysis.md sec.12.21.17.
     """
     work = THIS / "work"
     pre_window = (-20.0, -1.0)  # 19 s pre-WCF baseline
@@ -110,11 +106,11 @@ def load_brucon_taulost_ensemble(tag: str, t_grid: np.ndarray) -> np.ndarray:
         Ty_pre = float(m.columns["Ty"][pre_mask].mean())
         Tz_pre = float(m.columns["Tz"][pre_mask].mean())
         rows.append(np.column_stack([
-            Tx_pre - np.interp(t_grid, t, m.columns["Tx"]),
-            Ty_pre - np.interp(t_grid, t, m.columns["Ty"]),
-            Tz_pre - np.interp(t_grid, t, m.columns["Tz"]),
+            np.interp(t_grid, t, m.columns["Tx"]) - Tx_pre,
+            np.interp(t_grid, t, m.columns["Ty"]) - Ty_pre,
+            np.interp(t_grid, t, m.columns["Tz"]) - Tz_pre,
         ]))
-    arr = np.array(rows)  # (n, n_t, 3) in kN/kNm, sign matches cqa formula
+    arr = np.array(rows)  # (n, n_t, 3) in kN/kNm; tau_lost := T_post - T_pre (sec.12.21.17)
     return arr.mean(axis=0) * 1e3  # to N/Nm
 
 

@@ -178,7 +178,8 @@ def main():
         peaks = np.zeros(n_seeds)
         deta_at_peak = np.zeros((n_seeds, 2))
         for i in range(n_seeds):
-            tau_lost = tau_pre_per_seed[i][None, :] - tau_thr_seeds[i]
+            # tau_lost = T_post - T_pre (authoritative; sec.12.21.17 sign fix)
+            tau_lost = tau_thr_seeds[i] - tau_pre_per_seed[i][None, :]
             X = pulse_response(aug, t_grid, tau_lost, x0=np.zeros(N_STATE))
             de = X[:, IDX_ETA_HAT][:, 0:2]
             R = np.hypot(eta_lf_per_seed[i, 0] + de[:, 0],

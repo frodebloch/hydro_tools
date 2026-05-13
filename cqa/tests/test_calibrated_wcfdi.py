@@ -553,11 +553,16 @@ class TestTauLostPulse:
         )
         # And it should be much larger than the no-pulse case.
         assert np.max(np.abs(sway_pulse)) > 5 * np.max(np.abs(sway_zero) + 1e-6)
-        # Sign: positive tau_lost_y subtracts from effective force, so
-        # vessel drifts toward NEGATIVE sway (-Minv @ tau_lost on nu).
+        # Sign (analysis.md sec.12.21.19): after the sign-audit fix,
+        # _augmented_rhs_post injects tau_lost with POSITIVE sign
+        # (+ Minv @ tau_lost), matching transient_obs.py:48 and
+        # live_decision.py:447. A positive tau_lost_y therefore drives
+        # the vessel toward POSITIVE sway (to starboard).
         idx_peak = int(np.argmax(np.abs(sway_pulse)))
-        assert sway_pulse[idx_peak] < 0, (
-            f"Expected negative sway peak from positive tau_lost_y, got {sway_pulse[idx_peak]}"
+        assert sway_pulse[idx_peak] > 0, (
+            f"Expected positive sway peak from positive tau_lost_y "
+            f"(_augmented_rhs_post uses + Minv @ tau_lost), "
+            f"got {sway_pulse[idx_peak]}"
         )
 
     def test_square_vs_linear_decay_amplitude_ordering(self, cfg, scenario):

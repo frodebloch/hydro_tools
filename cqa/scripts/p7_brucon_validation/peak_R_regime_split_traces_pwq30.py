@@ -131,11 +131,12 @@ def _build_seed_traces(M, E):
     R_LF_truth = np.hypot(s_LF, w_LF)
     R_W_truth = np.hypot(s_W, w_W)
 
-    # Realised tau_lost(t) = tau_pre - tau_thr_brucon(t).
+    # Realised tau_lost(t) = T_post - T_pre = tau_thr - tau_pre
+    # (authoritative convention; sec.12.21.17 sign fix).
     tau_thr_brucon = np.column_stack([
         M["Tx"][mask], M["Ty"][mask], M["Tz"][mask],
     ]) * 1e3
-    tau_lost_truth = tau_pre[None, :] - tau_thr_brucon
+    tau_lost_truth = tau_thr_brucon - tau_pre[None, :]
 
     return dict(
         t_post=t_post, t0=T_WCF,

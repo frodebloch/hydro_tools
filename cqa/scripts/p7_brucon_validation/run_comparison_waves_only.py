@@ -44,6 +44,7 @@ if _REPO_ROOT not in sys.path:
 from harness import (
     ScenarioSpec, run_ensemble, CSOV_WCF_GROUPS, SIM_DT,
 )
+from _constants import ACTIVATE_SK_S, SETTLE_S, POST_FAILURE_S  # noqa: E402  # sec.12.21.17
 
 from cqa.transient import wcfdi_transient, WcfdiScenario
 from cqa.decision_matrix import _build_intact_prior_at_forecast
@@ -107,7 +108,12 @@ def main() -> None:
     print(f"  loading RAO+QTF from {PDSTRIP_PATH}")
     rao = load_pdstrip_rao(PDSTRIP_PATH)
 
-    theta_rel = np.radians(rel_deg)
+    # Boundary: rel_deg above is the standard compass-CW bearing of the
+    # wave source from the bow (positive = source on starboard). cqa's
+    # WindForceModel/CurrentForceModel/pdstrip-beta mapping use the
+    # opposite convention internally (+theta_rel = source on PORT). We
+    # negate at the boundary; see analysis.md sec.12.21.19.
+    theta_rel = np.radians(-rel_deg)
 
     t_cqa_start = time.time()
     prior = _build_intact_prior_at_forecast(
@@ -136,9 +142,9 @@ def main() -> None:
         current_dir_compass=WAVE_DIR_COMPASS,
         vessel_heading_compass=VESSEL_HEADING_COMPASS,
         failed_thruster_indices=CSOV_WCF_GROUPS["bus_port"],
-        activate_sk_s=60.0,
-        settle_s=500.0,
-        post_failure_s=180.0,
+        activate_sk_s=ACTIVATE_SK_S,
+        settle_s=SETTLE_S,           # sec.12.21.17: aligned with run_validation_matrix
+        post_failure_s=POST_FAILURE_S,
         print_every_steps=1,
     )
 

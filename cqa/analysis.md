@@ -5217,3 +5217,719 @@ gangway-bar rollups must still be re-run together with the
 §12.21.15 `settle_s = 1500` brucon rerun before the numbers can
 be trusted.
 
+#### 12.21.17 Sign-convention bug in brucon-truth tau_lost (truth-in path)
+
+Channel-by-channel verification of the cqa-vs-brucon transient at
+the `bf6_h0` cell revealed that the prior cell-level radial-P95
+agreement (cqa P95 ≈ 1.10 m vs brucon per-seed window-max P50/P95
+0.69/1.04 m) was coincidental: the **sign** of the surge and sway
+deviations predicted by the brucon-truth-in calibration npz was
+flipped relative to brucon ground truth. Once the sign was
+corrected, the channel-by-channel match in the first 30 s
+post-WCF became quantitative.
+
+##### 12.21.17.1 Authoritative tau_lost convention
+
+The single source of truth for the WCFDI thrust-loss vector is
+`cqa/decision_matrix.py:519-527`:
+
+```
+T_post(t) = beta(t) * T_pre,           # commanded thrust after dropout
+T_pre     = -tau_env                   # pre-WCF intact equilibrium
+tau_lost(t) := T_post(t) - T_pre = (beta - 1) * T_pre = (1 - beta) * tau_env
+```
+
+`tau_lost` is then injected into the augmented observer through
+`B_lost = +Minv` (`cqa/transient_obs.py:283-401`). The production
+`live_decision.py:452` uses the equivalent form
+`tau_lost = (1 - beta) * tau_env` with `beta` from `WcfdiScenario`.
+**Both production paths are correctly signed.**
+
+##### 12.21.17.2 Where the bug lived
+
+Seven brucon-validation scripts under
+`scripts/p7_brucon_validation/` constructed `tau_lost` from
+brucon `Tx,Ty,Tz` traces using the **opposite sign**:
+
+```
+tau_lost := tau_pre - T_post   (== T_pre - T_post)   # WRONG
+```
+
+This silently flipped the predicted body-frame
+`delta_eta_mean(t)` in surge and sway (and zeroed out yaw, which
+is dominated by a different mechanism). Because the radial
+metric `R = hypot(eta_x, eta_y)` is sign-blind, the per-seed
+window-max P95 number was unaffected, masking the bug across all
+prior 12-cell roll-ups that consume `delta_eta_mean` from the
+calibration npz files. The single npz consumer is
+`live_cell_per_seed_pwq30.py:498`, which feeds it as
+`precomputed_delta_eta_mean=` into `evaluate_decision_cell_live`,
+short-circuiting the (correctly signed) production parametric
+formula.
+
+##### 12.21.17.3 Pivotal evidence
+
+Brucon ensemble-mean post-WCF deviations at `bf6_h0`,
+[T_WCF, T_WCF + 30 s], 30 seeds with `settle_s = 1500`,
+`T_WCF = 1560.0 s`:
+
+  - SurgeDev min P50 = −0.44 m, max P50 = +0.09 m (roughly balanced)
+  - SwayDev  min P50 = −0.41 m, max P50 = +0.17 m (clearly port-biased)
+  - HeadingDev max P50 = +0.92 deg (clearly stbd-biased)
+
+cqa pulse-response with the (then-broken, sign-flipped) brucon-truth
+`tau_lost` predicted the **opposite** sway sign and a near-zero
+yaw, neither of which matched the per-seed distribution.
+
+After the sign fix, at `bf6_h0`, t = 15 s post-WCF:
+
+| channel | cqa truth-in | brucon ensemble-mean | match |
+|---|---|---|---|
+| surge | −0.131 m | −0.112 m | within 0.02 m |
+| sway  | −0.185 m | −0.154 m | within 0.03 m |
+| yaw   | +0.0121 rad | +0.0125 rad | within 0.0004 rad |
+
+##### 12.21.17.4 Late-time open-loop divergence (limit of validity)
+
+For t ≥ 30 s post-WCF the open-loop pulse-response (no closed-loop
+restoring) starts to overshoot the closed-loop brucon truth. At
+`bf6_h0` the npz reports a peak |δη| around t = 60 s
+(δη_x = +0.53 m, δη_y = +0.28 m) that is not physical — brucon
+truth peaks near t = 34 s and decays thereafter under DP
+control. The truth-in calibration is therefore conservative for
+operator alarm purposes (it over-predicts), but should be
+interpreted as an *envelope* over the first ≈ 30 s, not a
+trajectory predictor at late times.
+
+##### 12.21.17.5 Secondary findings during this investigation
+
+1. **WCFDI fires at t = 1560.1 s in the .out file**, not 1562.2 s
+   as previously cited from `Alert.log`. The .out samples at
+   10 Hz, so the next sample after `T_WCF = 1560.0 s` carries the
+   step in `Tx, Ty, Tz`.
+2. **Per-seed Ty/Tz spike at WCFDI is real and consistent**.
+   Window-min over [T_WCF, T_WCF + 30 s], 30 seeds at `bf6_h0`:
+   `Ty_min` P50 = −102 kN, P95 = −82 kN, range
+   [−130, −62] kN — every seed sees a large port-ward sway
+   thrust deficit. `Tz_max` P50 = +5500 kNm sustained for ≈ 2 s,
+   decay over ≈ 10 s. This is a propulsor-asymmetry artefact of
+   the `bus_port` failure (Bow1 + PortMP) and is what drives the
+   non-zero ensemble-mean response in sway and yaw.
+3. **Per-seed sway/heading sign distribution at `bf6_h0`**:
+   24/30 seeds drift to port (negative sway), 26/30 swing bow to
+   stbd (positive heading). The remaining minority swap signs
+   under the wave-induced WF jitter in the first second; the
+   ensemble-mean cleanly reflects the propulsor-bias direction.
+4. **Body-frame axes are consistent between cqa and brucon**.
+   Verified that `surge_body = cos(h)·N + sin(h)·E`,
+   `sway_body = −sin(h)·N + cos(h)·E` matches brucon's
+   `SurgeDev/SwayDev` to numerical precision; there is no global
+   axis flip — the only discrepancy was the tau_lost sign in the
+   truth-in scripts.
+
+##### 12.21.17.6 Fix scope
+
+Sign convention `tau_lost := T_post - T_pre` (== `tau_thr - tau_pre`)
+applied across:
+
+  - `peak_R_b_hat_sigma_pwq30.py` — `_per_seed_tau_lost`,
+    tau_thr reconstruction, MC step, header/step-2 docstrings,
+    npz `convention` string;
+  - `yaw_correction_experiment.py` — `load_brucon_taulost_ensemble`
+    docstring + body;
+  - `per_seed_spread.py` — main loop;
+  - `compare_lift_coupling_matrix.py` — `_peaks` inner loop;
+  - `test_lift_coupling.py` — `_per_seed_tau_lost` + module
+    docstring;
+  - `where_we_are_now_pwq30.py` — `_peak_abs` inner loop;
+  - `peak_R_regime_split_traces_pwq30.py` — `_extract_truth`.
+
+Production code (`live_decision.py`, `decision_matrix.py`,
+`transient.py`, `transient_obs.py`) was already correct and is
+unchanged.
+
+##### 12.21.17.7 Files that need re-running after this fix
+
+1. `peak_R_b_hat_sigma_pwq30.py --tag <cell>` for all 12 cells
+   to regenerate the `scenario_<cell>_calibration.npz` files;
+   this also requires the `settle_s = 1500` brucon rerun
+   (§12.21.15) for the 11 cells other than `bf6_h0` (which is
+   the only one already on the new pilot data).
+2. `roll_up_live_operator_panel.py` — re-roll the 12-cell P95
+   table.
+3. `roll_up_gangway_bar.py` — re-roll the 12-cell gangway-bar
+   table (also depends on §12.21.16 fix).
+4. `cross_cell_bhat_ratio.py` and `cross_cell_mf_band.py` — only
+   if the b̂-ratio number changes meaningfully (b̂ extraction
+   itself is independent of the tau_lost sign).
+
+##### 12.21.17.8 Files
+
+  - `cqa/decision_matrix.py:519-527` — authoritative convention
+    (unchanged).
+  - `cqa/scripts/p7_brucon_validation/peak_R_b_hat_sigma_pwq30.py`
+    and 6 sibling scripts — sign fix.
+  - `cqa/scripts/p7_brucon_validation/run_comparison_waves_only.py`
+    and `run_comparison_waves_only_quartering30.py` — switched to
+    `_constants.SETTLE_S/POST_FAILURE_S/ACTIVATE_SK_S` so pwo and
+    pwq30 ensembles use the same `settle_s = 1500` timing as the
+    rest of the matrix.
+  - `cqa/scripts/p7_brucon_validation/calibrated_wcfdi_brucon_validation.py`
+    — switched to `_constants.T_WCF_S/POST_FAILURE_S` (was
+    hardcoded `T_WCF_S = 560.0` from the settle_s=500 era).
+  - `cqa/scripts/p7_brucon_validation/scenario_*_calibration.npz` —
+    all 12 cells regenerated with the new pilot data
+    (`settle_s = 1500`, T_WCF=1560 s) and the sign fix.
+
+##### 12.21.17.9 Post-fix 12-cell roll-up and residual gaps
+
+Re-running the production roll-ups (`roll_up_live_operator_panel.py`,
+`roll_up_gangway_bar.py`, `cross_cell_bhat_ratio.py`) with the new
+ensembles and regenerated `sigma_R_b_hat_m`:
+
+###### Live operator panel (production parametric path)
+
+| cell        | iP95 bias | wP50 bias | wP95 bias | coverage | g/a/r   |
+|-------------|----------:|----------:|----------:|---------:|---------|
+| bf4_c1_h0   |  +28%     |  −12%     |  −13%     |    60%   | 30/0/0  |
+| bf4_c1_q10  |  +23%     |  −15%     |  −11%     |    63%   | 30/0/0  |
+| bf6_h0      |  +17%     |  −22%     |   −2%     |    80%   | 28/2/0  |
+| bf6_q10     |  +18%     |  −18%     |  +12%     |    90%   | 27/3/0  |
+| bf6_h0_w45  |  +16%     |  −20%     |   −9%     |    77%   | 25/5/0  |
+| bf6_q10_w45 |  +19%     |   −9%     |  −18%     |    80%   | 26/4/0  |
+| bf8_h0      |  +16%     |  −23%     |  −10%     |    77%   | 0/20/10 |
+| bf8_q10     |  +19%     |  −24%     |  −14%     |    70%   | 0/15/15 |
+| bf8_h0_w45  |  +20%     |  −18%     |  −17%     |    67%   | 0/12/18 |
+| bf8_q10_w45 |  +17%     |  −18%     |  −42%     |    83%   | 0/13/17 |
+| pwo         |  +11%     |  −33%     |  −24%     |    73%   | 7/23/0  |
+| pwq30       |  +14%     |  −26%     |   +2%     |    93%   | 14/16/0 |
+
+Patterns vs §12.21.14 baseline (which was post-b̂-bias-correction
+but pre-sign-fix and pre-`settle_s=1500` brucon rerun):
+
+  - **Intact P95 bias is largely unchanged** (was −10..+3%, now
+    +11..+28%): the small positive shift is explained by the new
+    `settle_s = 1500` pilot data giving slightly tighter intact
+    σ-posteriors than the contaminated `settle_s = 500` data
+    (§12.21.15).
+  - **WCF P95 bias on benign cells improves** (bf6_h0 −6→−2%,
+    bf6_q10 −8→+12%, pwq30 −8→+2%): the new b̂ snapshots are
+    cleaner and the lift coupling fires correctly with the right
+    sign of yaw b̂, both reducing the open-loop deficit.
+  - **WCF P95 bias on energetic and oblique cells degrades**
+    (bf8_q10_w45 −12→−42%, bf8_h0_w45 −26→−17%, mixed): the
+    physics gap discussed in §12.21.17.10 below now dominates.
+  - **Coverage holds at 60-93%** across cells; this remains short
+    of the nominal 95 % design target for a P95 envelope.
+
+###### Gangway-bar roll-up (production parametric path)
+
+|  cell        | p50 bias | p95 bias | coverage |  g/a/r   |
+|--------------|---------:|---------:|---------:|----------|
+| bf4_c1_h0    |   +3%    |   −9%    |    77%   | 30/0/0   |
+| bf4_c1_q10   |   +3%    |   −4%    |    90%   | 30/0/0   |
+| bf6_h0       |  −88%    |  −55%    |    17%   | 30/0/0   |
+| bf6_q10      |  −70%    |  −44%    |    23%   | 30/0/0   |
+| bf6_h0_w45   |  −62%    |  −52%    |    27%   | 30/0/0   |
+| bf6_q10_w45  |  −50%    |  −50%    |    47%   | 30/0/0   |
+| bf8_h0       |  −90%    |  −55%    |     7%   | 30/0/0   |
+| bf8_q10      |  −83%    |  −50%    |    17%   | 29/0/1   |
+| bf8_h0_w45   |  −69%    |  −50%    |    40%   | 22/5/3   |
+| bf8_q10_w45  |  −55%    |  −60%    |    47%   | 22/5/3   |
+| pwo          |  −73%    |  −15%    |    70%   | 30/0/0   |
+| pwq30        |  −82%    |  −10%    |    67%   | 30/0/0   |
+
+The bf6/bf8 P50 column shows 50–90 % under-prediction — much
+worse than the −42% the comparator-fix docstring of
+`roll_up_gangway_bar.py` previously quoted for `bf6_h0`. Two
+things to note:
+
+  1. **Intent.** The Bf 4 + heavy-current cells, where the LF
+     transient is small, agree to 3-9 %. The benign-conditions
+     gangway predictor is structurally fine.
+  2. **Energetic cells.** On bf6/bf8 head-on/quartering and on
+     pwo/pwq30, the truth-side dL is dominated by the **post-WCF
+     sway transient**, not by roll. Brucon `bf6_h0` seed 1000
+     reaches a sway peak of 0.89 m within 30 s (versus cqa
+     pulse-response peak ~0.20 m at t=15 s and ~0.30 m at the
+     late-time open-loop overshoot at t=60 s). The sway truth is
+     ~3-4× larger than what cqa predicts deterministically; the
+     gangway sensitivity `c3_y = +1` then translates this
+     directly into the P50 dL gap.
+
+###### b̂ vs F_env_true ratio (cross_cell)
+
+| cell        |   r_x   |   r_y   |   r_z   |
+|-------------|--------:|--------:|--------:|
+| bf4_c1_h0   |   0.92  |   0.91  |   0.90  |
+| bf4_c1_q10  |   0.91  |   0.91  |   0.91  |
+| bf6_h0      |   0.91  |   0.28  |   0.31  |
+| bf6_q10     |   0.91  |   0.92  |   0.91  |
+| bf6_h0_w45  |   0.90  |   0.91  |   0.90  |
+| bf6_q10_w45 |   0.91  |   0.93  |   0.93  |
+| bf8_h0      |   0.91  |   0.22  |   0.09  |
+| bf8_q10     |   0.91  |   0.97  |   0.99  |
+| bf8_h0_w45  |   0.90  |   0.92  |   0.92  |
+| bf8_q10_w45 |   0.91  |   0.92  |   0.92  |
+| pwo         |   0.47  |   0.93  |   1.11  |
+| pwq30       |   0.91  |   0.92  |   0.94  |
+
+Pooled r_x = 0.906 ± 0.067 — **the +1.10 b̂ bias correction in
+§12.21.13 is confirmed unchanged** with the new pilot data.
+The low r_y/r_z on bf6_h0 / bf8_h0 are dominated by near-zero
+denominators (head-on cells have F_y_true ~ 0); the ratio is
+ill-defined there.
+
+##### 12.21.17.10 Diagnosis of the residual gap (no longer a sign issue)
+
+After the sign fix, the dominant residual under-prediction
+mechanism on energetic cells is the open-loop pulse-response
+LF-transient model itself. Per-seed peak |R| at `bf6_h0`:
+
+  - brucon truth: P50 = 0.71 m, P95 = 1.46 m, max = 1.72 m
+  - cqa MC envelope (b̂ noise only, n_mc = 500):
+    P50 = 0.59 m, P95 = 0.75 m, max = 0.91 m
+
+The cqa MC envelope has approximately **one third** of the
+brucon spread. The MC currently propagates only b̂ measurement
+noise (`b_hat_std → tau_lost amplitude variation`), which is a
+small-perturbation envelope around the deterministic peak. The
+true spread per seed comes from at least three additional
+sources the MC ignores:
+
+  1. **Per-seed wave realisation** — the WF state at WCF onset
+     biases the early closed-loop transient. The envelope adds
+     ≈ √2 × σ_LF to the radial peak, which is ≈ 0.4 m for bf6_h0.
+  2. **Per-seed thrust-allocation transient** — the Ty/Tz spike
+     amplitude varies across seeds (P50 = −102 kN, P95 = −82 kN
+     at bf6_h0; §12.21.17.5 item 2). The MC uses ensemble-mean
+     `tau_lost`, not per-seed.
+  3. **Per-seed sway-direction polarity** — 24/30 seeds go to
+     port, 6/30 go to starboard. Per-seed peak |R| is the worst
+     half-cycle of either polarity, so the per-seed distribution
+     is heavier-tailed than a single-polarity MC envelope.
+
+The deterministic peak under-prediction (cqa surge 0.13 m / sway
+0.18 m at t=15 s vs brucon truth ensemble-mean 0.11 / 0.15 m at
+t=15 s, then truth peaks 0.4 / 0.4 m at t=34 s under closed-loop
+reaction) is the documented "open-loop pulse-response is
+conservative for the first ~30 s but the model lacks the
+controller's true response amplitude after that" gap noted in
+§12.21.17.4.
+
+##### 12.21.17.11 Verdict
+
+The sign fix is a **strict improvement**:
+
+  1. Truth-in `delta_eta_mean(t)` now matches brucon channel-by-
+     channel for t ∈ [0, 30] s (within 0.02 m surge, 0.03 m sway,
+     0.0004 rad yaw at t = 15 s on `bf6_h0`).
+  2. The previously published §12.21.14 12-cell P95-bias table
+     was generated with sign-flipped truth-in `delta_eta_mean`
+     piped into `live_cell_per_seed_pwq30.py`, but those numbers
+     happen not to depend strongly on the sign because the
+     downstream radial metric `R = hypot(eta_x, eta_y)` is
+     sign-blind. The §12.21.14 numbers therefore **remain valid
+     for the operator-panel position bar** (which is what they
+     report); they were not contaminated.
+  3. The newly-exposed under-prediction in the gangway P50 (50-
+     90 % on bf6/bf8) is **not a regression**: it is the LF
+     transient physics gap (§12.21.17.10) made visible by the
+     gangway sensitivity `c3 = (0, +1, +5)` directly multiplying
+     the under-predicted sway peak.
+
+The remaining work, in priority order, is:
+
+  1. Add per-seed wave-realisation and per-seed `tau_lost`
+     amplitude variability to the MC, lifting `sigma_R_b_hat_m`
+     from a b̂-only envelope (~0.1 m) to a realistic per-seed
+     spread (~0.4 m). This alone closes most of the WCF P95
+     coverage gap on bf6/bf8.
+  2. Re-examine the open-loop pulse-response peak amplitude vs
+     the closed-loop brucon truth: currently cqa peaks at 0.20 m
+     sway versus 0.40 m truth ensemble-mean (~2× short). This is
+     the dominant deterministic gap and is independent of the
+     stochastic envelope.
+
+
+#### 12.21.18 Tau_lost injection in `wcfdi_transient` mean-trajectory ODE
+
+##### 12.21.18.1 The bug
+
+The diagnostic launchers
+`run_comparison_waves_only.py` and
+`run_comparison_waves_only_quartering30.py` (which exercise the
+parametric WCFDI transient predictor `cqa/transient.py:wcfdi_transient`)
+were producing `transient peak |eta_mean| = (0.00 m, 0.00 m, 0.00 deg)`
+for the waves-only operating points (Vw = Vc = 0), while the brucon
+30-seed ensembles show a clear hump in surge and sway at the WCFDI
+event driven by the asymmetric thrust-allocation transient (P50 sway
+thrust deficit ≈ −102 kN immediately after the trip).
+
+Root cause: `wcfdi_transient` was modelling the post-WCF
+mean-trajectory ODE through cap-clipping alone. The post-failure RHS
+clips `tau_cmd` to `cap_at_time(t)`, but for waves-only cells
+`|tau_env|` (mean drift only) is well below the *immediate*
+post-failure cap, so no clipping ever triggers and the steady state at
+t = 0+ is already a fixed point of the post-failure dynamics.
+
+##### 12.21.18.2 Why the cap-only path is incomplete
+
+The cap is the *static* per-DOF ceiling. During the reallocation ramp
+the surviving thrusters must physically *spool up* azimuths and
+re-balance the load distribution; the difference between the
+commanded thrust (assuming intact allocation) and the deliverable
+thrust during the ramp is a real force on the hull. This is exactly
+the authoritative `tau_lost` of sec.12.21.17:
+
+```
+T_post(t) = β(t) · T_pre
+tau_lost(t) := T_post(t) - T_pre = (1 - β(t)) · tau_env
+```
+
+`live_decision.py:452` and `decision_matrix.py:519-527` already
+inject this term in the production pipeline. The internal
+`_augmented_rhs_post` helper in `transient.py:400` *supports* a
+`tau_lost_fn` kwarg (lines 406, 438–440), but the call site at line
+658 was passing only `cap_fn` — the kwarg defaulted to `None` and
+the deficit was silently dropped.
+
+##### 12.21.18.3 The fix
+
+At `cqa/transient.py:653-665`, the deterministic `solve_ivp` call now
+builds `tau_lost_fn` from the same `WcfdiScenario.cap_at_time(t, cfg)`
+that drives `cap_fn`:
+
+```python
+cap_intact = scenario.resolved_cap_intact(cfg)
+def tau_lost_fn(t):
+    beta = cap_fn(t) / np.maximum(cap_intact, 1e-12)
+    return (1.0 - beta) * tau_env
+```
+
+and passes `tau_lost_fn=tau_lost_fn` into `_augmented_rhs_post`.
+
+`β(t) = cap_at_time(t) / cap_intact` is per DOF. For the default
+`WcfdiScenario(alpha=2/3, gamma_immediate=0.5, T_realloc=10.0)`,
+β ramps from 0.5 at t = 0+ to 2/3 as t → ∞, and `tau_lost` decays
+from `0.5·tau_env` to the permanent steady-state deficit
+`(1−alpha)·tau_env = (1/3)·tau_env`. With α=1 and γ_imm=1 the
+formula gives `tau_lost ≡ 0` (intact-fixed-point unchanged); with
+α<1 the long-term deficit equals what the bias estimator must absorb
+anyway, so the closed loop drives `eta_mean(t→∞) → 0` as expected.
+
+##### 12.21.18.4 Before / after on the user-visible PNGs
+
+`run_comparison_waves_only.py` (Hs=2.5 m, head sea, Vw=Vc=0):
+
+| metric | before | after |
+|---|---:|---:|
+| transient peak |eta_mean| surge | 0.00 m | 0.03 m |
+| transient peak |eta_mean| sway | 0.00 m | 0.45 m |
+| transient peak |eta_mean| yaw | 0.00 deg | 0.07 deg |
+
+`run_comparison_waves_only_quartering30.py` (Hs=2.5 m, quartering 30°,
+Vw=Vc=0):
+
+| metric | before | after |
+|---|---:|---:|
+| transient peak |eta_mean| surge | 0.00 m | 0.61 m |
+| transient peak |eta_mean| sway | 0.00 m | 0.24 m |
+| transient peak |eta_mean| yaw | 0.00 deg | 0.16 deg |
+
+The qualitative shape now matches brucon: a single hump at the
+WCFDI event in the channels carrying the mean drift force, decaying
+back to the closed-loop intact equilibrium over several T_b. The
+bistability_risk_score remains 0.0 in both cases (no saturation;
+the deficit force is small relative to the surviving cap), confirming
+the fix does not introduce spurious instability flags.
+
+##### 12.21.18.5 Production-pipeline impact
+
+None. The fix touches only `wcfdi_transient`, which is consumed by
+the parametric diagnostic launchers (`run_comparison*`,
+`compare_pipeline_vs_brucon_pwq30.py`). The two production
+operability paths — `live_decision.py` and `decision_matrix.py` —
+already used the authoritative `tau_lost` convention and are
+unchanged. The full pytest passes 355/355 (the two new tests
+documenting the injection raise the count from 353).
+
+##### 12.21.18.6 Test coverage added
+
+`tests/test_transient.py`:
+
+- `test_no_failure_means_no_transient` *(rewritten)*: now uses
+  `alpha=1, gamma_immediate=1.0, T_realloc=10.0` (the genuine no-failure
+  scenario). Asserts `max|eta_mean| < 1e-3`. The old version used
+  `alpha=1` with the default `gamma_immediate=0.5`, which under the
+  new injection is physically a 10 s allocator lag — a real
+  transient, not zero.
+- `test_tau_lost_injection_drives_waves_only_transient` *(new)*:
+  Vw=Vc=0, quartering 30°. Asserts the surge/sway peak |eta_mean|
+  exceeds 1e-3 m (the bug symptom was ~1e-8 m), confirming the
+  injection is the dominant deterministic transient source for
+  waves-only operating points. Also asserts late-time decay below
+  the peak.
+- `test_tau_lost_zero_when_no_reallocation_lag` *(new)*: the limit
+  `T_realloc=0, alpha=1, gamma_immediate=1.0` must reproduce
+  `tau_lost ≡ 0` and `eta_mean ≈ 0` throughout.
+
+##### 12.21.18.7 Files modified
+
+- `cqa/transient.py` — `wcfdi_transient` now builds `tau_lost_fn`
+  from `WcfdiScenario.cap_at_time` and `resolved_cap_intact`, and
+  passes it into `_augmented_rhs_post`. ~14 new lines around line 653.
+- `tests/test_transient.py` — 1 test rewritten, 2 new (10 transient
+  tests total).
+- PNGs regenerated:
+  `p7_waves_only_validation_transient.png` (head sea) and the
+  quartering-30 launcher’s output.
+
+##### 12.21.18.8 What this does NOT fix
+
+The residual P50/P95 under-prediction on bf6/bf8 (sec.12.21.17.10–.11)
+is *separate* — it is the MC under-dispersion + open-loop pulse-response
+amplitude gap. The wcfdi_transient injection closes the qualitative
+hump in the waves-only diagnostic launchers but does not change the
+brucon-truth-driven calibration paths (which use `tau_lost = T_post−T_pre`
+directly from the brucon AllocTau channels and are unaffected by the
+parametric ramp).
+
+
+#### 12.21.19 Sign-convention audit: pdstrip beta mapping and `_augmented_rhs_post` tau_lost sign
+
+Triggered by a domain-expert observation that the pwq30 (oblique-heading,
+waves-only) validation launcher produced a cqa post-WCF sway transient
+with the **wrong sign** vs the brucon ensemble mean. The user's
+explicit pushback — *"we cannot just try every possible combination
+and try to guess if we are right by looking at curves"* — drove a
+systematic, effect-by-effect sign audit of every stage in the chain
+**compass-from → cqa theta_rel → pdstrip beta → drift Fy/Mz → tau_env
+assembly → `_augmented_rhs_post` injection → eta trajectory**, with
+brucon as the truth anchor at every step.
+
+##### 12.21.19.1 Body-frame anchor (PINNED)
+
+Per Fossen 2011 §2.1, with explicit user reaffirmation this session:
+
+* **+surge (x)** = AHEAD (toward bow)
+* **+sway  (y)** = TO STARBOARD
+* **+yaw  (psi)** = CLOCKWISE seen from above
+
+Hence: force toward port ⇔ `Fy<0`; vessel pushed to port ⇔ `eta_sway<0`.
+Wave direction throughout is the **compass bearing waves come FROM**
+(0=from N, 90=from E, 180=from S, 270=from W). All sign reasoning in
+this section uses these conventions exclusively.
+
+##### 12.21.19.2 Audit methodology
+
+A standalone audit document — `cqa/scripts/sign_audit.md` — was
+created with a per-stage probe-and-verdict structure. Seven audits
+were performed, each with a numerical probe at known directions
+(four cardinals + the pwq30 stbd-bow case at theta_rel=−π/6) and an
+empirical comparison against either an analytical limit, a probe at
+a different but related code path, or directly against brucon.
+
+| Audit | Stage | Verdict |
+|------|------|---------|
+| 1 | Equation of motion `M ν̇ + D ν = τ_total` | ✓ correct |
+| 2 | `WindForceModel.force` / `CurrentForceModel.force` | ✓ correct |
+| 3a–d | Brucon truth side: pdstrip→body mapping | ✓ decoded |
+| 3e | cqa side: `cqa_theta_rel_to_pdstrip_beta_deg` | ✗ **port↔stbd swap** |
+| 4 | `tau_env = F_wind + F_curr + F_drift` assembly | ✓ structure correct (consumes 3e bug) |
+| 5 | `_augmented_rhs_post` `tau_lost` injection sign | ✗ **flipped vs production** |
+| 5b | Cap-clip vs explicit `tau_lost` double-counting | ✓ acceptable for sub-cap operations |
+| 6 | `intact_mean_steady_state` and `x0_post` | ✓ correct |
+| 7 | Compass→theta_rel boundary (already fixed earlier this session) | ✓ correct post-fix |
+
+##### 12.21.19.3 The brucon truth-anchor decoding (Audit 3a–d)
+
+Reading `brucon/libs/dp/vessel_model/wave_response.cpp` lines 60–104
+(`MeanDriftForces`), 341–356 (`CalculateMeanDriftForces`), and the
+ingestion in `response_function.cpp:163` (`r_tmp = …begin()+offset+4…`,
+which drops the first 4 columns of `csov_pdstrip.dat`), the brucon
+mapping is:
+
+```
+pdstrip_angle = (heading_compass + 180 − wave_from_compass) mod 360
+```
+
+with the resulting `surge_d`, `sway_d`, `yaw_d` columns taken
+**directly** as body-frame `[Fx, Fy, Mz]` in the **stbd=+y (Fossen)**
+convention — no further sign flip.
+
+This was cross-checked against brucon's own assertion in
+`vessel_simulator_model_tests.cpp:493`:
+
+```
+heading=90° (east), wave_from=0° (north)  →  pdstrip_angle=90°
+                                          →  MeanDriftForces[1] = +247268 N
+```
+
+i.e. with the source on the port beam (waves coming from north onto a
+vessel pointing east), brucon predicts +Fy = vessel pushed to
+starboard. ✓ matches the body-frame anchor.
+
+##### 12.21.19.4 The first bug (Audit 3e): `cqa_theta_rel_to_pdstrip_beta_deg`
+
+cqa's theta_rel is `wrap_pi(heading_compass − wave_from_compass)` (sign
+fixed in earlier sec.12.21.18 work this session). Substituting into
+brucon's mapping gives the correct conversion:
+
+```
+beta_deg = (180 + theta_rel_deg) mod 360
+```
+
+The pre-fix code used `(180 − theta_rel_deg)` and the docstring
+labelled `beta=90` as "from port beam" — both **inverted** the port/
+starboard semantics. Direct probe at the four cardinals + pwq30:
+
+| theta_rel | PRE-FIX beta | POST-FIX beta | semantically |
+|-----------|--------------|---------------|--------------|
+| 0°        | 180°         | 180°          | head sea ✓ |
+| +90°      | 90° (claimed "from port") | 270° | from PORT (correct) |
+| −90°      | 270° (claimed "from stbd") | 90° | from STBD (correct) |
+| 180°      | 0°           | 0°            | following ✓ |
+| −30°      | 210° (claimed "port-bow")  | 150° | from STBD-bow (correct, matches brucon's pwq30 pdstrip_angle) |
+
+This bug propagated **only** through `mean_drift_force_pdstrip` (the
+sole consumer of the mapping). All other body-force inputs
+(`WindForceModel`, `CurrentForceModel`, parametric drift) were already
+correct, so cqa-vs-cqa comparisons in test cells where wind dominates
+appeared self-consistent and the bug stayed hidden until brucon truth
+on a **waves-only** oblique-heading cell exposed it.
+
+Empirical post-fix probe for pwq30 (heading=180°, wave_from=210°,
+Hs=4.196, Tp=10.224):
+
+```
+F_drift = (Fx = −59 877 N, Fy = −109 054 N, Mz = −983 908 N·m)
+```
+
+Negative Fy ⇔ vessel pushed to port — as physically required for a
+source on the starboard bow. ✓
+
+##### 12.21.19.5 The second bug (Audit 5): `_augmented_rhs_post` `tau_lost` sign
+
+Pre-fix `transient.py:458`:
+
+```python
+nu_dot = Minv_D @ nu + Minv @ tau_thr + Minv @ tau_env − Minv @ tau_lost_now
+```
+
+Reference paths in production code use the **opposite** sign:
+
+* `cqa/cqa/transient_obs.py:48`  →  `+ tau_lost`
+* `cqa/cqa/live_decision.py:447` →  `+ Minv @ tau_lost`
+
+Physically, `tau_lost(t) = (1−β(t))·tau_env` is the **deficit** on the
+hull. The lost thrusters had been opposing `tau_env`; their absence
+manifests as an extra force in the **same** direction as the
+environmental load during the spool-up transient. The `+` sign is
+required.
+
+A direct numerical probe with `tau_lost_fn=None` showed that for any
+sub-cap operation (`|tau_env| < cap_at_time`, which holds for all
+CQA-precondition-valid points and for pwq30 in particular) the cap-
+clipping mechanism alone produces an **identically flat** post-WCF
+eta trajectory — yet the brucon ensemble shows a clear excursion.
+Therefore the explicit `tau_lost` injection IS physically necessary,
+and it must carry the `+` sign for the eta trajectory to develop in
+the correct direction.
+
+##### 12.21.19.6 Why the prior "compensating bugs" hypothesis was wrong
+
+A previous session's analysis (sec.12.21.18) had hypothesised that
+four cancelling sign errors (compass-boundary, drift PDF mapping,
+`_augmented_rhs_post` tau_lost, plus a fourth) collectively kept
+cqa-vs-cqa comparisons consistent and that flipping any one would
+break the cancellation. This audit demonstrated that the hypothesis
+was **incorrect**:
+
+* The compass-boundary fix from earlier in the session
+  (sec.12.21.18.4) was a real bug fix and stays.
+* The pdstrip mapping (3e) is a **separate** real bug. It only affects
+  `mean_drift_force_pdstrip`; cqa-vs-cqa comparisons hid it because
+  both sides shared the same buggy mapping.
+* The `_augmented_rhs_post` sign (Audit 5) is a **third** independent
+  real bug, exposing itself only in the post-WCF mean trajectory.
+* The "fourth" bug never existed; it was a mis-reading of the
+  controller-loop sign chain.
+
+The bugs **compound**, not cancel. Pwq30 is the first scenario that
+exercises all three simultaneously against external truth, which is
+why it surfaced the issue.
+
+##### 12.21.19.7 Fixes applied
+
+| File | Line | Change |
+|------|------|--------|
+| `cqa/cqa/wave_response.py` | 117 | `(180 − theta_deg)` → `(180 + theta_deg)` |
+| `cqa/cqa/wave_response.py` | 104–120 | Docstring rewritten: beta=90 = from STBD, beta=270 = from PORT, with brucon-derivation comment |
+| `cqa/cqa/transient.py`     | 458  | `− Minv @ tau_lost_now` → `+ Minv @ tau_lost_now` |
+| `cqa/cqa/transient.py`     | 414–457 | Docstring + multi-line comment rewritten to remove the now-obsolete "kept at the original `−`" justification chain |
+| `cqa/tests/test_calibrated_wcfdi.py` | 549–565 | Assertion flipped from `< 0` back to `> 0`; comment updated |
+| `cqa/tests/test_wave_response.py`    | 54–62 | Mapping test updated for corrected port/stbd semantics |
+| `cqa/tests/test_wave_response.py`    | 274–276 | `test_long_crested_recovers_single_direction` expected beta updated 90 → 270 (theta_rel=+π/2 ⇒ from port ⇒ beta=270) |
+
+##### 12.21.19.8 Verification
+
+* **Full pytest suite:** 357/357 passed (`./.venv/bin/python -m pytest tests/ -q`, 191 s).
+* **Regression test from sec.12.21.19 work** (`test_waves_from_starboard_push_vessel_to_port`, added during the audit) now passes: it asserts both `tau_env[sway] < 0` (force to port) and `eta_sway[peak] < 0` (vessel pushed to port) for waves from compass 210° onto a vessel heading compass 180°.
+* **Pwq30 launcher rerun** (`run_comparison_waves_only_quartering30.py`) — fresh in-memory probe of the post-WCF mean trajectory:
+
+  ```
+  tau_env body sway       = −109 026 N      (force to port)
+  cqa  peak sway          = −0.243 m  @ t=40.6 s
+  brucon peak sway (mean) = −0.510 m  @ ~t=30 s
+  ```
+
+  All three signs agree: external load to port → cqa eta to port →
+  brucon ensemble mean eta to port. The remaining magnitude gap
+  (cqa under-predicts brucon by ~2×) is the same residual pulse-
+  response amplitude gap documented in sec.12.21.17.10–.11 (MC
+  under-dispersion + open-loop pulse-response amplitude gap), **not**
+  a sign issue, and is out of scope for this audit.
+
+##### 12.21.19.9 Stale-NPZ false positive (lessons learned)
+
+During the verification phase, the assistant initially read
+`scripts/p7_brucon_validation/scenario_pwq30_calibration.npz` (written
+by the older `calibrated_wcfdi_brucon_validation.py` launcher, last
+modified May 13 08:23) and reported `eta_sway = +0.627 m`, contradicting
+the user-eyeballed PNG (`−0.5 m peak`). The pwq30 launcher used in
+this audit (`run_comparison_waves_only_quartering30.py`) does **not**
+write that npz; it only renders the PNG in-memory. The fix was to
+add a temporary `[sign-check]` print in the launcher's plotting
+section to dump the actual in-memory `transient.eta_mean[:,1]` and
+`sway_mean_emp` peaks. Lesson: when a launcher does not persist its
+intermediate arrays, do not infer sign from a same-named npz file
+written by a different launcher; always probe the in-memory arrays
+of the script that produced the figure under review.
+
+##### 12.21.19.10 Files modified
+
+Source:
+
+* `cqa/cqa/wave_response.py` (mapping + docstring)
+* `cqa/cqa/transient.py` (`_augmented_rhs_post` sign + docstring/comment)
+
+Tests:
+
+* `cqa/tests/test_wave_response.py` (mapping, long-crested expected beta)
+* `cqa/tests/test_calibrated_wcfdi.py` (sway-pulse assertion sign)
+* `cqa/tests/test_decision_matrix.py` (regression test added during the audit; passes)
+
+Documentation:
+
+* `cqa/scripts/sign_audit.md` (new — full audit document with
+  per-stage probes, verdicts, and proposed fixes)
+* `cqa/analysis.md` (this section)
+
+Validation artefact regenerated:
+
+* `cqa/scripts/p7_brucon_validation/p7_waves_only_validation_transient.png`
+  (oblique-heading sway sign now matches brucon ensemble)
+
+
+

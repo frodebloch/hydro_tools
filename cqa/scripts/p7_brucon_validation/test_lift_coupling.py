@@ -3,7 +3,8 @@
 Procedure (one cell at a time):
   1. Load one seed's brucon trajectory (e.g. bf8_h0_seed1000).
   2. Build its tau_lost(t) using the same logic as peak_R_b_hat_sigma_pwq30.py
-     (tau_pre = -b_hat snapshot, tau_lost = tau_pre - tau_thr_brucon(t)).
+     (tau_pre = -b_hat snapshot, tau_lost = T_post - T_pre = tau_thr - tau_pre).
+     [Authoritative convention; sec.12.21.17 sign fix.]
   3. Compute the brucon-truth peak |R_x|, |R_y| for that seed.
   4. Run pulse_response (no coupling) -> peak_A
   5. Run pulse_response_with_lift_coupling(K) -> peak_B
@@ -75,7 +76,8 @@ def _per_seed_tau_lost(M, E, t_grid):
     tau_thr_grid = np.column_stack([
         np.interp(t_grid + T_WCF, t_post, tau_thr_post[:, k]) for k in range(3)
     ])
-    tau_lost_grid = tau_pre[None, :] - tau_thr_grid
+    # tau_lost = T_post - T_pre (authoritative; sec.12.21.17 sign fix)
+    tau_lost_grid = tau_thr_grid - tau_pre[None, :]
     return tau_lost_grid, tau_pre, b_hat
 
 

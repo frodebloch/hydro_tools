@@ -73,8 +73,14 @@ TP = 10.224
 VC = 0.5
 WAVE_DIR_COMPASS = 270.0
 VESSEL_HEADING_COMPASS = 180.0
-# Compass-relative weather direction (into vessel): +90 deg = beam from starboard.
-THETA_REL = np.radians((WAVE_DIR_COMPASS - VESSEL_HEADING_COMPASS + 540) % 360 - 180)
+# Compass-CW bearing of source from bow: +90 -> source on starboard
+# beam. cqa's force/PSD/QTF code uses the opposite sign convention
+# (+theta_rel = source on PORT), so negate at the boundary
+# (analysis.md sec.12.21.19). Result here: THETA_REL = -pi/2 means
+# "from starboard beam" in cqa's internal convention -> body force
+# toward port (negative sway), which is the physically correct sign
+# brucon also produces for waves from compass 270 with vessel at 180.
+THETA_REL = np.radians(-((WAVE_DIR_COMPASS - VESSEL_HEADING_COMPASS + 540) % 360 - 180))
 
 
 def _bretschneider(omega: np.ndarray, Hs: float, Tp: float) -> np.ndarray:

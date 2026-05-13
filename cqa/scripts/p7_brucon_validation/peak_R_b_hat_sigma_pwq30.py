@@ -4,9 +4,20 @@ uncertainty propagated through the cqa-27 augmented system.
 Rationale (from the design discussion, see where_we_are_now_pwq30.py):
 
   The live cell uses pulse_response(x0=0) to predict the deterministic
-  WCFDI deviation trajectory delta_eta_LF(t), based on tau_lost(t) =
-  tau_pre - tau_thr(t), with tau_pre := -b_hat (the live observer's
-  bias estimate at the snapshot moment).
+  WCFDI deviation trajectory delta_eta_LF(t), based on tau_lost(t) :=
+  T_post(t) - T_pre, with T_pre := -b_hat (the live observer's bias
+  estimate at the snapshot moment). The "tau_lost" name here matches
+  the authoritative convention in cqa.decision_matrix._wcfdi_peak_at_
+  forecast_obs (lines 519-527): it is the hull-felt thrust DEVIATION
+  from intact-equilibrium thrust. Injected through B_lost = +Minv,
+  positive tau_lost drives positive acceleration; negative tau_lost
+  (i.e. T_post < T_pre, "thrust dropped") drives negative acceleration.
+
+  Sign-convention note (sec.12.21.17): an earlier version of this
+  script used tau_lost := T_pre - T_post (the opposite sign), which
+  resulted in sign-flipped delta_eta_mean in every calibration npz
+  and infected the brucon-validation harness. The fix is applied at
+  _per_seed_tau_lost and at the MC step that perturbs b_hat.
 
   An earlier version used the controller's commanded thrust OrderTau,
   averaged over a 25-s pre-WCF window, as the source of tau_pre. That
@@ -29,8 +40,8 @@ Procedure:
      log (EstBiasSurge/Sway/Yaw in kN/kNm). Compute mean and std
      across seeds.
 
-  2. Run pulse_response(x0=0) with each seed's tau_lost(t) =
-     -b_hat_seed - tau_thr_brucon_seed(t) -> per-seed
+  2. Run pulse_response(x0=0) with each seed's tau_lost(t) :=
+     tau_thr_brucon_seed(t) - tau_pre  -> per-seed
      delta_eta_LF_seed(t). Per-seed peak |delta_eta_LF_seed|.
 
   3. Ensemble-mean delta_eta_LF -> the deterministic predictor used
@@ -132,7 +143,17 @@ def _per_seed_tau_lost(M, E, t_grid):
     tau_pre := -b_hat at t = T_WCF - 5  (live cell convention; brucon
     NPO bias estimate, which is well-converged via T_b ~ 1000 s).
 
-    tau_lost(t) = tau_pre - tau_thr_brucon(t), interpolated on t_grid.
+    tau_lost(t) := T_post(t) - T_pre, the post-WCF thrust DEVIATION
+    from the intact-equilibrium thrust. This matches the authoritative
+    convention used by cqa.decision_matrix._wcfdi_peak_at_forecast_obs
+    (lines 519-527) and cqa.live_decision.summarise_for_operator_live
+    (line 452). In the pulse_response framework with B_lost = +Minv,
+    the hull-felt deviation force IS tau_lost (no extra sign flip).
+
+    Earlier version of this script (pre-2026-05-12) used the OPPOSITE
+    sign tau_lost = tau_pre - T_post, which propagated as a sign-flipped
+    delta_eta_mean in every calibration npz and infected the
+    brucon-validation harness. See analysis.md sec.12.21.17.
     """
     # b_hat snapshot from brucon NPO (kN/kNm) -> N/Nm via *1e3.
     k_bh = int(np.argmin(np.abs(E["Time"] - B_HAT_SNAPSHOT_T)))
@@ -155,7 +176,8 @@ def _per_seed_tau_lost(M, E, t_grid):
         np.interp(t_grid + T_WCF, t_post, tau_thr_post[:, k])
         for k in range(3)
     ])
-    tau_lost_grid = tau_pre[None, :] - tau_thr_grid
+    # tau_lost = T_post - T_pre  (authoritative convention; sec.12.21.17)
+    tau_lost_grid = tau_thr_grid - tau_pre[None, :]
     return tau_lost_grid, tau_pre
 
 
@@ -190,7 +212,9 @@ def main():
         per_seed_tau_pre.append(tau_pre_seed)
         per_seed_b_hat.append(-tau_pre_seed)        # b_hat = -tau_pre
         # Reconstruct per-seed tau_thr(t) for the MC step.
-        per_seed_tau_thr.append(tau_pre_seed[None, :] - tau_lost_seed)
+        # New convention (sec.12.21.17): tau_lost = T_post - T_pre
+        # => T_post = T_pre + tau_lost
+        per_seed_tau_thr.append(tau_pre_seed[None, :] + tau_lost_seed)
         seed_ids.append(s)
     n_seeds = len(per_seed_tau_lost)
     print(f"Loaded {n_seeds} seeds")
@@ -237,7 +261,8 @@ def main():
     for k in range(n_mc):
         db = rng.normal(0.0, b_hat_std)
         tau_pre_k = -(b_hat_mean + db)
-        tau_lost_k = tau_pre_k[None, :] - tau_thr_mean
+        # New convention (sec.12.21.17): tau_lost = T_post - T_pre
+        tau_lost_k = tau_thr_mean - tau_pre_k[None, :]
         Xk = pulse_response(aug, t_grid, tau_lost_k, x0=np.zeros(N_STATE))
         de = Xk[:, IDX_ETA_HAT][:, 0:2]
         peaks_mc[k] = np.hypot(de[:, 0], de[:, 1]).max()
@@ -350,7 +375,8 @@ def main():
         n_seeds=np.array(n_seeds),
         tag=np.array(TAG),
         convention=np.array(
-            "delta_eta_mean = pulse_response(ensemble-mean tau_lost), "
+            "delta_eta_mean = pulse_response(ensemble-mean tau_lost) "
+            "with tau_lost := T_post - T_pre (sec.12.21.17 sign fix); "
             "sigma_R_b_hat from MC over b_hat measurement noise"
         ),
     )

@@ -29,22 +29,37 @@ Direction model
 v1 honours the polar's collinear convention: per slot a single
 ``theta_env_compass`` carries wind, wave and current. Realistic for
 wind-driven North-Sea seas where the three are usually co-aligned.
-The evaluator computes ``theta_rel = theta_env_compass - heading_compass``
-(positive into the vessel) and feeds it to the PSD assemblers and the
-WCFDI transient. Independent wind / wave / current directions are a
+The evaluator computes the cqa-internal relative weather direction
+``theta_rel`` from the compass-bearing-of-source (see Heading
+convention below) and feeds it to the PSD assemblers and the WCFDI
+transient. Independent wind / wave / current directions are a
 deferred extension; see ``analysis.md`` §12.15.
 
 Heading convention
 ------------------
 ``heading_compass`` is the vessel's compass heading (the bow direction).
 ``theta_env_compass`` is the meteorological "from" direction (the
-direction the wind / wave / current is coming from). Therefore the
-relative direction *into the vessel* is
+direction the wind / wave / current is coming from).
 
-    theta_rel = wrap_to_minus_pi_pi(theta_env_compass - heading_compass)
+The bearing of the source from the bow, measured CW (looking down
+from above), is ``(theta_env_compass - heading_compass)`` -- positive
+puts the source on the **starboard** side of the vessel (because
+compass-CW maps to body +y = starboard).
 
-with theta_rel = 0 -> head-on, pi/2 -> beam from port (right-hand rule
-about the vertical axis), as elsewhere in cqa.
+The cqa-internal force/PSD code (``WindForceModel``, pdstrip beta
+mapping in ``wave_response.py``) uses the opposite sign convention:
+``theta_rel = +pi/2`` is interpreted as "weather from the **port**
+beam, body force toward starboard." We therefore negate at the
+boundary (analysis.md sec.12.21.19):
+
+    theta_rel = wrap_to_minus_pi_pi(-(theta_env_compass - heading_compass))
+              = wrap_to_minus_pi_pi(heading_compass - theta_env_compass)
+
+with theta_rel = 0 -> head-on, +pi/2 -> waves from port beam (force
+toward starboard), -pi/2 -> waves from starboard beam (force toward
+port). All cqa-internal code (transient, drift, gust PSD, pdstrip
+QTF lookup) is consistent with this internal convention; the negation
+lives only here at the compass->body boundary.
 
 Traffic-light combination
 -------------------------
@@ -677,7 +692,13 @@ def evaluate_decision_cell(
             T_realloc=10.0,
         )
 
-    theta_rel = _wrap_pi(slot.theta_env_compass - heading_compass)
+    # Boundary: compass-CW bearing-of-source -> cqa internal theta_rel.
+    # The compass formula (theta_env_compass - heading_compass) gives the
+    # bearing of the source from the bow, measured CW; positive = source
+    # on STARBOARD. cqa-internal force/PSD/QTF code uses the opposite
+    # convention (+theta_rel = source on PORT), so we negate here. See
+    # module docstring "Heading convention" and analysis.md sec.12.21.19.
+    theta_rel = _wrap_pi(heading_compass - slot.theta_env_compass)
 
     # ---- Intact axis ----
     prior = _build_intact_prior_at_forecast(

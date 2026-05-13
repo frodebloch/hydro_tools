@@ -114,12 +114,15 @@ def test_evaluate_cell_benign_is_all_green():
 
 def test_evaluate_cell_heading_changes_theta_rel():
     cfg, joint = _cfg_joint()
-    # Env from north (compass 0); heading east (pi/2) -> env from port beam
+    # Env from north (compass 0); heading east (pi/2) -> bow points east,
+    # so env source (north) is on the **port** side of the vessel.
+    # Boundary mapping (sec.12.21.19): theta_rel = heading - env_compass
+    # = +pi/2 - 0 = +pi/2 (cqa internal: +pi/2 = "from port"). Matches
+    # geometry.
     slot = _benign_slot(theta_env_compass=0.0)
     cell_head = evaluate_decision_cell(cfg, joint, slot,
                                        heading_compass=np.pi / 2)
-    # theta_rel = 0 - pi/2 = -pi/2 (env from port beam relative)
-    assert math.isclose(cell_head.theta_rel, -np.pi / 2, abs_tol=1e-9)
+    assert math.isclose(cell_head.theta_rel, +np.pi / 2, abs_tol=1e-9)
 
 
 def test_evaluate_cell_bistability_gate_forces_red():
@@ -131,7 +134,11 @@ def test_evaluate_cell_bistability_gate_forces_red():
     """
     cfg, joint = _cfg_joint()
     slot = _bistable_slot()
-    # heading=0 -> theta_rel = pi/2 (env beam from starboard)
+    # heading=0 (bow north), env from compass +pi/2 (from east). East of
+    # a north-facing vessel = starboard. Boundary mapping (sec.12.21.19):
+    # theta_rel = heading - env_compass = 0 - pi/2 = -pi/2 (cqa internal:
+    # -pi/2 = "from starboard"). Bistability is symmetric in the beam
+    # sign, so the score-based assertions below are unchanged.
     cell = evaluate_decision_cell(cfg, joint, slot, heading_compass=0.0)
     assert cell.wcfdi_bistability_score > 1.5
     assert cell.wcfdi_traffic == "red"
@@ -173,10 +180,15 @@ def test_evaluate_cell_collinear_with_polar_at_pm_point():
     cell = evaluate_decision_cell(cfg, joint, slot, heading_compass=0.0)
     # Compare against direct calls to wcfdi_transient and the same
     # k_sigma envelope used by the cell.
+    # Note (sec.12.21.19): the boundary in evaluate_decision_cell maps
+    # (theta_env_compass=+pi/2, heading=0) -> theta_rel = -pi/2 (waves
+    # from starboard in cqa's internal "+ = from port" convention). The
+    # direct wcfdi_transient call must use the same internal value to
+    # be consistency-equivalent.
     from cqa.transient import wcfdi_transient, WcfdiScenario
     scen = WcfdiScenario(alpha=(2/3,)*3, gamma_immediate=0.5, T_realloc=10.0)
     res = wcfdi_transient(cfg, Vw_mean=Vw, Hs=slot.Hs, Tp=slot.Tp,
-                          Vc=slot.Vc, theta_rel=np.pi/2, scenario=scen)
+                          Vc=slot.Vc, theta_rel=-np.pi/2, scenario=scen)
     eta = res.eta_mean
     P_eta = res.P[:, 0:3, 0:3]
     pos_mean_r = np.sqrt(eta[:, 0]**2 + eta[:, 1]**2)
@@ -265,3 +277,100 @@ def test_matrix_grids_decompose_consistently():
     # so we don't assert red there.
     assert wcfdi[1, 0] == "red"
     assert wcfdi[2, 0] == "red"
+
+
+# ---------------------------------------------------------------------------
+# Regression: physical sign of the compass -> theta_rel boundary mapping
+# (analysis.md sec.12.21.19).
+# ---------------------------------------------------------------------------
+
+
+def test_waves_from_starboard_push_vessel_to_port():
+    """End-to-end physical-sign check at the compass <-> body boundary.
+
+    Geometry: vessel heading compass = pi (bow points south), env from
+    compass 7*pi/6 = 210 deg (SSW). Compass-CW bearing of source from
+    bow = (210 - 180) = +30 deg = source on STARBOARD-bow. Physical
+    response: external force pushes vessel toward PORT, i.e. **negative
+    body sway** (body +y = starboard).
+
+    Pre-fix: cqa pipeline produced a positive sway hump for this
+    geometry (180-deg sign error), in disagreement with brucon truth
+    on the pwq30 cell. Post-fix: the wcfdi_transient mean trajectory
+    must show negative peak sway here. The boundary lives in
+    cqa.decision_matrix.evaluate_decision_cell (heading_compass -
+    theta_env_compass), and this test exercises that mapping by
+    constructing the slot and reading back the resolved theta_rel,
+    then verifying the deterministic mean-trajectory sign through
+    wcfdi_transient.
+    """
+    cfg, joint = _cfg_joint()
+    heading_compass = np.pi               # bow south
+    theta_env_compass = np.pi + np.pi / 6  # source compass 210 deg (SSW)
+    slot = ForecastSlot(
+        label="stbd-bow", Vw=10.0, Hs=2.5, Tp=8.0, Vc=0.3,
+        theta_env_compass=theta_env_compass,
+    )
+    cell = evaluate_decision_cell(cfg, joint, slot,
+                                  heading_compass=heading_compass)
+    # Boundary contract: heading - env = pi - 7pi/6 = -pi/6.
+    assert math.isclose(cell.theta_rel, -np.pi / 6, abs_tol=1e-9), (
+        f"theta_rel boundary contract violated: expected -pi/6, "
+        f"got {cell.theta_rel:+.6f} rad"
+    )
+
+    # Direct physics check via wcfdi_transient at theta_rel = -pi/6
+    # (cqa internal: source on starboard side, force toward port).
+    from cqa.transient import wcfdi_transient, WcfdiScenario
+    scen = WcfdiScenario(alpha=(2/3,)*3, gamma_immediate=0.5,
+                         T_realloc=10.0)
+    res = wcfdi_transient(
+        cfg, Vw_mean=slot.Vw, Hs=slot.Hs, Tp=slot.Tp, Vc=slot.Vc,
+        theta_rel=cell.theta_rel, scenario=scen,
+        t_end=200.0, n_t=401,
+    )
+    # Mean drift / wind / current force in body sway must be NEGATIVE
+    # (force pushing vessel toward port).
+    tau_env = res.info["tau_env"]
+    assert tau_env[1] < 0.0, (
+        f"Expected negative body sway force for waves from starboard-bow; "
+        f"got tau_env[sway] = {tau_env[1]:+.0f} N"
+    )
+    # And the resulting peak sway excursion must be negative (vessel
+    # pushed to port). Pick the time index of maximum |eta_sway|.
+    eta_sway = res.eta_mean[:, 1]
+    k_peak = int(np.argmax(np.abs(eta_sway)))
+    assert eta_sway[k_peak] < 0.0, (
+        f"Expected negative peak sway excursion (vessel pushed to port) "
+        f"for waves from starboard-bow; got eta_sway[peak] = "
+        f"{eta_sway[k_peak]:+.4f} m at t={res.t[k_peak]:.1f}s"
+    )
+
+
+def test_waves_from_port_push_vessel_to_starboard():
+    """Mirror of the above: waves from port-bow -> +sway (toward
+    starboard). Asserts the boundary mapping is anti-symmetric and the
+    cqa internal force convention agrees with itself."""
+    cfg, joint = _cfg_joint()
+    heading_compass = np.pi               # bow south
+    theta_env_compass = np.pi - np.pi / 6  # source compass 150 deg (SSE)
+    slot = ForecastSlot(
+        label="port-bow", Vw=10.0, Hs=2.5, Tp=8.0, Vc=0.3,
+        theta_env_compass=theta_env_compass,
+    )
+    cell = evaluate_decision_cell(cfg, joint, slot,
+                                  heading_compass=heading_compass)
+    assert math.isclose(cell.theta_rel, +np.pi / 6, abs_tol=1e-9)
+    from cqa.transient import wcfdi_transient, WcfdiScenario
+    scen = WcfdiScenario(alpha=(2/3,)*3, gamma_immediate=0.5,
+                         T_realloc=10.0)
+    res = wcfdi_transient(
+        cfg, Vw_mean=slot.Vw, Hs=slot.Hs, Tp=slot.Tp, Vc=slot.Vc,
+        theta_rel=cell.theta_rel, scenario=scen,
+        t_end=200.0, n_t=401,
+    )
+    assert res.info["tau_env"][1] > 0.0
+    eta_sway = res.eta_mean[:, 1]
+    k_peak = int(np.argmax(np.abs(eta_sway)))
+    assert eta_sway[k_peak] > 0.0
+

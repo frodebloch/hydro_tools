@@ -127,7 +127,9 @@ def main() -> None:
     cfg, joint = setup_cqa()
     rao = load_pdstrip_rao(PDSTRIP_PATH)
     rel_deg = (WAVE_DIR - HEADING + 540) % 360 - 180
-    theta_rel = np.radians(rel_deg)
+    # Boundary: negate compass-CW bearing -> cqa-internal theta_rel
+    # (analysis.md sec.12.21.19).
+    theta_rel = np.radians(-rel_deg)
 
     prior = _build_intact_prior_at_forecast(
         cfg, joint,

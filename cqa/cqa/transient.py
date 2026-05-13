@@ -411,15 +411,20 @@ def _augmented_rhs_post(
     the thrust-reallocation ramp from the immediate-post-failure value
     up to the steady-state post-failure cap).
 
-    `tau_lost_fn(t)` (optional) returns a per-DOF transient deficit on
-    delivered thrust at time t -- the difference between what the
-    surviving thrusters are *commanded* to produce and what they can
-    actually *deliver* during the spool-up / re-allocation transient.
-    Mathematically equivalent to subtracting tau_lost(t) from the
-    effective force on the vessel hull. Default None preserves the
-    original (cap-only) behaviour for backward compatibility. See
-    analysis.md sec.12.21.7 for the brucon validation that motivated
-    this term.
+    `tau_lost_fn(t)` (optional) returns a per-DOF transient deficit
+    added to the hull-force balance at time t -- the difference
+    between what the surviving thrusters are *commanded* to produce
+    (here represented through the `tau_thr` state via the cap-clipped
+    controller) and what they can actually *deliver* during the
+    spool-up / re-allocation transient. Sign convention follows
+    production transient_obs.py:48 and live_decision.py:447: tau_lost
+    is **added** to nu_dot via Minv, with tau_lost = (1-beta(t))*tau_env
+    having the same sign as the mean environmental force, so the
+    deficit pushes the vessel in the same direction as the
+    wind/wave/current load during reallocation. Default None preserves
+    the original (cap-only) behaviour for backward compatibility. See
+    analysis.md sec.12.21.7/.18/.19 for the brucon validation, the
+    bug history, and the systematic 7-step sign audit.
     """
     eta = x[0:3]
     nu = x[3:6]
@@ -437,7 +442,15 @@ def _augmented_rhs_post(
     eta_dot = nu
     if tau_lost_fn is not None:
         tau_lost_now = tau_lost_fn(t)
-        nu_dot = Minv_D @ nu + Minv @ tau_thr + Minv @ tau_env - Minv @ tau_lost_now
+        # Sign convention (analysis.md sec.12.21.19): tau_lost is ADDED
+        # to nu_dot via Minv (B_lost = +Minv), matching transient_obs.py:48
+        # and live_decision.py:447. Physically, tau_lost = (1-beta(t))*tau_env
+        # is the spool-up deficit on the hull -- the lost thrusters had
+        # been opposing tau_env, so their absence pushes the vessel in
+        # the same direction as the environmental load. Verified against
+        # the brucon pwq30 ensemble after the pdstrip beta-mapping fix
+        # (sec.12.21.19) restored the correct port/starboard semantics.
+        nu_dot = Minv_D @ nu + Minv @ tau_thr + Minv @ tau_env + Minv @ tau_lost_now
     else:
         nu_dot = Minv_D @ nu + Minv @ tau_thr + Minv @ tau_env
     b_hat_dot = (1.0 / aug.T_b) * (aug.Kp @ eta)
@@ -652,10 +665,32 @@ def wcfdi_transient(
 
     cap_fn = lambda t: scenario.cap_at_time(t, cfg)
 
+    # Transient thrust-deficit injection (analysis.md sec.12.21.17/.18).
+    # During the reallocation ramp, the surviving thrusters are commanded
+    # against the intact cap but can only physically deliver up to
+    # cap_at_time(t) <= cap_intact. The deficit, transferred onto the
+    # vessel hull as an effective force, is the authoritative
+    #   tau_lost(t) := T_post(t) - T_pre = (1 - beta(t)) * tau_env
+    # convention (decision_matrix.py:519-527, live_decision.py:452). Here
+    # beta(t) is the per-DOF surviving fraction of intact capability,
+    # which equals cap_at_time(t) / cap_intact for the parametric
+    # WcfdiScenario ramp. With alpha=1, gamma_imm<1 this gives a finite
+    # transient deficit that decays to 0 as t -> infinity; with alpha<1
+    # it decays to the permanent steady-state deficit (1-alpha)*tau_env.
+    # Without this term the diagnostic launchers showed flat eta_mean
+    # for waves-only operating points where |tau_env| < cap_immediate
+    # and no clipping ever triggers.
+    cap_intact = scenario.resolved_cap_intact(cfg)
+    def tau_lost_fn(t: float) -> np.ndarray:
+        beta = cap_fn(t) / np.maximum(cap_intact, 1e-12)
+        return (1.0 - beta) * tau_env
+
     # --- Solve mean trajectory (nonlinear because of clipping) ---
     t_eval = np.linspace(0.0, t_end, n_t)
     sol = solve_ivp(
-        fun=lambda t, x: _augmented_rhs_post(t, x, aug, tau_env, cap_fn),
+        fun=lambda t, x: _augmented_rhs_post(
+            t, x, aug, tau_env, cap_fn, tau_lost_fn=tau_lost_fn
+        ),
         t_span=(0.0, t_end),
         y0=x0_post,
         t_eval=t_eval,

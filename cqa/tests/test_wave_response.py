@@ -52,14 +52,19 @@ def joint(cfg):
 
 
 def test_theta_rel_to_pdstrip_beta_known_values():
+    # Updated per analysis.md sec.12.21.19 sign audit. cqa theta_rel
+    # is wrap_pi(heading_compass - wave_from_compass); brucon's
+    # pdstrip_angle = (heading + 180 - wave_from) mod 360, hence
+    # beta = (180 + theta_rel_deg) mod 360. Beta=90 corresponds to
+    # waves coming FROM the starboard beam (vessel pushed to port).
     # head sea: theta=0  => beta=180
     assert np.isclose(cqa_theta_rel_to_pdstrip_beta_deg(0.0), 180.0)
-    # port beam: theta=+pi/2 => beta=90
-    assert np.isclose(cqa_theta_rel_to_pdstrip_beta_deg(np.pi / 2), 90.0)
+    # waves from starboard beam: theta=-pi/2 => beta=90
+    assert np.isclose(cqa_theta_rel_to_pdstrip_beta_deg(-np.pi / 2), 90.0)
     # following: theta=+pi => beta=0
     assert np.isclose(cqa_theta_rel_to_pdstrip_beta_deg(np.pi), 0.0)
-    # starboard beam: theta=-pi/2 => beta=270
-    assert np.isclose(cqa_theta_rel_to_pdstrip_beta_deg(-np.pi / 2), 270.0)
+    # waves from port beam: theta=+pi/2 => beta=270
+    assert np.isclose(cqa_theta_rel_to_pdstrip_beta_deg(np.pi / 2), 270.0)
 
 
 # ---------------------------------------------------------------------------
@@ -267,7 +272,9 @@ def test_long_crested_recovers_single_direction(rao_table, cfg, joint):
                        theta_wave_rel=np.pi / 2,
                        spreading=SeaSpreading.long_crested())
     assert res.beta_deg_samples.shape == (1,)
-    assert np.isclose(res.beta_deg_samples[0], 90.0)
+    # theta_rel=+pi/2 maps to beta=270 (waves from port beam) per the
+    # corrected mapping (analysis.md sec.12.21.19).
+    assert np.isclose(res.beta_deg_samples[0], 270.0)
     assert np.isclose(res.spread_weights.sum(), 1.0)
 
 

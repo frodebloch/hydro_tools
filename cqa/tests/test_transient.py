@@ -35,7 +35,12 @@ def test_intact_steady_state_is_zero_eta():
 
 
 def test_no_failure_means_no_transient():
-    """alpha = 1.0 (no capability lost) should give zero deviation throughout."""
+    """alpha=1, gamma_immediate=1.0 (no immediate cap drop, no permanent
+    deficit) is the true 'no failure' scenario: tau_lost(t) is
+    identically zero, the cap is constant at the intact level, and the
+    deterministic mean trajectory stays pinned at the intact steady
+    state throughout. See analysis.md sec.12.21.17/.18 for the tau_lost
+    injection convention."""
     cfg = csov_default_config()
     res = wcfdi_transient(
         cfg,
@@ -44,13 +49,80 @@ def test_no_failure_means_no_transient():
         Tp=8.0,
         Vc=0.3,
         theta_rel=np.pi / 2.0,
-        scenario=WcfdiScenario(alpha=(1.0, 1.0, 1.0)),
+        scenario=WcfdiScenario(
+            alpha=(1.0, 1.0, 1.0), gamma_immediate=1.0, T_realloc=10.0,
+        ),
         t_end=60.0,
         n_t=61,
     )
     # eta_mean stays at zero throughout (mean steady state).
     assert np.max(np.abs(res.eta_mean)) < 1e-3, (
         f"max |eta_mean| = {np.max(np.abs(res.eta_mean))} should be ~0"
+    )
+
+
+def test_tau_lost_injection_drives_waves_only_transient():
+    """Waves-only operating point (Vw=Vc=0): |tau_env| is small enough
+    that the post-failure cap never clips, so the legacy cap-only path
+    produces eta_mean(t) === 0. With tau_lost = (1-beta)*tau_env injected
+    (sec.12.21.17/.18), a transient hump must appear in surge/sway."""
+    cfg = csov_default_config()
+    res = wcfdi_transient(
+        cfg,
+        Vw_mean=0.0,
+        Hs=2.5,
+        Tp=8.0,
+        Vc=0.0,
+        theta_rel=np.deg2rad(30.0),  # quartering: non-zero F_drift in x and y
+        scenario=WcfdiScenario(
+            alpha=(2.0/3.0,)*3, gamma_immediate=0.5, T_realloc=10.0,
+        ),
+        t_end=200.0,
+        n_t=401,
+    )
+    # tau_env should be non-zero in at least one DOF (drift in x/y).
+    tau_env = res.info["tau_env"]
+    assert np.max(np.abs(tau_env[:2])) > 0.0, (
+        f"Expected non-zero drift tau_env for Hs=2.5; got {tau_env}"
+    )
+    # Peak eta_mean must be clearly non-zero (the bug symptom was
+    # max |eta_mean| ~ 1e-8 because no clipping ever triggered).
+    peak_xy = float(np.max(np.abs(res.eta_mean[:, :2])))
+    assert peak_xy > 1e-3, (
+        f"Expected tau_lost injection to produce a transient hump in "
+        f"surge/sway for waves-only cell; got peak |eta_xy| = {peak_xy:.3e}"
+    )
+    # Late-time mean must decay back near zero (alpha=2/3 with permanent
+    # deficit (1-alpha)*tau_env = 0.33*tau_env; tiny drift forces -> the
+    # closed-loop bias estimator absorbs it and eta -> 0).
+    late_xy = float(np.max(np.abs(res.eta_mean[-1, :2])))
+    assert late_xy < peak_xy, (
+        f"Expected late-time decay below peak; peak={peak_xy:.3e}, "
+        f"late={late_xy:.3e}"
+    )
+
+
+def test_tau_lost_zero_when_no_reallocation_lag():
+    """T_realloc -> 0 with alpha=1, gamma_immediate=1 means cap is
+    instantly at the intact level: beta(t)=1 for all t>=0, tau_lost===0,
+    and the mean trajectory matches the intact steady state."""
+    cfg = csov_default_config()
+    res = wcfdi_transient(
+        cfg,
+        Vw_mean=8.0,
+        Hs=1.5,
+        Tp=6.0,
+        Vc=0.2,
+        theta_rel=np.pi / 4.0,
+        scenario=WcfdiScenario(
+            alpha=(1.0,)*3, gamma_immediate=1.0, T_realloc=0.0,
+        ),
+        t_end=100.0,
+        n_t=101,
+    )
+    assert np.max(np.abs(res.eta_mean)) < 1e-3, (
+        f"With no cap drop and no lag, eta_mean must stay ~0; got "
+        f"max={np.max(np.abs(res.eta_mean)):.3e}"
     )
 
 

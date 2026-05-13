@@ -134,7 +134,8 @@ def _per_cell_stats(tag, aug, t_grid, K_lift):
         peaks_x = np.zeros(n)
         peaks_y = np.zeros(n)
         for i in range(n):
-            tau_lost = tau_pre_ens[None, :] - tau_thr[i]
+            # tau_lost = T_post - T_pre (authoritative; sec.12.21.17 sign fix)
+            tau_lost = tau_thr[i] - tau_pre_ens[None, :]
             if use_coupling:
                 X = pulse_response_with_lift_coupling(
                     aug, t_grid, tau_lost, b_hat0=b_hat0, K_lift=K_lift,

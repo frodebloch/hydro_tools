@@ -108,16 +108,23 @@ def cqa_theta_rel_to_pdstrip_beta_deg(theta_wave_rel: float) -> float:
         theta_rel = +pi/2 => from the port beam
         theta_rel = +pi   => following
 
-    pdstrip convention (matches csov_pdstrip.dat / brucon WaveResponse):
+    pdstrip convention (matches csov_pdstrip.dat / brucon WaveResponse,
+    decoded from brucon/libs/dp/vessel_model/wave_response.cpp:74 and
+    cross-checked against vessel_simulator_model_tests.cpp:493):
         beta = 180  => head sea
-        beta =  90  => beam from port (wave going to starboard)
+        beta =  90  => beam from starboard (force pushes vessel to port)
         beta =   0  => following
-        beta = 270  => beam from starboard
+        beta = 270  => beam from port (force pushes vessel to starboard)
 
-    Mapping: beta_deg = (180 - theta_rel_deg) mod 360.
+    Mapping: beta_deg = (180 + theta_rel_deg) mod 360.
+
+    Derivation: brucon uses
+        pdstrip_angle = (heading_compass + 180 - wave_from_compass) mod 360.
+    cqa's theta_rel = wrap_pi(heading_compass - wave_from_compass), so
+        pdstrip_angle = (theta_rel_deg + 180) mod 360.
     """
     theta_deg = float(np.degrees(theta_wave_rel))
-    return float(np.mod(180.0 - theta_deg, 360.0))
+    return float(np.mod(180.0 + theta_deg, 360.0))
 
 
 # ---------------------------------------------------------------------------

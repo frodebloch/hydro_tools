@@ -326,7 +326,11 @@ def stable_eigvals(A: np.ndarray, tol: float = 1e-9) -> tuple[np.ndarray, bool]:
 def drift_psd_omega(omega: np.ndarray) -> np.ndarray:
     """One-sided sway slow-drift PSD [N²·s] vs ω [rad/s] at HS, TP, β=90°."""
     rao = load_pdstrip_rao(PDSTRIP_PATH)
-    theta_rel = np.deg2rad(WAVE_DIR_NED - HEADING_NED)  # = +π/2 for beam-on
+    # Note: this script returns the sway *auto-PSD*, which is sign-
+    # invariant under theta_rel -> -theta_rel. The compass->cqa boundary
+    # negation discussed in analysis.md sec.12.21.19 therefore has no
+    # mathematical effect here; we negate anyway for convention purity.
+    theta_rel = np.deg2rad(-(WAVE_DIR_NED - HEADING_NED))  # = -pi/2 for beam-on (waves from starboard)
     S_F_callable = slow_drift_force_psd_newman_pdstrip(
         rao_table=rao, Hs=HS, Tp=TP, theta_wave_rel=theta_rel,
     )

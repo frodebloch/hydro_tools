@@ -79,6 +79,7 @@ sys.path.insert(0, str(THIS))                       # for `harness`
 sys.path.insert(0, str(THIS.parent.parent))         # for `cqa` package
 
 from harness import parse_output, SIM_DT, CSOV_WCF_GROUPS  # noqa: E402
+from _constants import T_WCF_S as _T_WCF_S, POST_FAILURE_S as _T_POST_S  # noqa: E402  # sec.12.21.17
 
 # Reuse setup_cqa from run_comparison so cqa controller bandwidth /
 # damping / gangway joint exactly match the brucon-side run that
@@ -95,9 +96,9 @@ TP = 10.22443464601827
 THETA_REL = np.pi / 6          # β = 30° (bow-quartering port)
 VW_NOMINAL = 0.0               # waves-only ensemble
 VC_NOMINAL = 0.0
-T_WCF_S = 560.0                # activate_sk_s 60 + settle_s 500
-T_POST_S = 180.0               # post_failure_s
-SIGMA_WINDOW = (360.0, 560.0)  # 200 s pre-WCF window for σ extraction
+T_WCF_S = _T_WCF_S             # = ACTIVATE_SK_S + SETTLE_S (sec.12.21.17)
+T_POST_S = _T_POST_S           # post_failure_s (sec.12.21.17)
+SIGMA_WINDOW = (T_WCF_S - 200.0, T_WCF_S)  # 200 s pre-WCF window for sigma extraction
 DT_S = SIM_DT                  # 0.1 s
 
 # ---- pdstrip RAO file ----

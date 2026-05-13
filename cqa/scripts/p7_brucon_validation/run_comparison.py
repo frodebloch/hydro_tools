@@ -173,12 +173,12 @@ def main() -> None:
     print(f"  loading RAO+QTF from {PDSTRIP_PATH}")
     rao = load_pdstrip_rao(PDSTRIP_PATH)
 
-    # Convert relative compass direction to cqa convention:
-    # cqa theta_rel = direction the weather comes *into* the vessel,
-    # 0 = head-on, +pi/2 = from starboard (beam to starboard).
-    # Compass-relative: weather_from - vessel_heading = 90 deg means weather
-    # is from starboard side, i.e. theta_rel = +pi/2.
-    theta_rel = np.radians(rel_deg)
+    # Boundary: rel_deg above is the standard compass-CW bearing of the
+    # wave source from the bow (positive = source on starboard). cqa's
+    # WindForceModel/CurrentForceModel/pdstrip-beta mapping use the
+    # opposite convention internally (+theta_rel = source on PORT). We
+    # negate at the boundary; see analysis.md sec.12.21.19.
+    theta_rel = np.radians(-rel_deg)
 
     t_cqa_start = time.time()
     prior = _build_intact_prior_at_forecast(
