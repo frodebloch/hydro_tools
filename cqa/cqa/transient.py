@@ -665,24 +665,37 @@ def wcfdi_transient(
 
     cap_fn = lambda t: scenario.cap_at_time(t, cfg)
 
-    # Transient thrust-deficit injection (analysis.md sec.12.21.17/.18).
-    # During the reallocation ramp, the surviving thrusters are commanded
-    # against the intact cap but can only physically deliver up to
-    # cap_at_time(t) <= cap_intact. The deficit, transferred onto the
-    # vessel hull as an effective force, is the authoritative
+    # Transient thrust-deficit injection (analysis.md sec.12.21.17/.18/.19a).
+    # During the reallocation ramp, the surviving thrusters are spooling
+    # up from the immediate post-WCF capability gamma_imm*cap_intact to
+    # full reallocation. The deficit transferred onto the vessel hull
+    # is the brucon-faithful authoritative
     #   tau_lost(t) := T_post(t) - T_pre = (1 - beta(t)) * tau_env
-    # convention (decision_matrix.py:519-527, live_decision.py:452). Here
-    # beta(t) is the per-DOF surviving fraction of intact capability,
-    # which equals cap_at_time(t) / cap_intact for the parametric
-    # WcfdiScenario ramp. With alpha=1, gamma_imm<1 this gives a finite
-    # transient deficit that decays to 0 as t -> infinity; with alpha<1
-    # it decays to the permanent steady-state deficit (1-alpha)*tau_env.
-    # Without this term the diagnostic launchers showed flat eta_mean
-    # for waves-only operating points where |tau_env| < cap_immediate
-    # and no clipping ever triggers.
-    cap_intact = scenario.resolved_cap_intact(cfg)
+    # with the SAME beta(t) profile used by the production parametric
+    # paths in decision_matrix.py:553, live_decision.py:451, and
+    # live_operator_view.py:803:
+    #   beta(t) = 1 + (gamma_immediate - 1) * exp(-t / T_realloc)
+    # which decays from gamma_immediate (e.g. 0.5) at t=0+ to **1** as
+    # t -> infinity. The TRANSIENT deficit (1-beta(t))*tau_env therefore
+    # decays from (1-gamma_immediate)*tau_env to 0, matching the user's
+    # mental model: "short time of tau_lost and a linear recovery time".
+    #
+    # Sec.12.21.19a fix (this commit): the previous formulation
+    #   beta = cap_at_time(t) / cap_intact
+    # tied beta to the cap ramp, which decays to alpha (e.g. 2/3) rather
+    # than 1, leaving a permanent (1-alpha)*tau_env deficit injected
+    # forever. That created a fictitious surge hump on pwq30 (cqa
+    # showed -0.42 m surge where brucon's ensemble mean was flat near
+    # zero). The PERMANENT loss of thrust authority is already correctly
+    # modelled by cap_fn(t -> infinity) = alpha*cap_intact, which clips
+    # tau_thr if the controller ever demands more than the surviving
+    # cap. As long as |tau_env| <= cap_post (the CQA precondition),
+    # the controller can fully neutralise tau_env at SS and eta -> 0
+    # with no permanent disturbance term needed.
+    gamma_imm = scenario.gamma_immediate
+    T_realloc = scenario.T_realloc if scenario.T_realloc > 0 else 1e-9
     def tau_lost_fn(t: float) -> np.ndarray:
-        beta = cap_fn(t) / np.maximum(cap_intact, 1e-12)
+        beta = 1.0 + (gamma_imm - 1.0) * np.exp(-t / T_realloc)
         return (1.0 - beta) * tau_env
 
     # --- Solve mean trajectory (nonlinear because of clipping) ---

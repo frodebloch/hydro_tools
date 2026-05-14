@@ -5932,4 +5932,160 @@ Validation artefact regenerated:
   (oblique-heading sway sign now matches brucon ensemble)
 
 
+#### 12.21.19a Spurious surge hump on pwq30: tau_lost decayed to (1−α)·tau_env instead of zero
+
+After sec.12.21.19 fixed the sign issues, the pwq30 launcher still
+showed a clear cqa post-WCF **surge hump** (~−0.6 m peak at t≈60 s)
+with no counterpart in the brucon ensemble (sim peak surge ≈ +0.14 m,
+intact-noise level). Verbal user prompt: "we seem to have a transient
+in surge which is not present in brucon results — was the lift-coupling
+premise wrong?"
+
+##### 12.21.19a.1 Hypothesis ruled out: lift coupling
+
+Read the lift-coupling implementation
+(`cqa/cqa/transient_obs.py:404-478`):
+
+```
+coupling_y = -Fx0 * K_lift   # dF_y/dpsi  [N/rad]
+delta_b_t[:, 1] = coupling_y * dpsi_t   # injected only into SWAY
+```
+
+The coupling injects **only sway** as a function of yaw deviation. It
+has **no surge term**, so it cannot produce a surge hump regardless of
+how K is calibrated. Furthermore, the pwq30 launcher
+(`run_comparison_waves_only_quartering30.py`) calls `wcfdi_transient`
+directly, **not** `pulse_response_with_lift_coupling`, so the lift
+coupling code path is not even active here.
+
+The user's hypothesis was a sensible candidate but the data rules it
+out. The K calibration may still be worth re-examining (because it
+was fit on cells with the surge artifact described below), but it is
+not the cause of the pwq30 surge hump.
+
+##### 12.21.19a.2 Root cause: tau_lost permanent residual
+
+The pwq30 launcher uses `wcfdi_transient` with the parametric
+`WcfdiScenario(alpha=2/3, gamma_immediate=0.5, T_realloc=10.0)`. The
+internal `tau_lost_fn` (added in sec.12.21.18) was
+
+```python
+beta = cap_at_time(t) / cap_intact         # decays gamma_imm -> alpha
+tau_lost(t) = (1 - beta) * tau_env         # decays (1-gamma_imm)*tau_env -> (1-alpha)*tau_env
+```
+
+With `alpha = 2/3` this leaves a **permanent residual deficit** of
+`tau_lost(infinity) = (1/3)*tau_env` injected forever onto the hull
+through `_augmented_rhs_post`. For pwq30 this is a permanent extra
+surge force of `(1/3)·(-60 kN) = -20 kN` plus permanent extras of
+−36 kN sway and −328 kN·m yaw, on top of the real `tau_env` that the
+controller is already trying to compensate. The bias estimator and PI
+integrator slowly absorb this fictitious load over their natural time
+scales (Kp/Ki ≈ 100–170 s and T_b = 1000 s), producing the visible
+surge hump that peaks around t = 50–60 s.
+
+This is a **conceptual error**, not a sign error. The PERMANENT loss
+of thrust authority caused by failed thrusters is already correctly
+modelled by `cap_fn(t -> infinity) = alpha * cap_intact`, which clips
+`tau_thr` if the controller ever demands more than the surviving cap.
+As long as `|tau_env| <= cap_post` (the static CQA precondition), the
+surviving thrusters can fully compensate `tau_env` at steady state
+and `eta -> 0` with no residual hull disturbance term required. The
+`tau_lost` injection should model **only the transient spool-up
+deficit** during reallocation, decaying to zero as `t -> infinity`.
+
+##### 12.21.19a.3 Inconsistency with production paths
+
+The production parametric paths in `decision_matrix.py:553`,
+`live_decision.py:451`, and `live_operator_view.py:803` all use the
+**correct** transient-only beta:
+
+```
+beta(t) = 1 + (gamma_immediate - 1) * exp(-t / T_realloc)
+       = decays from gamma_immediate (e.g. 0.5) to 1
+tau_lost(t) = (1 - beta(t)) * tau_env
+       = decays from (1-gamma_imm)*tau_env to 0
+```
+
+This matches the user's mental model — *"short time of tau_lost and a
+linear recovery time"*. The bug was only in the `wcfdi_transient`
+internal `tau_lost_fn` in `transient.py:684`, introduced when sec.12.21.18
+wired tau_lost into the post-WCF mean-trajectory ODE. Three of four
+parametric code paths were correct; the fourth tied beta to `cap_fn`
+and inadvertently kept a permanent residual.
+
+##### 12.21.19a.4 The fix
+
+In `cqa/cqa/transient.py:684`:
+
+```python
+gamma_imm = scenario.gamma_immediate
+T_realloc = scenario.T_realloc if scenario.T_realloc > 0 else 1e-9
+def tau_lost_fn(t: float) -> np.ndarray:
+    beta = 1.0 + (gamma_imm - 1.0) * np.exp(-t / T_realloc)
+    return (1.0 - beta) * tau_env
+```
+
+Identical formula to `decision_matrix.py:553` etc. The cap-clipping
+mechanism (`cap_fn(t)` enforcing `|tau_thr| <= cap_at_time(t)`)
+remains in place to model the permanent thrust-authority loss.
+
+##### 12.21.19a.5 Verification on pwq30
+
+Pwq30 cell (heading=180°, wave_from=210°, Hs=4.196, Tp=10.224,
+Vw=Vc=0, bus_port WCFDI):
+
+| | Pre-fix (sec.12.21.19a) | Post-fix |
+|---|---|---|
+| cqa peak surge   | **−0.61 m at t=60s** | **−0.04 m at t=21s** |
+| cqa peak sway    | **−0.24 m at t=41s** | **−0.03 m at t=17s** |
+| brucon peak surge | +0.14 m (intact noise) | +0.14 m (unchanged) |
+| brucon peak sway  | **−0.51 m at t=30s** | **−0.51 m** (unchanged) |
+
+The fictitious surge hump is gone. cqa now shows essentially flat
+surge, matching brucon's near-zero surge response. Full pytest suite:
+357/357 pass (no test relied on the buggy permanent-residual behaviour).
+
+##### 12.21.19a.6 New gap: cqa now under-predicts sway transient
+
+Cqa post-fix peak sway is −0.03 m vs brucon's −0.51 m — a ~17×
+under-prediction. This is consistent with sec.12.21.17.10–.11
+(parametric `(1-beta)*tau_env` model under-predicts brucon's actual
+allocation-based deficit during the first ~30 s after WCF). The
+`gamma_immediate = 0.5` knob may be too optimistic about how quickly
+brucon's allocator retasks surviving thrusters; a smaller value
+(e.g. 0.2 or 0.1) would deepen the initial deficit and increase the
+predicted peak.
+
+This is **separate** from the surge-hump fix and does NOT motivate
+re-introducing the permanent residual. Calibrating
+`gamma_immediate` and `T_realloc` against brucon's actual
+post-WCF AllocTau profile is queued for a later sec.12.21.20 (or
+revisiting the brucon-truth-driven `calibrated_wcfdi.py` path which
+already uses the authoritative `T_post − T_pre` deficit).
+
+##### 12.21.19a.7 Lift-coupling K reconsidered
+
+The `K = 3.40/rad` calibrated by
+`scripts/p7_brucon_validation/calibrate_lift_coupling.py` was fit
+against the **off-axis** post-WCF residual on
+`scenario_pwo_calibration` (head sea, beam-on misclassification was
+that "beam-on under-predicts off-axis SURGE", per the script
+docstring at line 10). With sec.12.21.19a removing a permanent
+fictitious surge load on **all** cells (not just pwq30), the
+calibration data underlying K was contaminated. K is now likely
+over-fit and should be re-derived after sec.12.21.19a propagates
+through all calibration scripts. Queued as low-priority follow-up;
+no current launcher relies on K being exactly 3.40 (the operator-
+panel path in `live_decision.py:464` reads it from
+`cfg.vessel.lift_coupling_K_per_rad` and tolerates re-calibration).
+
+##### 12.21.19a.8 Files modified
+
+* `cqa/cqa/transient.py:684` — `tau_lost_fn` formula + sec.12.21.19a
+  comment block (37 lines).
+
+No tests, no other launchers; the inconsistency was self-contained.
+
+
 
