@@ -67,11 +67,15 @@ from harness import parse_output  # noqa: E402
 
 ENSEMBLE_DIR = THIS / "work"
 SEEDS = list(range(1000, 1030))
+# Default T_WCF for the bf8_* family is 560.0; pwq30 uses 1560.0 (i_fail=15600
+# at 10Hz; see work/pwq30_seed1000/pwq30_seed1000.lua). Override via --t-wcf.
 T_WCF = 560.0
 T_EVAL = T_WCF - 5.0
 T_PRE = 30.0
 T_POST = 120.0
 DT = 0.1
+# Per-tag T_WCF override map (extend as new cells are added).
+T_WCF_BY_TAG = {"pwq30": 1560.0}
 
 # cqa scenario knobs, matching what live_decision.py uses for CSOV bus_port.
 GAMMA_IMM = 0.5
@@ -230,8 +234,17 @@ def cell_summary(tag: str):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tags", default="bf8_h0,bf8_h0_w45,bf8_q10,bf8_q10_w45")
+    ap.add_argument("--t-wcf", type=float, default=None,
+                    help="Override T_WCF (s). Default: per-tag map "
+                         "(pwq30->1560.0) else 560.0.")
     args = ap.parse_args()
+    global T_WCF, T_EVAL
     for tag in [t.strip() for t in args.tags.split(",") if t.strip()]:
+        if args.t_wcf is not None:
+            T_WCF = args.t_wcf
+        else:
+            T_WCF = T_WCF_BY_TAG.get(tag, 560.0)
+        T_EVAL = T_WCF - 5.0
         cell_summary(tag)
 
 

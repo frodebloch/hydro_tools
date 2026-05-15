@@ -1,0 +1,40 @@
+{
+  "pwq30": {
+    "n_seeds": 30,
+    "t_wcf_s": 1560.0,
+    "t_pre_window_s": [
+      -30.0,
+      -5.0
+    ],
+    "t_post_window_s": [
+      0.5,
+      2.0
+    ],
+    "t_decay_window_s": [
+      0.5,
+      15.0
+    ],
+    "tau_lost_pre_wcf_N_Nm": [
+      50032.66552428951,
+      138975.21689699535,
+      -3873324.5413934933
+    ],
+    "tau_lost_pre_wcf_std_N_Nm": [
+      16176.723828999211,
+      25782.363324096805,
+      904124.4485498198
+    ],
+    "T_realloc_lost_s": [
+      2.8192916097772076,
+      4.496741735717926,
+      3.2756124837103067
+    ],
+    "T_realloc_lost_R2": [
+      0.8813450671368577,
+      0.8439556985917773,
+      0.49452783282512536
+    ],
+    "interpretation": "tau_lost_pre_wcf = T_pre(SS) - T_post(plateau), ensemble-mean across n_seeds. Hull-frame body (surge, sway, yaw). POSITIVE sway means the failed bus was carrying positive (starboard) thrust at SS (typical when env pushes port). Same sign convention as the calibrated path's tau_thr_post_init_delta in calibrated_wcfdi.py. T_realloc_lost is the per-DOF exponential decay time constant of the deficit T_pre - T(t) fitted on the ensemble-mean over t_decay_window. R2 < 0.7 indicates poor single-exponential fit (e.g. closed-loop ringing in yaw); fall back to scalar T_realloc in that case.",
+    "bus": "bus_port"
+  }
+}

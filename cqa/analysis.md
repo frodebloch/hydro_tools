@@ -6088,4 +6088,388 @@ panel path in `live_decision.py:464` reads it from
 No tests, no other launchers; the inconsistency was self-contained.
 
 
+#### 12.21.20 Adopting the §12.21.7/8 dual mechanism into `WcfdiScenario` via brucon-calibrated `tau_lost_pre_wcf` (+ per-DOF `T_realloc_lost`)
+
+Even after sec.12.21.19a closed the spurious cqa surge hump, the pwq30
+sway transient gap persisted: cqa peak ≈ −0.03 m vs brucon −0.51 m
+(94% under-prediction). Verbal user prompt: *"the
+p7_waves_only_validation_transient clearly shows that we have no
+effective transient for cqa in sway. We invested a lot of time earlier
+to understand the effects of this transient. Both by the force, the
+control system response and observer response. We modelled it using MC
+and also created a transfer function. […] Let us calibrate the loss
+from Tx, Ty and Tz and apply the simple model. It worked OK earlier.
+Also adopt IC re-init for full closure."*
+
+The user was pointing back at sec.12.21.7 (Phase 1.5 `tau_lost` pulse,
+open-loop) and sec.12.21.8 (Phase 2 `tau_thr_post_init_delta` IC
+re-init, closed-loop). Both mechanisms were prototyped on the
+calibrated path (`cqa/calibrated_wcfdi.py`) and validated against
+brucon, but only the parametric placeholder `(1−γ_imm)·tau_env` was
+ever wired into the scenario path (`cqa/transient.py: wcfdi_transient`)
+that the validation launchers, decision_matrix, and live_decision use.
+This section ports both mechanisms to the scenario path via
+brucon-calibrated `WcfdiScenario.tau_lost_pre_wcf`, and adds a per-DOF
+deficit-decay time constant `T_realloc_lost` to handle the strongly
+anisotropic recovery the brucon ensemble shows.
+
+##### 12.21.20.1 Why the parametric placeholder fails on pwq30
+
+The scenario-path open-loop pulse used to be
+
+    tau_lost_fn(t) = (1 − β(t)) · tau_env,
+    β(t)           = 1 + (γ_imm − 1) · exp(−t / T_realloc),
+
+with `tau_env = +b_hat`. The amplitude proxy `(1 − γ_imm) · tau_env`
+assumes the **failed bus's pre-WCF contribution to the global
+balance** is well-approximated by `(1 − γ_imm)` of `b_hat`. This holds
+when each thruster's contribution to `tau_env` is roughly proportional
+to that thruster's surge/sway/yaw cap. It **fails dramatically** when
+the failed bus carries internally-cancelled forces — i.e. when two
+thrusters in the failed bus push in roughly opposite directions, but
+their combined effect on `tau_env` is small while their per-thruster
+contributions are large.
+
+CSOV `bus_port` (Bow1 + PortMP) is a textbook case. Brucon ensemble
+mean over t ∈ [t_WCF − 30, t_WCF − 5]:
+
+    Tx (surge) = +68 kN
+    Ty (sway)  = +119 kN
+    Tz (yaw)   = +1183 kN·m
+
+vs immediate post-WCF plateau t ∈ [+0.5, +2.0]:
+
+    Tx = +18 kN     →  ΔTx = T_pre − T_post = +50 kN
+    Ty = −20 kN     →  ΔTy =                +139 kN
+    Tz = +5057 kN·m →  ΔTz =               −3873 kN·m
+
+So the **failed bus was carrying about 1.2× the global yaw moment all
+by itself, opposite-signed to the surviving bus**, because
+Bow1+PortMP's internal yaw moments combined to an even larger value
+than the global tau_env. The parametric proxy
+`(1 − 0.8) · tau_env_yaw = 0.2 · (−1183) = −237 kN·m` is the
+**wrong sign** and 16× too small relative to the brucon truth
+(+3873 kN·m of "lost positive yaw thrust", i.e. extra negative yaw
+force on the hull during recovery).
+
+Sway is the operationally critical DOF for the gangway port joint
+(c3 = (0, +1, +5)): proxy gives `0.2 · (−109) = −22 kN`, brucon truth
++139 kN — same sign as the natural assumption (failed bus was
+carrying positive sway thrust resisting the negative sway env load),
+but **6× too small in magnitude**. This is the structural reason the
+sway transient closes only ~6% with the parametric model.
+
+##### 12.21.20.2 The §12.21.7/8 dual mechanism, ported
+
+Two physical mechanisms produce the post-WCF transient in brucon:
+
+1. **Open-loop pulse (sec.12.21.7).** During allocator + thruster
+   spool-up, the surviving thrusters cannot instantly reproduce the
+   failed bus's contribution. The hull experiences the difference as
+   a force in the direction OPPOSITE to the lost positive thrust
+   (missing positive starboard thrust ⇔ extra port-direction force on
+   hull). Empirical pulse shape over the first 5–15 s after WCF.
+2. **IC re-init (sec.12.21.8).** The post-WCF thruster state
+   `x_post[9:12] = τ_thr` is initialised by subtracting the lost
+   contribution from the pre-WCF SS, so the controller's closed-loop
+   machinery (P + D + 5 s thruster lag) ramps the surviving
+   thrusters' delivered force back up. This adds the closed-loop
+   excursion-driven response on top of the open-loop pulse.
+
+The calibrated path (`calibrated_wcfdi.py`) carries both via
+`tau_lost_amp / tau_lost_duration_s` and `tau_thr_post_init_delta`,
+but separately. The scenario path now adopts a single calibrated
+field `WcfdiScenario.tau_lost_pre_wcf: tuple[float, float, float]`
+that drives **both** mechanisms with one consistent magnitude and one
+consistent sign convention:
+
+    tau_lost_pre_wcf := T_pre(SS) − T_post(plateau)
+
+(positive when the failed bus was carrying positive thrust at SS).
+Same convention as the calibrated path's `tau_thr_post_init_delta`
+field (`calibrated_wcfdi_brucon_validation.py:290`).
+
+When `scenario.tau_lost_pre_wcf is not None`, `wcfdi_transient`:
+
+* re-inits the post-WCF τ_thr state to
+  `x0_post[9:12] = clip(x_ss[9:12], cap_immediate) − tau_lost_pre_wcf`
+  (the surviving thrusters' SS contribution becomes the IC, the
+  controller ramps it back up via the closed-loop machinery), and
+* drives the open-loop hull-force pulse with
+  `tau_lost_fn(t) = −tau_lost_pre_wcf · exp(−t / T_realloc_lost)`
+  (the leading minus reflects that the hull experiences the deficit
+  in the direction OPPOSITE to the lost positive thrust during
+  spool-up).
+
+Default `tau_lost_pre_wcf = None` preserves the parametric placeholder
+behaviour for cells without a calibration entry (all production paths,
+all bf*/pwo cells in the validation ensemble).
+
+##### 12.21.20.3 Per-DOF `T_realloc_lost`: brucon recovery is anisotropic
+
+Initial implementation used a single scalar `T_realloc = 5 s` for the
+exponential decay across all three DOFs. This produced a spurious cqa
+surge dip (peak −0.32 m at t ≈ 15 s) absent from brucon (which shows
+essentially flat surge through the transient at intact-noise level).
+
+Diagnosis: the deficit `T_pre − T(t)` recovers at very different rates
+across DOFs. Brucon ensemble (n=30, pwq30):
+
+| Time after WCF | dTx (kN) | dTy (kN) | dTz (kN·m) |
+|---|---|---|---|
+| 0.5–2 s | +50 | +139 | −3873 |
+| 2–5 s | +31 | +112 | −3888 |
+| 5–10 s | **+0.4** | +49 | −603 |
+| 10–20 s | +1 | −25 | +3009 |
+| 20–30 s | +3 | −36 | +765 |
+
+Surge fully recovers by t ≈ 5 s (effective τ ≈ 3 s). Sway needs ~10 s
+(effective τ ≈ 5 s). Yaw shows closed-loop ringing — sign reverses at
+t ≈ 8 s, single-exponential cannot capture this.
+
+User insight (verbal): *"I guess the reason for surge T_realloc is
+much lower is that Tx probably is much smaller than Ty? Loosing half
+of a small thrust takes less time to recover than loosing half of a
+large thrust."* Confirmed: the failed-bus surge deficit (50 kN) is
+small relative to the surviving thrusters' surge headroom
+(StbdMP main propulsion alone has ~500 kN+), so closed-loop bandwidth
+dominates and effective τ is sub-`T_thr`. Sway deficit (139 kN) is a
+larger fraction of the available sway headroom (Bow2 tunnel + StbdMP
+sway component ≈ 300 kN combined), so allocator + T_thr=5 s saturation
+is rate-limiting.
+
+Single-exponential curve fits to ensemble-mean deficit on
+t ∈ [0.5, 15] s:
+
+| DOF | τ (s) | R² | Status |
+|---|---|---|---|
+| surge | 2.82 | 0.88 | clean fit, used per-DOF |
+| sway  | 4.50 | 0.84 | clean fit, used per-DOF |
+| yaw   | 3.28 | 0.49 | poor fit (sign reversal); falls back to scalar T_realloc=5 s |
+
+Implementation: new optional field
+`WcfdiScenario.T_realloc_lost: Optional[tuple[float, float, float]]`.
+When None (default), the open-loop pulse uses scalar `T_realloc` for
+all DOFs. When provided alongside `tau_lost_pre_wcf`, per-DOF
+exponentials apply. The calibration JSON stores per-DOF τ and R²;
+the launcher loader (`_load_T_realloc_lost`) applies an R² ≥ 0.7
+threshold, falling back to scalar 5 s for DOFs where the
+single-exponential model is structurally wrong (yaw on pwq30).
+The `cap_at_time(t)` reallocation envelope still uses scalar
+`T_realloc` — this is allocator-side and unrelated to the deficit
+decay.
+
+##### 12.21.20.4 Calibration methodology
+
+`scripts/p7_brucon_validation/calibrate_lost_bus.py` reads the brucon
+ensemble (n seeds, all .out files for a given cell), extracts the
+hull-frame thrust state `Tx, Ty, Tz` (kN, kN, kN·m), and computes per
+seed:
+
+    pre_window  = (t_WCF + (-30 s), t_WCF + (-5 s))    # SS averaging
+    post_window = (t_WCF + (+0.5 s), t_WCF + (+2.0 s))  # plateau
+    T_pre  = mean(T over pre_window)
+    T_post = mean(T over post_window)
+    drop   = T_pre − T_post                              # body frame, [N N Nm]
+
+Ensemble mean and std are reported; std/mean ratio quantifies seed
+variability (e.g. for pwq30 sway: σ/μ ≈ 19%).
+
+Per-DOF τ is then fit by `scipy.optimize.curve_fit` of
+`d(t) = A · exp(−t/τ)` on the ensemble-mean deficit time series over
+t ∈ [0.5, 15.0] s. R² of the fit is reported alongside τ so consumers
+can decide whether per-DOF τ is trustworthy or whether to fall back
+to scalar.
+
+Output: `wcfdi_lost_bus_calibration.json`, a per-cell table that the
+validation launchers load via `_load_lost_bus_calibration(tag)` /
+`_load_T_realloc_lost(tag)`. Currently populated for `pwq30` only;
+the `CELLS` list in the calibration script is the extension point
+for adding bf*/pwo entries as needed.
+
+##### 12.21.20.5 Results: pwq30 closure
+
+Launcher: `run_comparison_waves_only_quartering30.py` (Hs=4.20 m,
+Tp=10.22 s, theta_rel=+30°, Vw=Vc=0, n=30 seeds, bus_port lost).
+
+| Quantity | Brucon truth | cqa orig | cqa scalar τ | cqa per-DOF τ |
+|---|---|---|---|---|
+| sway peak (signed) | −0.51 m | −0.03 m | −0.44 m (86%) | −0.42 m (82%) |
+| surge peak (abs) | ~flat | +0.16 m | 0.32 m | 0.26 m |
+
+Per-DOF τ slightly reduced sway closure (86 → 82 %, within
+seed-variability noise) but **meaningfully reduced the spurious
+surge dip** (0.32 → 0.26 m, plus the cqa surge curve recovers at
+t ≈ 25 s vs t ≈ 40 s under scalar τ, more closely tracking brucon's
+intact-noise-level surge response). The residual ~0.26 m cqa surge
+dip is the IC re-init mechanism's structural signature: a permanent
+−50 kN offset in the surge thrust state IC requires the controller
+~T_thr = 5 s to ramp back up, irrespective of the open-loop pulse
+duration. Within the cqa ±0.674·σ envelope throughout.
+
+##### 12.21.20.6 Operational metric: 12-cell roll-up
+
+After **also** wiring `WcfdiScenario.tau_lost_pre_wcf` /
+`T_realloc_lost` into the live-operator path
+(`live_operator_view.summarise_for_operator_live` and
+`live_decision.evaluate_decision_cell_live`, both via the new
+`WcfdiScenario.build_pulse_inputs` helper that constructs `tau_lost(t)`
+and `x0` for `pulse_response`), `roll_up_live_operator_panel.py`
+shows the operational effect on pwq30:
+
+| Cell | wP50 bias | wP95 bias | g/a/r | Calibration | Notes |
+|---|---|---|---|---|---|
+| **pwq30** (before) | −26 % | +2 % | 14/16/0 | none (parametric) | post-§12.21.13 baseline |
+| **pwq30** (after) | **−11 %** | **+13 %** | 9/20/1 | calibrated dual mech | 1 red cell tipped |
+| pwo | −34 % | −24 % | 7/23/0 | no | unchanged |
+| bf6_h0 | −22 % | −2 % | 28/2/0 | no | unchanged |
+| bf6_q10 | −18 % | +12 % | 27/3/0 | no | unchanged |
+| bf6_h0_w45 | −20 % | −9 % | 25/5/0 | no | unchanged |
+| bf6_q10_w45 | −9 % | −18 % | 26/4/0 | no | unchanged |
+| bf8_h0 | −23 % | −10 % | 0/20/10 | no | unchanged |
+| bf8_q10 | −24 % | −14 % | 0/15/15 | no | unchanged |
+| bf8_h0_w45 | −18 % | −17 % | 0/12/18 | no | unchanged |
+| bf8_q10_w45 | −18 % | −42 % | 0/13/17 | no | unchanged |
+| bf4_c1_h0 | −12 % | −13 % | 30/0/0 | no | unchanged |
+| bf4_c1_q10 | −15 % | −11 % | 30/0/0 | no | unchanged |
+
+Confirmed: cells without a JSON calibration entry are byte-identical
+in their WCF P50/P95 prediction — the parametric placeholder is
+still active there — so the new mechanism is **opt-in and
+non-regressive**.
+
+Reading pwq30's mixed result honestly: the dual mechanism produces
+larger transient excursions on average, which **closes the wP50
+median bias substantially (−26 % → −11 %)** but **pushes the wP95
+upper-tail bias from +2 % to +13 %** (still within ±15 % but
+moving in the wrong direction on the conservative side). One
+cell tipped from amber to red (operationally minor: pwq30's traffic
+mix shifts from 14g/16a/0r to 9g/20a/1r). The P95 over-conservatism
+is consistent with the calibrated mechanism producing larger
+deterministic excursions while the brucon truth's P95 is dominated
+by the rare worst seeds whose excursions don't grow proportionally
+with the deterministic mean. Said differently: the dual mechanism
+is an upgrade in modeling fidelity (median prediction much closer
+to median truth) but the upper-tail Gumbel tail factor that maps
+deterministic peak → P95 may now be slightly over-conservative on
+this cell. Tuning that factor is a separate session.
+
+The transient figure (`p7_waves_only_validation_transient.png`)
+remains the cleanest one-plot validation: cqa sway peak −0.42 m
+vs brucon −0.51 m (82 % closure), correct direction (port), where
+the parametric path achieved only −0.03 m (6 %).
+
+##### 12.21.20.7 Session corrections (the user pushed back, all five times correctly)
+
+This section's path was **not linear**. Five mistakes had to be
+caught:
+
+1. **T_WCF=560 vs T_WCF=1560 in `compare_tau_lost_vs_scenario.py`.**
+   pwq30 fires at sample i_fail=15600 (t=1560 s), not 560 s like
+   bf*/pwo cells. *"This can not be right. Are you looking at the
+   right time?"* Fix: per-tag T_WCF map.
+2. **Re-discovering sec.12.21.7 / 12.21.8 territory.** Initial plan
+   was to design a new transient mechanism from scratch. *"We spent a
+   lot of time on getting this right at an earlier stage. Could you
+   check what we have from earlier?"* Re-read sec.12.21.7 / .8 in
+   full; pivoted to porting that work into the scenario path.
+3. **Sign-flip retraction.** I momentarily claimed a sign flip
+   between `Δ(delivered) = T_post − T_pre` and `tau_lost := T_pre −
+   T_post`, then "fixed" the formula. *"How could a factor multiplied
+   with a constant get the sign wrong? We loose a percentage of the
+   thrust and have a sway deficit. The lost forces should always go
+   in the opposite direction of the current thrust force?"* Correct:
+   the two are different sign conventions of the same quantity, not
+   a bug in the formula. The factor times a constant cannot flip
+   sign. The IC re-init wrote the wrong sign convention into the JSON
+   on first pass (`T_post − T_pre` instead of `T_pre − T_post`),
+   producing a 0.00 m peak (over-correction in wrong direction);
+   regenerated JSON with corrected convention.
+4. **Calibrated path direction.** *"Let us calibrate the loss from
+   Tx, Ty and Tz and apply the simple model. It worked ok earlier."*
+   Set the implementation direction unambiguously: brucon-measured
+   per-cell calibration via Tx/Ty/Tz, fed into the simple exponential
+   model — not a parametric re-derivation. *"Also adopt IC re-init
+   for full closure."* Confirmed both mechanisms.
+5. **Per-DOF τ physical insight.** *"I guess the reason for surge
+   T_realloc is much lower is that Tx probably is much smaller than
+   Ty? Loosing half of a small thrust takes less time to recover
+   than loosing half of a large thrust."* Correct intuition,
+   confirmed by the numbers (50 kN surge deficit / 500 kN headroom =
+   10 % vs 139 kN sway deficit / 300 kN headroom = 46 %).
+
+##### 12.21.20.8 Files modified
+
+* `cqa/cqa/transient.py` —
+  - `WcfdiScenario.tau_lost_pre_wcf: Optional[tuple[float, float, float]]`
+    (line 399) with full docstring covering both mechanisms and sign
+    convention.
+  - `WcfdiScenario.T_realloc_lost: Optional[tuple[float, float, float]]`
+    (line 421) with docstring covering the per-DOF anisotropy.
+  - `WcfdiScenario.build_pulse_inputs(t_grid, tau_env, n_state,
+    idx_tau_thr) -> (tau_lost_t, x0)` helper (~80 lines) that
+    constructs the inputs for `pulse_response` -- parametric
+    placeholder when `tau_lost_pre_wcf is None`, calibrated dual
+    mechanism otherwise. Used by both live-operator and live-decision
+    paths so they cannot drift in formulation.
+  - `wcfdi_transient` IC re-init at lines 706-710.
+  - `wcfdi_transient` open-loop pulse at lines 744-765.
+* `cqa/cqa/live_decision.py` -- `evaluate_decision_cell_live` now
+  calls `scenario.build_pulse_inputs(...)` instead of the inline
+  parametric formula. Adds `IDX_TAU_THR` to the imports.
+* `cqa/cqa/live_operator_view.py` -- `summarise_for_operator_live`
+  now calls `scenario.build_pulse_inputs(...)`. Adds `IDX_TAU_THR`
+  to the imports.
+* `cqa/scripts/p7_brucon_validation/calibrate_lost_bus.py` -- new
+  (~200 lines). Reads brucon Tx/Ty/Tz ensembles, computes per-cell
+  `tau_lost_pre_wcf` (snapshot) and `T_realloc_lost` (per-DOF
+  exponential fit with R² report).
+* `cqa/scripts/p7_brucon_validation/wcfdi_lost_bus_calibration.json`
+  -- new generated artifact. pwq30 row populated.
+* `cqa/scripts/p7_brucon_validation/run_comparison_waves_only_quartering30.py`
+  -- added `_load_lost_bus_calibration` / `_load_T_realloc_lost`
+  helpers; passes both to `WcfdiScenario`.
+* `cqa/scripts/p7_brucon_validation/roll_up_live_operator_panel.py`
+  -- added `_scenario_for_cell(tag)` helper that loads the JSON and
+  returns a calibrated `WcfdiScenario` (or None for cells without
+  an entry); passes it through to `summarise_for_operator_live`.
+* `cqa/scripts/p7_brucon_validation/compare_tau_lost_vs_scenario.py`
+  -- per-tag T_WCF map + `--t-wcf` override.
+
+The calibrated mechanism is now active in **all** WCFDI peak-prediction
+paths (forecast `decision_matrix._wcfdi_peak_at_forecast_obs`
+indirectly via `wcfdi_transient`; live-decision
+`evaluate_decision_cell_live`; live-operator
+`summarise_for_operator_live`). Cells without a JSON calibration
+entry use the parametric placeholder unchanged, so production behavior
+on uncalibrated cells is byte-equivalent.
+
+##### 12.21.20.9 Tests
+
+All 357 tests pass. The new fields default to None (preserving
+parametric placeholder); no existing test exercises the calibrated
+path, and no new test was added in this section because the
+validation against brucon is already the launcher-driven roll-up.
+A test for the dual mechanism (verifying that with
+`tau_lost_pre_wcf` set, `wcfdi_transient` produces the expected IC
+re-init delta and open-loop pulse shape) is queued as future work.
+
+##### 12.21.20.10 What this DOES NOT solve
+
+* Yaw closed-loop ringing (sign reversal at t ≈ 8 s, single-exp R² =
+  0.49 on pwq30) is not modeled; per-DOF τ for yaw falls back to
+  scalar 5 s. This is a structural limitation of the
+  exp-decay-to-zero pulse shape — capturing the ringing would need
+  either a damped-oscillator pulse model or finer integration of the
+  closed-loop dynamics.
+* Cells other than pwq30 are not calibrated; bf8_q10_w45's −42 %
+  WCF P95 bias is the largest gap and a natural next calibration
+  target.
+* The parametric placeholder is still active in
+  `decision_matrix.py` / `live_decision.py` — production paths.
+  Promoting the calibrated mechanism to production requires a
+  per-deployed-vessel calibration table maintained alongside the
+  vessel config.
+
+
 

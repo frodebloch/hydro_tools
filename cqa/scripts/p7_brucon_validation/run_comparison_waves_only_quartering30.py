@@ -56,6 +56,50 @@ from cqa.rao import load_pdstrip_rao
 # configuration, only the environment.
 from run_comparison import setup_cqa  # noqa: E402
 
+import json  # noqa: E402
+
+_LOST_BUS_CAL_PATH = (
+    Path(__file__).resolve().parent / "wcfdi_lost_bus_calibration.json"
+)
+
+
+def _load_lost_bus_calibration(tag: str) -> tuple[float, float, float] | None:
+    """Return per-cell tau_lost_pre_wcf [N, N, Nm] from the calibration JSON,
+    or None if the file or row is absent (preserving the parametric
+    placeholder behaviour). See scripts/p7_brucon_validation/
+    calibrate_lost_bus.py and analysis.md sec.12.21.20.
+    """
+    if not _LOST_BUS_CAL_PATH.exists():
+        return None
+    data = json.loads(_LOST_BUS_CAL_PATH.read_text())
+    row = data.get(tag)
+    if row is None:
+        return None
+    v = row["tau_lost_pre_wcf_N_Nm"]
+    return (float(v[0]), float(v[1]), float(v[2]))
+
+
+def _load_T_realloc_lost(
+    tag: str, r2_threshold: float = 0.7
+) -> tuple[float, float, float] | None:
+    """Return per-cell per-DOF tau (T_realloc_lost) [s] from the calibration
+    JSON, or None if absent. Per-DOF entries with R2 below `r2_threshold`
+    fall back to the scalar default (5 s, matching scenario.T_realloc),
+    so the field is only deviating from scalar where the brucon recovery
+    really IS a clean single exponential. See sec.12.21.20.
+    """
+    if not _LOST_BUS_CAL_PATH.exists():
+        return None
+    data = json.loads(_LOST_BUS_CAL_PATH.read_text())
+    row = data.get(tag)
+    if row is None or "T_realloc_lost_s" not in row:
+        return None
+    tau = row["T_realloc_lost_s"]
+    r2 = row.get("T_realloc_lost_R2", [1.0, 1.0, 1.0])
+    out = tuple(float(tau[i]) if r2[i] >= r2_threshold else 5.0
+                for i in range(3))
+    return out  # type: ignore[return-value]
+
 PDSTRIP_PATH = (
     "/home/blofro/src/brucon/build/bin/vessel_simulator_config/csov_pdstrip.dat"
 )
@@ -133,6 +177,20 @@ def main() -> None:
         alpha=(0.5, 0.7, 0.5),
         gamma_immediate=0.8,
         T_realloc=5.0,
+        # sec.12.21.20: per-cell calibrated lost-bus contribution from
+        # brucon Tx/Ty/Tz (T_pre(SS) - T_post(plateau), the magnitude
+        # of positive thrust the failed bus was carrying at SS).
+        # Override the parametric (1-gamma_imm)*tau_env amplitude proxy,
+        # which on pwq30 (CSOV bus_port) under-represents the true
+        # sway/yaw deficit by 6-25x because the failed bus carries
+        # internally-cancelled forces.
+        tau_lost_pre_wcf=_load_lost_bus_calibration("pwq30"),
+        # Per-DOF deficit decay time constants (sec.12.21.20). Brucon
+        # recovery curves on pwq30 are anisotropic (surge ~3 s, sway
+        # ~5 s, yaw ~3 s but R2~0.5 due to closed-loop ringing).
+        # Yaw falls back to scalar T_realloc=5 s in the loader since
+        # R2 < 0.7. None preserves scalar T_realloc behaviour.
+        T_realloc_lost=_load_T_realloc_lost("pwq30"),
     )
 
     spec = ScenarioSpec(

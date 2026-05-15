@@ -178,6 +178,7 @@ from .transient_obs import (
     pulse_response,
     pulse_response_with_lift_coupling,
     N_STATE,
+    IDX_TAU_THR,
 )
 from .transient import WcfdiScenario
 from .decision_matrix import _imca_traffic, _worst
@@ -798,20 +799,26 @@ def summarise_for_operator_live(
     # VesselParticulars.b_hat_bias_correction_factor.
     b_corr = float(cfg.vessel.b_hat_bias_correction_factor)
     tau_env = b_corr * np.asarray(obs_state.b_hat, dtype=float)
-    gamma_imm = float(scenario.gamma_immediate)
-    T_realloc = float(scenario.T_realloc) if scenario.T_realloc > 0 else 1e-9
-    beta_t = 1.0 + (gamma_imm - 1.0) * np.exp(-t_grid / T_realloc)
-    tau_lost = (beta_t[:, None] - 1.0) * (-tau_env[None, :])
+    # Default: parametric placeholder
+    #     tau_lost(t) = -(1 - beta(t)) * tau_env, x0 = 0.
+    # When `scenario.tau_lost_pre_wcf` is set (sec.12.21.20):
+    #     tau_lost(t) = -tau_lost_pre_wcf * exp(-t / T_realloc_lost)
+    #     x0[IDX_TAU_THR] = -tau_lost_pre_wcf
+    # See WcfdiScenario.build_pulse_inputs and analysis.md sec.12.21.20.
+    tau_lost, x0_pulse = scenario.build_pulse_inputs(
+        t_grid=t_grid, tau_env=tau_env,
+        n_state=N_STATE, idx_tau_thr=IDX_TAU_THR,
+    )
 
     K_lift = float(getattr(cfg.vessel, "lift_coupling_K_per_rad", 0.0))
     if K_lift > 0.0:
         X = pulse_response_with_lift_coupling(
             aug, t_grid, tau_lost,
             b_hat0=tau_env, K_lift=K_lift,
-            x0=np.zeros(N_STATE),
+            x0=x0_pulse,
         )
     else:
-        X = pulse_response(aug, t_grid, tau_lost, x0=np.zeros(N_STATE))
+        X = pulse_response(aug, t_grid, tau_lost, x0=x0_pulse)
     delta_eta_mean = X[:, 0:3]
 
     # Deterministic radial trajectory: |eta_hat_LF + delta_eta_mean(t)| in xy.

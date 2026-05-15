@@ -33,6 +33,48 @@ from live_cell_per_seed_pwq30 import (                            # noqa: E402
 from cqa.config import csov_default_config                       # noqa: E402
 from cqa.live_decision import LiveObserverState                  # noqa: E402
 from cqa.live_operator_view import summarise_for_operator_live   # noqa: E402
+from cqa.transient import WcfdiScenario                          # noqa: E402
+
+import json                                                       # noqa: E402
+
+_LOST_BUS_CAL_PATH = THIS / "wcfdi_lost_bus_calibration.json"
+
+
+def _scenario_for_cell(tag: str) -> WcfdiScenario | None:
+    """Return a WcfdiScenario seeded with brucon-calibrated tau_lost_pre_wcf
+    and per-DOF T_realloc_lost when a JSON entry exists; otherwise None,
+    which makes ``summarise_for_operator_live`` fall back to its default
+    parametric placeholder. See sec.12.21.20.
+    """
+    if not _LOST_BUS_CAL_PATH.exists():
+        return None
+    data = json.loads(_LOST_BUS_CAL_PATH.read_text())
+    row = data.get(tag)
+    if row is None:
+        return None
+    tau_lost = tuple(float(v) for v in row["tau_lost_pre_wcf_N_Nm"])
+    # R2 < 0.7 -> single-exponential is structurally wrong (e.g. yaw
+    # closed-loop ringing); fall back to scalar T_realloc on those DOFs.
+    tau_dof = row.get("T_realloc_lost_s")
+    r2_dof = row.get("T_realloc_lost_R2", [1.0, 1.0, 1.0])
+    if tau_dof is not None:
+        T_realloc_lost = tuple(
+            float(tau_dof[i]) if r2_dof[i] >= 0.7 else 5.0
+            for i in range(3)
+        )
+    else:
+        T_realloc_lost = None
+    # Keep the scalar transient kinematics (alpha, gamma_imm, T_realloc)
+    # at the live-cell defaults so the cap_at_time(t) reallocation
+    # envelope is unchanged. Only the deficit pulse + IC re-init are
+    # calibrated.
+    return WcfdiScenario(
+        alpha=(2.0 / 3.0,) * 3,
+        gamma_immediate=0.5,
+        T_realloc=10.0,
+        tau_lost_pre_wcf=tau_lost,
+        T_realloc_lost=T_realloc_lost,
+    )
 
 
 CELLS = [
@@ -77,7 +119,8 @@ def _validate_cell(tag: str) -> dict | None:
             eta_wave=d["eta_wave"],
             heading_compass=float(d.get("heading_compass", 0.0)),
         )
-        s = summarise_for_operator_live(cfg, obs, sigma_post)
+        scenario = _scenario_for_cell(tag)
+        s = summarise_for_operator_live(cfg, obs, sigma_post, scenario=scenario)
 
         seed_dir = live_cell.WORK_ROOT / f"{tag}_seed{seed:04d}"
         main_p = next((p for p in seed_dir.glob("*.out")

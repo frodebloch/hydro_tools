@@ -367,6 +367,55 @@ class WcfdiScenario:
     T_thr_post: Optional[float] = None
     gamma_immediate: float = 0.5
     T_realloc: float = 10.0
+    # Optional per-cell calibrated lost-bus contribution at the WCF instant
+    # (body-frame, [N, N, N*m]). Sign convention: T_pre - T_post, i.e. the
+    # MAGNITUDE of the positive thrust the failed bus was carrying at the
+    # pre-WCF steady state. Same convention as the calibrated path's
+    # `tau_thr_post_init_delta` field (calibrated_wcfdi.py).
+    #
+    # When provided, wcfdi_transient does TWO things:
+    # 1. Use `tau_lost(t) = -tau_lost_pre_wcf * exp(-t / T_realloc)` as
+    #    the open-loop pulse on `nu_dot` (the hull experiences the
+    #    OPPOSITE direction during the deficit -- missing positive
+    #    thrust manifests as extra force in the failed-thrust direction).
+    # 2. IC re-init the post-WCF tau_thr state to
+    #    `clip(x_ss_intact[9:12], cap_immediate) - tau_lost_pre_wcf`,
+    #    which removes the lost-bus contribution from the surviving
+    #    thrusters' SS reference and drives the closed-loop
+    #    (Kp/Kd/T_thr) machinery to deliver the observed ~2x
+    #    amplification on top of the open-loop pulse.
+    #
+    # Both replace the parametric placeholder `(1 - gamma_imm) * tau_env`
+    # which uses tau_env (= +b_hat) as a proxy for the lost-bus
+    # contribution. For failure cases where the failed bus carries
+    # internally-cancelled forces (e.g. CSOV bus_port, where the bow
+    # tunnel and stern azimuth carry large yaw-trim moments that cancel
+    # at the global tau_env level), the proxy can under-represent the
+    # true contribution by 6-25x. The calibrated field is measured per
+    # cell from brucon as `T_pre(SS) - T_post(plateau)` and supplied via
+    # the WCFDI cell calibration table; see analysis.md sec.12.21.20 and
+    # scripts/p7_brucon_validation/calibrate_lost_bus.py.
+    # Default None preserves the parametric placeholder.
+    tau_lost_pre_wcf: Optional[tuple[float, float, float]] = None
+
+    # Optional per-DOF time constants for the open-loop tau_lost_fn pulse
+    # decay [s], indexed (surge, sway, yaw). When None (default), the scalar
+    # T_realloc is used for all three DOFs. When provided alongside
+    # `tau_lost_pre_wcf`, the open-loop pulse becomes
+    #
+    #     tau_lost(t) = -tau_lost_pre_wcf * exp(-t / T_realloc_lost)
+    #
+    # applied component-wise. Motivation: brucon recovery curves on pwq30
+    # show strongly anisotropic per-DOF time constants (surge ~3 s, sway
+    # ~5 s) because the failed-bus deficit magnitude relative to the
+    # surviving thrusters' headroom differs per DOF -- smaller deficits
+    # recover faster (closed-loop bandwidth dominates), larger deficits
+    # are rate-limited by allocator + T_thr saturation. A single scalar
+    # over-extends the surge pulse and produces a spurious surge dip.
+    # Note: this only affects the deficit-decay timescale; the
+    # cap_at_time(t) reallocation envelope still uses scalar T_realloc.
+    # See analysis.md sec.12.21.20 for the calibration methodology.
+    T_realloc_lost: Optional[tuple[float, float, float]] = None
 
     def resolved_cap_intact(self, cfg: CqaConfig) -> np.ndarray:
         if self.tau_cap_intact is None:
@@ -391,6 +440,85 @@ class WcfdiScenario:
         if self.T_realloc <= 0.0:
             return cap_post
         return cap_post + (cap_imm - cap_post) * np.exp(-t / self.T_realloc)
+
+    def build_pulse_inputs(
+        self,
+        t_grid: np.ndarray,
+        tau_env: np.ndarray,
+        n_state: int,
+        idx_tau_thr: slice,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Construct (tau_lost(t), x0) inputs for `pulse_response`.
+
+        Used by both `live_decision.evaluate_decision_cell_live` and
+        `live_operator_view.summarise_for_operator_live` to drive the
+        cqa-27 augmented system through the post-WCF transient.
+
+        - When ``self.tau_lost_pre_wcf is None`` (default): parametric
+          placeholder
+
+              tau_lost(t) = -(1 - beta(t)) * tau_env,
+              beta(t)     = 1 + (gamma_imm - 1) * exp(-t / T_realloc),
+
+          with `x0 = 0` (no IC re-init). This is the legacy formula
+          carried forward for cells without a brucon calibration entry.
+
+        - When ``self.tau_lost_pre_wcf`` is provided
+          (sec.12.21.20 dual mechanism, mirroring `wcfdi_transient`):
+
+              tau_lost(t) = -tau_lost_pre_wcf * exp(-t / T_realloc_lost),
+              x0[idx_tau_thr] = -tau_lost_pre_wcf,
+
+          where `T_realloc_lost` is per-DOF when set, otherwise the
+          scalar `T_realloc` is broadcast. The `x0` IC re-init seeds the
+          tau_thr perturbation channel of the augmented system to drive
+          the closed-loop (Kp/Kd/Ki/T_thr) response. Both mechanisms
+          use the same brucon-calibrated magnitude `tau_lost_pre_wcf`
+          (sign convention: T_pre(SS) - T_post(plateau)) so the two
+          paths cannot drift sign-wise.
+
+        Parameters
+        ----------
+        t_grid : (N,) uniform time grid [s].
+        tau_env : (3,) the parametric proxy `b_corr * b_hat` [N N Nm];
+            only consumed when `tau_lost_pre_wcf is None`.
+        n_state : augmented system state dimension (e.g. 27 for the
+            full observer-augmented system).
+        idx_tau_thr : the slice indexing the tau_thr block in the
+            augmented state vector (e.g. slice(15, 18) for the cqa-27
+            ordering). Used to seed the IC re-init when calibrated.
+
+        Returns
+        -------
+        tau_lost_t : (N, 3) injected pulse [N N Nm].
+        x0 : (n_state,) initial perturbation vector.
+        """
+        n_t = t_grid.size
+        x0 = np.zeros(n_state, dtype=float)
+        T_realloc = float(self.T_realloc) if self.T_realloc > 0 else 1e-9
+        if self.tau_lost_pre_wcf is None:
+            gamma_imm = float(self.gamma_immediate)
+            beta_t = 1.0 + (gamma_imm - 1.0) * np.exp(-t_grid / T_realloc)
+            tau_lost_t = (beta_t[:, None] - 1.0) * (-tau_env[None, :])
+            return tau_lost_t, x0
+        # Calibrated dual mechanism (sec.12.21.20).
+        tau_lost_pre = np.asarray(self.tau_lost_pre_wcf, dtype=float)
+        if self.T_realloc_lost is not None:
+            tau_decay = np.asarray(self.T_realloc_lost, dtype=float)
+            tau_decay = np.where(tau_decay > 0.0, tau_decay, 1e-9)
+        else:
+            tau_decay = np.full(3, T_realloc, dtype=float)
+        # Open-loop pulse: hull experiences the OPPOSITE direction during
+        # the spool-up deficit. Same minus convention as wcfdi_transient.
+        tau_lost_t = (-tau_lost_pre[None, :]
+                      * np.exp(-t_grid[:, None] / tau_decay[None, :]))
+        # IC re-init: seed the tau_thr perturbation channel with the
+        # negative of tau_lost_pre_wcf. The augmented system's pulse
+        # response operates around intact SS (zero perturbation), so
+        # the IC delta IS the perturbation magnitude. Closed-loop
+        # machinery (Kp/Kd/Ki/T_thr) ramps tau_thr back up.
+        x0[idx_tau_thr] = -tau_lost_pre
+        return tau_lost_t, x0
 
 
 def _clip_per_dof(tau: np.ndarray, cap: np.ndarray) -> np.ndarray:
@@ -659,8 +787,25 @@ def wcfdi_transient(
     # clipped to the *immediate* (pre-reallocation) cap. This is the
     # dominant deterministic transient source for a CQA-guarded operating
     # point: the surviving thrusters must ramp up to take over the load.
+    #
+    # When `scenario.tau_lost_pre_wcf` is provided (sec.12.21.20 calibrated
+    # path, mirroring the calibrated_wcfdi.py mechanism from sec.12.21.8),
+    # we ALSO subtract the calibrated lost-bus contribution from the
+    # initial post-WCF tau_thr state. tau_lost_pre_wcf is the magnitude
+    # of the positive thrust the failed bus was carrying at SS (sign
+    # convention: T_pre - T_post); subtracting it from x0_post[9:12]
+    # leaves the surviving thrusters' SS contribution as the IC. This
+    # IC re-init drives the closed-loop (Kp/Kd/T_thr) machinery to
+    # deliver the observed ~2x amplification on top of the open-loop
+    # tau_lost_fn pulse. See analysis.md sec.12.21.8 for the brucon
+    # validation of this mechanism in the calibrated path.
     x0_post = x0.copy()
     x0_post[9:12] = _clip_per_dof(x0[9:12], cap_immediate)
+    if scenario.tau_lost_pre_wcf is not None:
+        x0_post[9:12] = (
+            x0_post[9:12]
+            - np.asarray(scenario.tau_lost_pre_wcf, dtype=float)
+        )
     delta_tau = x0_post[9:12] - x0[9:12]  # diagnostic
 
     cap_fn = lambda t: scenario.cap_at_time(t, cfg)
@@ -694,9 +839,33 @@ def wcfdi_transient(
     # with no permanent disturbance term needed.
     gamma_imm = scenario.gamma_immediate
     T_realloc = scenario.T_realloc if scenario.T_realloc > 0 else 1e-9
-    def tau_lost_fn(t: float) -> np.ndarray:
-        beta = 1.0 + (gamma_imm - 1.0) * np.exp(-t / T_realloc)
-        return (1.0 - beta) * tau_env
+    if scenario.tau_lost_pre_wcf is not None:
+        # Calibrated path: amplitude comes from brucon-measured
+        # tau_lost_pre_wcf = T_pre(SS) - T_post(plateau), the magnitude
+        # of lost positive thrust contribution (body frame). Hull
+        # experiences the OPPOSITE direction during the deficit (the
+        # missing starboard thrust manifests as extra port force on
+        # the hull), hence the leading minus. Time profile is a single
+        # exponential decay; per-DOF time constants used when
+        # `scenario.T_realloc_lost` is set, otherwise the scalar
+        # T_realloc is broadcast across all three DOFs. See
+        # WcfdiScenario.tau_lost_pre_wcf docstring and analysis.md
+        # sec.12.21.20 for the calibration methodology.
+        tau_lost_amp = -np.asarray(scenario.tau_lost_pre_wcf, dtype=float)
+        if scenario.T_realloc_lost is not None:
+            tau_lost_decay = np.asarray(scenario.T_realloc_lost, dtype=float)
+            tau_lost_decay = np.where(tau_lost_decay > 0.0, tau_lost_decay, 1e-9)
+        else:
+            tau_lost_decay = np.full(3, T_realloc, dtype=float)
+        def tau_lost_fn(t: float) -> np.ndarray:
+            return tau_lost_amp * np.exp(-t / tau_lost_decay)
+    else:
+        # Parametric placeholder: amplitude proxy is (1 - gamma_imm) * tau_env.
+        # Under-represents lost-bus contribution on cells with internal
+        # failed-bus cancellation (e.g. CSOV pwq30); see sec.12.21.20.
+        def tau_lost_fn(t: float) -> np.ndarray:
+            beta = 1.0 + (gamma_imm - 1.0) * np.exp(-t / T_realloc)
+            return (1.0 - beta) * tau_env
 
     # --- Solve mean trajectory (nonlinear because of clipping) ---
     t_eval = np.linspace(0.0, t_end, n_t)
