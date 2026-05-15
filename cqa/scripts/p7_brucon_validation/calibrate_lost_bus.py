@@ -56,17 +56,26 @@ WORK = THIS / "work"
 
 # Per-cell calibration spec. Extend as new validation cells are added.
 # t_wcf_s and the seed range come from the cell's lua / harness config.
+_BUS_PORT_DEFAULTS = {
+    "bus": "bus_port",
+    "seeds": list(range(1000, 1030)),
+    "t_wcf_s": 1560.0,
+    "t_pre_window": (-30.0, -5.0),     # SS averaging window pre-WCF (s rel)
+    "t_post_window": (0.5, 2.0),       # plateau window post-WCF (s rel)
+    "t_decay_window": (0.5, 15.0),     # window for per-DOF tau exponential fit
+    "t_decay_grid_dt": 0.1,            # resampling step for the fit (s)
+}
+
+# All listed cells share CSOV bus_port = (Bow1 idx 0 + PortMP idx 3) and
+# i_fail=15600 -> t_WCF=1560 s (verified per lua at sec.12.21.21). Sea
+# state varies, so the per-DOF deficit magnitudes/time-constants differ
+# per cell -- hence calibrate each independently.
 CELLS = [
-    {
-        "tag": "pwq30",
-        "bus": "bus_port",
-        "seeds": list(range(1000, 1030)),
-        "t_wcf_s": 1560.0,
-        "t_pre_window": (-30.0, -5.0),     # SS averaging window pre-WCF (s rel)
-        "t_post_window": (0.5, 2.0),       # plateau window post-WCF (s rel)
-        "t_decay_window": (0.5, 15.0),     # window for per-DOF tau exponential fit
-        "t_decay_grid_dt": 0.1,            # resampling step for the fit (s)
-    },
+    {"tag": "pwq30",        **_BUS_PORT_DEFAULTS},
+    {"tag": "bf8_h0",       **_BUS_PORT_DEFAULTS},
+    {"tag": "bf8_q10",      **_BUS_PORT_DEFAULTS},
+    {"tag": "bf8_h0_w45",   **_BUS_PORT_DEFAULTS},
+    {"tag": "bf8_q10_w45",  **_BUS_PORT_DEFAULTS},
 ]
 
 
