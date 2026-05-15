@@ -6589,5 +6589,262 @@ These are deferred to the next session.
   infrastructure built in sec.12.21.20 (`_scenario_for_cell`)
   picked up the new entries without modification.
 
+### 12.21.21.6 Heavy-tail mechanism on bf8_q10_w45 — diagnosis
+
+Per-seed inspection of the bf8_q10_w45 ensemble's post-WCF peak
+distribution reveals seven outlier seeds (1012, 1008, 1023, 1000,
+1005, 1027, 1002) with peaks 5.77–10.49 m vs the cell's median of
+3.57 m. The outliers share a clear signature:
+
+* **Sway-dominated and predominantly port-going** (six of seven have
+  signed sway peaks of −10.1 to +5.8 m, with sway typically 5–10× the
+  surge component at peak).
+* **Late time-of-peak** — most occur 79–180 s post-WCF, far past the
+  WCFDI transient settling time (~30 s).
+* **Sibling cells do not share the pattern.** bf8_h0_w45 has only one
+  comparable outlier (seed 1024, 9.66 m at t=151 s); bf8_q10 and
+  bf8_h0 cap out at ~5 m with peaks distributed across surge and
+  sway and earlier in time.
+
+Tracing seed 1012 (the 10.49 m worst case) through the post-WCF
+window:
+
+| t − T_WCF (s) | surge dev (m) | sway dev (m) | r (m) |
+|---------------|---------------|--------------|-------|
+| 0             | −1.13         | +0.40        | 1.19  |
+| 30            | −2.69         | −2.03        | 3.37  |
+| 60            | −1.21         | −0.42        | 1.28  |
+| 90            | +0.50         | −1.73        | 1.81  |
+| 120           | −0.14         | −2.13        | 2.14  |
+| 150           | −2.04         | −9.16        | 9.38  |
+| 161           | −2.90         | −10.09       | **10.49** |
+| 180           | −2.58         | −7.17        | 7.62  |
+
+The trajectory shows a textbook WCFDI transient peaking near t=30 s
+at r=3.4 m (which the cqa calibrated mechanism captures), then full
+recovery to <2 m by t=60 s, followed by a **second divergence event**
+between t=120 s and t=161 s reaching 10.5 m of port-sway drift.
+Sway-axis thrust during the post-WCF window peaks at 816 kN
+(vs pre-SS mean of 421 kN) — actively counter-acting but
+not pegged to thruster limits.
+
+This is a **wave-group-driven late drift event** that is physically
+distinct from the WCFDI transient. With `bus_port` lost, the
+vessel's residual thrust authority on the port-going axis is
+permanently degraded; a wave group large enough to overdrive the
+remaining authority can occur 100+ seconds after the WCFDI and
+produce excursions much larger than the immediate transient peak.
+The combination of (Bf8 sea state) + (w45 wave-vs-current offset)
++ (q10 quartering) appears to set up the worst-case alignment for
+this; sibling cells without all three factors do not show the
+sustained drift mode (or show only one outlier, suggesting it is a
+rare-but-real tail event).
+
+**Implication for the cqa model.** Our deterministic-peak ×
+Gumbel-factor pipeline is fundamentally unable to capture
+second-event divergences that occur outside the WCFDI transient
+window. Two model extensions could in principle address it:
+
+1. Move from a single deterministic-peak prediction to a stochastic
+   post-WCF excursion model that propagates the lost-authority
+   constraint through the wave-drift PSD over the full post-WCF
+   window. This would correctly produce heavy upper-tail
+   distributions where the residual control authority is marginal
+   vs the wave-drift forcing.
+2. Recognise the regime explicitly: when (Hs ≥ 5 m) AND
+   (|wave-current angle| ≥ 30°) AND (failed bus is on the leeward
+   side), apply an additional upper-tail safety factor. This is a
+   pragmatic but ad-hoc fix.
+
+Option 1 is the principled fix and aligns with the broader
+G2 Phase 3 direction of stochastic post-WCF modelling. Option 2
+could land in the meantime if operational urgency requires.
+
+**Conclusion.** The bf8_q10_w45 −39 % wP95 bias is **not** a
+deficiency of the calibration mechanism extended in sec.12.21.20 /
+12.21.21. It is the cqa pipeline's inability to model
+late-window wave-group-driven drift events with degraded thrust
+authority. The brucon ensemble is correctly representing a
+legitimate tail risk; we are correctly representing the median.
+
+### 12.21.21.7 K_lift hypothesis test — proof-of-mechanism
+
+User pushback: could the heavy-tail mechanism be the lift coupling
+K being mis-applied for w45 cells? `lift_coupling_K_per_rad = 3.40`
+(config.py:358) was calibrated by `calibrate_lift_coupling.py` from
+{bf6_h0, bf6_q10, bf8_h0, bf8_q10, pwq30} only — w45 cells were
+explicitly EXCLUDED in `SMALL_ALPHA_CELLS` (line 73-79) with the
+note "alpha_eff != theta_wave (split or current dominant)". The
+JSON's stated validity window is "|alpha_eff| <~ 30 deg".
+
+Naively computing the implied K_i per cell as
+`K_i = (F_y/F_x) / tan(theta_wave)` from each cell's `b_hat_mean`:
+
+| Cell             | F_y/F_x   | implied alpha_eff (deg) | K_i if alpha=theta_wave |
+|------------------|-----------|--------------------------|-------------------------|
+| bf6_q10          | 0.86      | 41                       | 4.89                    |
+| pwq30            | 1.84      | 61                       | 3.18                    |
+| bf6_h0_w45       | 1.86      | 62                       | **1.86**                |
+| bf6_q10_w45      | 2.90      | 71                       | **2.03**                |
+| bf8_h0_w45       | 1.61      | 58                       | **1.61**                |
+| bf8_q10_w45      | 2.43      | 68                       | **1.70**                |
+
+w45 cells imply K_i ≈ 1.6–2.0, **half** the runtime value.
+
+Test: sweep K_lift on bf8_q10_w45 with t_horizon=60 s (the
+default). Result:
+
+| K_lift | wP50.pred | wP95.pred | wP95 bias |
+|--------|-----------|-----------|-----------|
+| 3.40   | 2.999     | 4.752     | −39.3 %   |
+| 1.70   | 3.016     | 4.769     | −39.0 %   |
+| 1.00   | 3.024     | 4.776     | −39.0 %   |
+| 0.00   | 3.034     | 4.786     | −38.8 %   |
+
+K_lift has **no meaningful effect** (3.40 → 0 changes wP95 by
+0.034 m / 0.7 %). Audit of the K mechanism in
+`pulse_response_with_lift_coupling`: it injects an extra sway
+force `delta_b_y(t) = -F_x · K · dpsi(t)` into the pulse response.
+The deterministic dpsi(t) for the bf8_q10_w45 calibrated pulse
+peaks at only **0.77° at t=15 s**, then decays to within ±0.3 °.
+At peak, the K correction is `186 kN · 3.40 · 0.013 rad ≈ 8 kN`
+of extra sway force — a tiny perturbation. The deterministic
+peak sway moves from −1.68 m to −1.59 m (−5 %).
+
+So the K mechanism IS active in the live operator code path, but
+the deterministic dpsi from the deficit pulse is genuinely too
+small for K to matter. The brucon outliers reach 4–6° of yaw
+deviation, but that is driven by **stochastic wave forcing**
+(which our deterministic model does not include), not by the
+deficit pulse alone. K_lift is a sound a-priori candidate that
+the data rules out.
+
+### 12.21.21.8 t_horizon discovery — material side-finding
+
+Same investigation surfaced the WCF integration window
+`t_horizon_s = 60.0` (live_operator_view.py:728 default) is too
+short relative to the brucon evaluation window of 180 s. Sweeping
+t_horizon → 180 s on the bf8_*_w45 + pwq30 cells:
+
+| Cell        | wP95 bias @ 60 s | wP95 bias @ 180 s |
+|-------------|-------------------|--------------------|
+| bf8_q10_w45 | −39.3 %          | **−29.2 %**        |
+| bf8_h0_w45  | −13.6 %          | **+0.4 %**         |
+| pwq30       | +13.1 %          | +34.7 %            |
+
+bf8_h0_w45 closes essentially perfectly. bf8_q10_w45 closes by
+~10 pp. But pwq30 over-shoots by 22 pp: extending the integration
+window inflates the Gumbel `N_eff = t_horizon / T_decorr` factor,
+so cells where the deterministic peak occurs early (and the brucon
+ensemble does not have a heavy late-window tail) become
+over-conservative.
+
+**This is the real diagnosis.** The wP95 prediction is
+`max(R_det(t), t in [0, t_horizon]) × Gumbel_factor(N_eff)`:
+
+* For cells with rapid recovery (pwq30, bf6 row), R_det(t) peaks
+  in the first 30 s and the brucon truth peak distribution is
+  tightly clustered near the median. Short t_horizon is
+  appropriate; long t_horizon over-counts.
+* For cells with slow / no recovery (bf8_q10_w45, partly
+  bf8_h0_w45), R_det(t) keeps rising toward t=80 s and the brucon
+  truth distribution has a heavy upper tail. Long t_horizon is
+  needed both to capture the late deterministic peak and to
+  inflate `N_eff` so the Gumbel factor matches the heavy tail.
+
+The architectural fix is to make `t_horizon` adaptive — extend it
+until the deterministic R_det(t) has clearly decayed below a
+fraction of its peak, e.g. 50 % — or use the time-to-peak detection
+to set t_horizon = max(2×t_peak, T_decorr_lf). This decouples cells
+with long-tail dynamics from cells with prompt recovery without
+needing a per-cell tuning parameter.
+
+### 12.21.21.9 The non-recovery signature — what the brucon ensemble shows
+
+User pushback: "is the deviation because the vessel does not
+recover from the transient? How do surge/sway/yaw look from
+20 s before to 80 s after WCF in the brucon data?"
+
+Ensemble-mean (deterministic component) and std (stochastic
+spread) of body-frame deviations across 30 seeds, referenced to
+the pre-WCF mean per seed:
+
+```
+cell          t_rel  mean_surge  mean_sway  mean_yaw_deg  std_surge  std_sway  std_yaw_deg
+bf8_q10_w45     -10      -0.10      +0.00         +0.10       0.73     1.13      0.96
+bf8_q10_w45      +0      +0.09      +0.21         +0.35       0.88     1.40      0.98
+bf8_q10_w45     +10      +0.17      +0.10         +0.74       0.99     1.53      1.33
+bf8_q10_w45     +20      +0.02      -0.39         +1.51       1.23     1.69      1.54
+bf8_q10_w45     +30      -0.03      -0.66         +0.71       1.39     1.78      1.54
+bf8_q10_w45     +50      -0.13      -0.66         -0.65       1.67     1.84      1.76
+bf8_q10_w45     +80      +0.11      -0.79         -0.64       1.29     2.70      1.78
+bf8_h0_w45      +30      -0.15      -0.60         +0.84       1.27     2.00      1.73
+bf8_h0_w45      +50      -0.16      -0.18         -0.29       1.58     2.03      2.41
+bf8_h0_w45      +80      +0.12      -0.20         -0.51       1.40     2.19      1.78
+bf6_q10_w45     +30      -0.20      -0.51         +0.34       0.46     0.58      0.54
+bf6_q10_w45     +80      -0.01      -0.14         -0.42       0.40     0.69      0.52
+pwq30           +30      +0.08      -0.39         +0.72       0.65     0.65      0.61
+pwq30           +80      +0.11      +0.06         -0.20       0.68     0.41      0.51
+```
+
+Two clear signatures distinguish bf8_q10_w45:
+
+1. **Ensemble-mean sway fails to recover.** mean_sway:
+   bf8_q10_w45 goes −0.39 m (t=20) → −0.66 m (t=30) → −0.66 m
+   (t=50) → **−0.79 m (t=80)**, still drifting toward port. By
+   contrast bf8_h0_w45 partially recovers (−0.60 → −0.20),
+   bf6_q10_w45 recovers (−0.51 → −0.14), pwq30 fully recovers
+   (−0.39 → +0.06). bf8_q10_w45 is the ONLY cell where the
+   deterministic component is monotonically diverging at t=80 s.
+2. **Stochastic sway spread grows monotonically.** std_sway:
+   bf8_q10_w45 grows 1.40 → 1.69 → 1.78 → 1.84 → **2.70 m** by
+   t=80 s — almost doubles. bf8_h0_w45 plateaus near 2.0 m.
+   bf6_q10_w45 / pwq30 stay below 0.7 m. The bf8_q10_w45 ensemble
+   is fanning out faster than the closed-loop is able to damp.
+
+The combination is a **system-level damping-margin failure**:
+with `bus_port` lost under bf8 + q10 + w45 conditions, the closed
+loop in sway has insufficient damping to recover from the
+WCFDI deficit pulse, and additive wave forcing continues to pump
+energy into the sway mode. The mean drifts; the variance grows.
+The eventual heavy-tail peaks at t=80–180 s reflect both the mean
+drift and the variance growth combined.
+
+This is a fundamentally different regime than the other validated
+cells, where the closed-loop rapidly absorbs the deficit pulse and
+returns to a tightly damped intact-DP-like spread. Predicting it
+correctly requires modelling the **post-pulse closed-loop transfer
+function with the lost-bus geometry**, not just the impulse
+response of the deficit pulse.
+
+The K_lift mechanism (sec.12.21.21.7) cannot capture this because
+the deterministic dpsi from a stand-alone pulse is too small. The
+t_horizon extension (sec.12.21.21.8) captures part of it because
+the closed-loop response over [0, 180 s] starts to develop the
+sway divergence at ensemble level, and the inflated Gumbel N_eff
+factor partially compensates for the heavy tail.
+
+### 12.21.21.10 Summary
+
+* Calibration extension to all bf8 cells improved 3 of 4 wP95
+  biases to ~−10 % (bf8_h0 / bf8_q10 / bf8_h0_w45). bf8_q10_w45
+  remains an outlier at −39 %.
+* K_lift hypothesis tested and ruled out: deterministic dpsi from
+  the pulse is too small for K to make a meaningful difference,
+  even at t_horizon = 180 s.
+* t_horizon extension surfaced as a real lever: bf8_h0_w45 closes
+  to +0.4 % at t_horizon=180s, but pwq30 over-shoots to +35 %.
+  Adaptive t_horizon (= 2× t_peak_det) is the principled fix.
+* Brucon ensemble shows bf8_q10_w45 has a damping-margin failure:
+  ensemble-mean sway monotonically diverges (−0.39 → −0.79 m)
+  AND ensemble std grows (1.4 → 2.7 m) over t=0–80 s after WCF.
+  This is a system-level closed-loop stability deficit under the
+  combined (Bf8 + q10 + w45) regime, distinct from any single
+  parameter.
+* The principled long-term fix is to model the post-WCF closed-loop
+  transfer with lost-bus geometry, not just the deficit pulse
+  impulse response. This is the architectural gap revealed by the
+  bf8_q10_w45 cell.
+
 
 
