@@ -81,6 +81,8 @@ row; the system is type-1 so the exact SS is well-defined).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Callable
+
 import numpy as np
 
 from .vessel import LinearVesselModel
@@ -475,4 +477,143 @@ def pulse_response_with_lift_coupling(
         delta_b_t = np.zeros((N, 3))
         delta_b_t[:, 1] = coupling_y * dpsi_t
 
+    return X
+
+
+# ---------------------------------------------------------------------------
+# Saturation-aware pulse response (sec.12.21.21.6 Option A)
+# ---------------------------------------------------------------------------
+
+
+def implicit_tau_cmd(aug: AugmentedSystemObs, x: np.ndarray) -> np.ndarray:
+    """Recover the controller command ``tau_cmd`` from the state vector.
+
+    The 27-state augmented model encodes the controller law
+
+        tau_cmd = -Kp eta_hat - Kd nu_hat - b_hat - Ki I
+
+    inside the ``tau_thr_dot`` row of ``A`` (see
+    ``build_observer_augmented_system_full`` lines 255-261). For
+    saturation-aware integration we need the *raw* command value at each
+    integration step, prior to clipping; this helper exposes it.
+    """
+    eta_hat = x[IDX_ETA_HAT]
+    nu_hat = x[IDX_NU_HAT]
+    b_hat = x[IDX_B_HAT]
+    I_int = x[IDX_INT]
+    return -aug.Kp @ eta_hat - aug.Kd @ nu_hat - b_hat - aug.Ki @ I_int
+
+
+def pulse_response_saturated(
+    aug: AugmentedSystemObs,
+    t_grid: np.ndarray,
+    tau_lost_t: np.ndarray,
+    clip_fn: Callable[[np.ndarray], np.ndarray],
+    x0: np.ndarray | None = None,
+) -> np.ndarray:
+    """Pulse response with allocator saturation on the controller command.
+
+    Per sec.12.21.21.6 Option A: model the dominant non-linearity that
+    drives the bf8_q10_w45 late-time spiral by clipping the implicit
+    ``tau_cmd`` produced by the controller against a residual thrust
+    polytope at every integration step. The clipped command feeds the
+    physical thrust-lag block (and thence the truth ``nu_dot``), while
+    the observer continues to see the un-clipped orders (matching the
+    brucon CSOV ``use_tau_feedback = false`` default).
+
+    The saturated dynamics are::
+
+        x_dot = A x + B_lost tau_lost(t)
+              + e_tau_thr  *  (1/T_thr) * (tau_cmd_clip(x) - tau_cmd_raw(x))
+
+    where the bracketed correction subtracts the contribution of the
+    *un-clipped* command (already baked into ``A @ x``) and re-injects
+    the clipped command into the ``tau_thr_dot`` row. With
+    ``tau_cmd_clip == tau_cmd_raw`` the correction vanishes and the
+    trajectory matches :func:`pulse_response` to integrator order.
+
+    Integration uses explicit RK4 with the uniform grid ``t_grid`` and
+    linear interpolation of ``tau_lost(t)`` at the half-step; this
+    handles the piecewise-linear clip cleanly while preserving the
+    linear-case accuracy.
+
+    Parameters
+    ----------
+    aug : AugmentedSystemObs
+        21- (or 27-) state augmented system.
+    t_grid : (N,) np.ndarray
+        Uniform time grid [s].
+    tau_lost_t : (N, 3) np.ndarray
+        :math:`\\tau_{\\mathrm{lost}}(t)` forcing per DOF [N, N, N*m].
+    clip_fn : callable
+        Closure mapping a raw 3-vector command ``(cx, cy, cz)`` to a
+        clipped 3-vector. Caller supplies the projection geometry (e.g.
+        yaw-priority operational cap from
+        :mod:`cqa.live_regime_b`). Must return a finite ``(3,)`` array.
+    x0 : (n_state,) np.ndarray, optional
+        Initial perturbation around intact SS. Defaults to zero.
+
+    Returns
+    -------
+    X : (N, n_state) np.ndarray
+        State trajectory.
+
+    Notes
+    -----
+    The observer state (``eta_hat``, ``nu_hat``, ``b_hat``) is fed the
+    un-clipped command, consistent with the brucon observer wiring. This
+    is what drives the post-WCF integrator wind-up that the deterministic
+    spiral mechanism (sec.12.21.21.6) requires: the controller keeps
+    demanding more thrust than is delivered, the integrator keeps
+    growing, and the observer's bias estimate keeps absorbing the
+    innovation -- all while truth ``nu`` continues to drift because
+    ``tau_thr`` is capped.
+    """
+    n = aug.n_state
+    N = len(t_grid)
+    if x0 is None:
+        x0 = np.zeros(n)
+    if tau_lost_t.shape != (N, 3):
+        raise ValueError(
+            f"tau_lost_t must be ({N}, 3); got {tau_lost_t.shape}"
+        )
+    dt = float(t_grid[1] - t_grid[0])
+    if not np.allclose(np.diff(t_grid), dt, rtol=1e-8):
+        raise ValueError("t_grid must be uniform")
+
+    inv_T_thr = 1.0 / aug.T_thr
+    A = aug.A
+    B_lost = aug.B_lost
+
+    # Pre-compute the (n_state, 3) projector that pumps a 3-vector
+    # correction into the IDX_TAU_THR row.
+    E_thr = np.zeros((n, 3))
+    E_thr[IDX_TAU_THR, :] = np.eye(3)
+
+    def f(x: np.ndarray, tau_lost_k: np.ndarray) -> np.ndarray:
+        # Raw linear dynamics (un-clipped command already baked into A).
+        x_dot = A @ x + B_lost @ tau_lost_k
+        # Clip correction on the tau_thr_dot row only.
+        tau_raw = implicit_tau_cmd(aug, x)
+        tau_clip = np.asarray(clip_fn(tau_raw), dtype=float)
+        if tau_clip.shape != (3,):
+            raise ValueError(
+                f"clip_fn must return a (3,) array; got {tau_clip.shape}"
+            )
+        delta = tau_raw - tau_clip
+        x_dot += E_thr @ (-inv_T_thr * delta)
+        return x_dot
+
+    X = np.zeros((N, n))
+    X[0] = x0
+    for k in range(1, N):
+        x_k = X[k - 1]
+        tl_a = tau_lost_t[k - 1]
+        tl_b = tau_lost_t[k]
+        tl_mid = 0.5 * (tl_a + tl_b)
+        k1 = f(x_k, tl_a)
+        k2 = f(x_k + 0.5 * dt * k1, tl_mid)
+        k3 = f(x_k + 0.5 * dt * k2, tl_mid)
+        k4 = f(x_k + dt * k3, tl_b)
+        X[k] = x_k + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
     return X
