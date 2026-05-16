@@ -7248,3 +7248,81 @@ table.
 
 Next: wire `estimate_regime_b_severity` into
 `summarise_for_operator_live` (sec.12.21.22.*).
+
+## 12.21.21.22 Integration: regime-B severity in summarise_for_operator_live
+
+Wired `cqa.live_regime_b.estimate_regime_b_severity` into
+`cqa.live_operator_view.summarise_for_operator_live` per the user's
+chosen API shape (extend `LiveObserverState`):
+
+* **`LiveObserverState`** (cqa/live_decision.py:170): added optional
+  fields `tau_buffer: np.ndarray | None = None` and
+  `tau_buffer_fs_hz: float | None = None`. `__post_init__` enforces
+  shape (N, 3) and the both-or-neither invariant. Default `None`
+  preserves backwards compatibility -- existing callers that do not
+  feed delivered thrust get the unchanged panel.
+
+* **`summarise_for_operator_live`** (cqa/live_operator_view.py:750):
+  added keyword-only `cap_residual_N_Nm: tuple | None = None`. When
+  all three (`tau_buffer`, `tau_buffer_fs_hz`, `cap_residual_N_Nm`)
+  are present, computes `RegimeBSeverity` and folds the
+  traffic-light into `overall_traffic` via the existing `_worst()`
+  helper.
+
+* **`LiveOperatorSummary`** (cqa/live_operator_view.py:193): added
+  seven optional fields -- `regime_b_present`, `regime_b_severity`,
+  `regime_b_p_sat` (3,), `regime_b_mu_N_Nm` (3,),
+  `regime_b_sigma_N_Nm` (3,), `regime_b_cap_residual_N_Nm` (3,),
+  `regime_b_traffic`. Defaults give a benign "green / 0.0" panel
+  when the feature is unused.
+
+Eight unit tests in `tests/test_live_regime_b_integration.py` cover:
+absence semantics, green/amber/red bucket placement, value
+consistency between panel and direct `estimate_regime_b_severity`
+call, overall_traffic worst-of preservation, and `LiveObserverState`
+input validation. All 44 live-related tests pass
+(test_live_regime_b + test_live_regime_b_integration +
+test_live_operator_view).
+
+End-to-end ensemble validation
+(`scripts/p7_brucon_validation/validate_live_regime_b_panel.py`):
+loaded pre-WCF delivered thrust from all 11 cells x 30 seeds = 330
+seed configurations, ran them through the panel with
+`cap_residual = (838, 1104, 47929) kN/kN.m` (CSOV bus_port lost).
+Result: **all 330 configurations green**, max severity 2.5e-6 on
+bf8_q10_w45, ranked correctly by sea-state aggressiveness:
+
+| cell        | severity median | severity max | green |
+|-------------|----------------:|-------------:|------:|
+| pwq30       | 2e-211          | 2e-73        | 30/30 |
+| bf4_c1_h0   | 0               | 0            | 30/30 |
+| bf6_h0      | 0               | 3e-276       | 30/30 |
+| bf6_q10_w45 | 4e-140          | 5e-67        | 30/30 |
+| bf8_h0_w45  | 4e-18           | 4e-9         | 30/30 |
+| bf8_q10_w45 | 4e-12           | 3e-6         | 30/30 |
+
+These severities are slightly higher than the pure-LF predictions
+of sec.12.21.21.21 (~2e-10 worst case) because they come from
+delivered T which includes some WF content the 4th-order
+Butterworth at omega_c = 0.30 rad/s does not fully suppress over
+the 540 s buffer. The ranking and the green verdict are correct.
+
+The amber/red regions of the predictor are exercised by
+`tests/test_live_regime_b_integration.py` with synthetic Gaussian
+inputs (mu = 775 kN, sigma = 200 kN -> amber; mu = 1200 kN -> red);
+no brucon cell in the test matrix reaches those regimes.
+
+This closes the v1 live regime-B workstream: estimator,
+validation, integration and tests are all in place. Next workstream
+candidates (no current priority assigned):
+
+* Visual: extend `plot_live_operator_summary` with a fourth bar
+  for the regime-B saturation severity (P_sat axis, traffic-light
+  tint matching the position bars).
+* Calibration: update `cqa/config.py:138 ThrustCapability` defaults
+  from (500, 700, 30000) to the brucon-derived (1360, 1695, 86433)
+  CSOV intact polytope.
+* Brucon C++ port of `cqa.live_regime_b` (which is the original
+  reason this module exists).
+* Forecast-pipeline gap (sec.12.21.21.17): cqa underpredicts mu and
+  sigma of tau on bf8_q10_w45 by ~4x; deferred but still open.

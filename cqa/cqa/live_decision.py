@@ -182,6 +182,14 @@ class LiveObserverState:
     b_hat: np.ndarray           # (3,) body bias estimate   [N, N, Nm]
     eta_wave: np.ndarray        # (3,) body WF position     [m, m, rad]
     heading_compass: float      # rad
+    # Optional rolling buffer of delivered controller thrust (or the
+    # numerically-equivalent FbTauSurge/Sway/Yaw feedback channel) per
+    # DOF, for the live regime-B saturation severity estimator. Shape
+    # (N, 3) in [N, N, N*m]. When None (default) the regime-B bar of
+    # the operator panel is suppressed. See cqa.live_regime_b and
+    # analysis.md sec.12.21.21.16-21 for the rationale.
+    tau_buffer: Optional[np.ndarray] = None
+    tau_buffer_fs_hz: Optional[float] = None
 
     def __post_init__(self):
         for name in ("eta_hat", "nu_hat", "b_hat", "eta_wave"):
@@ -189,6 +197,25 @@ class LiveObserverState:
             if v.shape != (3,):
                 raise ValueError(f"{name} must have shape (3,), got {v.shape}")
             object.__setattr__(self, name, v)
+        # Optional thrust buffer validation: shape (N, 3) and matching
+        # sample rate must be both present or both absent.
+        if (self.tau_buffer is None) != (self.tau_buffer_fs_hz is None):
+            raise ValueError(
+                "tau_buffer and tau_buffer_fs_hz must be both provided "
+                "or both None."
+            )
+        if self.tau_buffer is not None:
+            tb = np.asarray(self.tau_buffer, dtype=float)
+            if tb.ndim != 2 or tb.shape[1] != 3:
+                raise ValueError(
+                    f"tau_buffer must have shape (N, 3); got {tb.shape}"
+                )
+            if not (float(self.tau_buffer_fs_hz) > 0.0):
+                raise ValueError(
+                    f"tau_buffer_fs_hz must be positive; got "
+                    f"{self.tau_buffer_fs_hz}"
+                )
+            object.__setattr__(self, "tau_buffer", tb)
 
 
 @dataclass(frozen=True)

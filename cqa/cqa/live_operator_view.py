@@ -182,6 +182,12 @@ from .transient_obs import (
 )
 from .transient import WcfdiScenario
 from .decision_matrix import _imca_traffic, _worst
+from .live_regime_b import (
+    estimate_regime_b_severity,
+    RegimeBSeverity,
+    DEFAULT_AMBER as _REGB_AMBER,
+    DEFAULT_RED as _REGB_RED,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -372,6 +378,28 @@ class LiveOperatorSummary:
     gangway_t_peak_s: float = 0.0
     gangway_traffic: str = "green"
     gangway_wf_coverage: str = "horizontal_3dof"
+
+    # ----- Regime-B saturation severity (optional) -----
+    # Present iff the caller supplied both ``obs_state.tau_buffer`` /
+    # ``tau_buffer_fs_hz`` and the ``cap_residual_N_Nm`` argument to
+    # ``summarise_for_operator_live``. Estimates the post-WCF
+    # sustained-saturation severity from the rolling buffer of
+    # delivered thrust against the residual polytope of the surviving
+    # thruster set. See cqa.live_regime_b and analysis.md
+    # sec.12.21.21.16-21.
+    #
+    # severity = max(p_sat) across DOFs, where p_sat[i] = P(|tau_LF_i|
+    # > cap_residual_i) in the steady-state Gaussian approximation.
+    # Traffic light: green if severity < 0.01, amber [0.01, 0.10),
+    # red >= 0.10. The headline ``overall_traffic`` is the worst-of
+    # intact / wcf / gangway / regime-B.
+    regime_b_present: bool = False
+    regime_b_severity: float = 0.0
+    regime_b_p_sat: Optional[np.ndarray] = None        # (3,)
+    regime_b_mu_N_Nm: Optional[np.ndarray] = None      # (3,)
+    regime_b_sigma_N_Nm: Optional[np.ndarray] = None   # (3,)
+    regime_b_cap_residual_N_Nm: Optional[np.ndarray] = None  # (3,)
+    regime_b_traffic: str = "green"
 
 
 # ---------------------------------------------------------------------------
@@ -731,6 +759,7 @@ def summarise_for_operator_live(
     n_mc: int = 2000,
     rng: Optional[np.random.Generator] = None,
     joint: Optional[GangwayJointState] = None,
+    cap_residual_N_Nm: Optional[tuple] = None,
 ) -> LiveOperatorSummary:
     """Build the operator-facing two- or three-bar summary from the live state.
 
@@ -1001,6 +1030,36 @@ def summarise_for_operator_live(
             gw_traffic = "green"
         overall = _worst(overall, gw_traffic)
 
+    # ---- Regime-B saturation severity (optional) ----
+    # Driven by the rolling delivered-thrust buffer on the observer
+    # state and the residual polytope cap of the surviving thruster
+    # set. See cqa.live_regime_b and analysis.md sec.12.21.21.16-21.
+    regime_b_present = False
+    regime_b_severity = 0.0
+    regime_b_p_sat = None
+    regime_b_mu = None
+    regime_b_sigma = None
+    regime_b_cap = None
+    regime_b_traffic = "green"
+    if (
+        obs_state.tau_buffer is not None
+        and obs_state.tau_buffer_fs_hz is not None
+        and cap_residual_N_Nm is not None
+    ):
+        rb: RegimeBSeverity = estimate_regime_b_severity(
+            tau_buffer=obs_state.tau_buffer,
+            fs_hz=float(obs_state.tau_buffer_fs_hz),
+            cap_residual=cap_residual_N_Nm,
+        )
+        regime_b_present = True
+        regime_b_severity = rb.severity
+        regime_b_p_sat = rb.p_sat
+        regime_b_mu = rb.mu
+        regime_b_sigma = rb.sigma
+        regime_b_cap = rb.cap_residual
+        regime_b_traffic = rb.traffic
+        overall = _worst(overall, regime_b_traffic)
+
     return LiveOperatorSummary(
         intact_R_p50=intact_p50,
         intact_R_p95=intact_p95,
@@ -1029,6 +1088,13 @@ def summarise_for_operator_live(
         gangway_t_peak_s=gw_t_peak,
         gangway_traffic=gw_traffic,
         gangway_wf_coverage=gw_coverage,
+        regime_b_present=regime_b_present,
+        regime_b_severity=regime_b_severity,
+        regime_b_p_sat=regime_b_p_sat,
+        regime_b_mu_N_Nm=regime_b_mu,
+        regime_b_sigma_N_Nm=regime_b_sigma,
+        regime_b_cap_residual_N_Nm=regime_b_cap,
+        regime_b_traffic=regime_b_traffic,
     )
 
 
