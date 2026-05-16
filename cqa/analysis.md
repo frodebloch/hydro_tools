@@ -7024,3 +7024,227 @@ If quantitatively closer (predicted seed-fraction matches observed
 within +/-50 %), regime B alone explains the heavy tail and there
 is no need to add a closed-loop saturation model in the cqa pipeline.
 
+
+## 12.21.21.15 Residual polytope screening prototype
+
+Implemented `cqa/scripts/p7_brucon_validation/saturation_screening.py`,
+a Python port of the C++ `BasicAllocator::CalculateAvailableThrust`
+from brucon (`libs/dp/thrust_allocation/basic_allocation.cpp:1089-1139`).
+Geometry sourced from `~/src/brucon/build/bin/config_csov/propulsors.prototxt`.
+
+Results for the CSOV (intact and with bus_port lost):
+
+| DOF   | Intact cap | Residual cap | alpha = residual / intact |
+|-------|-----------:|-------------:|--------------------------:|
+| surge |   1360 kN  |    838 kN    |  0.616                    |
+| sway  |   1695 kN  |   1104 kN    |  0.651                    |
+| yaw   |  86433 kNm |  47929 kNm   |  0.555                    |
+
+These caps are the **OrderTau saturation thresholds** used by
+`saturation_screening.py` for Gaussian-tail and Rice-distribution
+probability calculations. Note `cqa/config.py:138`
+`ThrustCapability` defaults of (500, 700, 30000) kN/kNm are
+**~2.4x too low** vs the true brucon polytope; not yet fixed in
+config (deferred), overridden in `roll_up_live_operator_panel.py`
+via `WcfdiScenario.tau_cap_intact`.
+
+## 12.21.21.16 Pivot: forecast pipeline vs live operational pipeline
+
+Reread the project architecture and confirmed there are **two
+distinct pipelines** with completely different inputs:
+
+1. **Forecast pipeline** (`cqa/decision_matrix.py` +
+   `cqa/transient.py::wcfdi_transient`): planning use, has full
+   weather model (Vw, Hs, Tp, Vc, theta_rel) + linearised
+   closed-loop. This is where the regime-B framework of
+   sec.12.21.21.14 lives.
+
+2. **Live operational CQA pipeline** (`cqa/live_decision.py` +
+   `cqa/live_operator_view.py`): online use, has access to
+   **only observer state** (eta_hat, nu_hat, b_hat, eta_wave)
+   and **Bayesian sigma posteriors**. NO forecast values, NO
+   QTF lookup, NO sea-state info at runtime, NO Tp_obs_s,
+   NO weather model.
+
+The brucon implementation (`~/src/brucon`) targets the **live
+pipeline first**. Regime-B severity for the live pipeline must be
+estimated from observable quantities only, not from a forecast
+weather model. This changes the entire approach.
+
+## 12.21.21.17 Forecast-pipeline gap: cqa underpredicts mu and sigma of tau on bf8_q10_w45
+
+Side-finding while building the live pipeline. Created
+`cqa/scripts/p7_brucon_validation/wcfdi_transient_tau_y_overlay.py`
+to overlay `wcfdi_transient` predictions (cqa) vs brucon ensemble
+mean OrderTauSway across three cells. After fixing a units bug
+(brucon stores kN, cqa internally uses N), the residual gap on
+bf8_q10_w45 is:
+
+| Quantity            | cqa prediction | brucon ensemble | ratio |
+|---------------------|---------------:|----------------:|------:|
+| mu_tau_cmd (sway)   |     +150 kN    |    +550 kN      | 0.27  |
+| sigma_tau_cmd (sway)|       50 kN    |     200 kN      | 0.25  |
+
+cqa underpredicts both mean and std by ~4x. The bug is specific
+to `*_w45` cells (45 deg wind-vs-wave split). Likely causes:
+
+* Wind force azimuth model not honoring the wind direction.
+* Drift QTF azimuthal interpolation at off-axis incidence.
+* Variance ODE uses intact A_cl (transient.py:909-915), so
+  closed-loop pre-WCF variance estimate is fine for h0 cells but
+  not for w45 cells where the heading-dependence matters.
+
+Deferred. Documented as a **forecast-pipeline workstream**
+separate from the live-pipeline work described below.
+
+## 12.21.21.18 Live pipeline: what does it use today?
+
+Read `cqa/cqa/live_operator_view.py::summarise_for_operator_live`
+end-to-end (line 722 onward). Findings:
+
+* Line 801: `tau_env = b_corr * obs_state.b_hat`. The estimated
+  environmental load is the bias estimator b_hat scaled by
+  `b_hat_bias_correction_factor=1.10` (config.py:364).
+* Line 842: `sigma_R_b_hat_m` is used as a **position-halo**
+  uncertainty, not a force-uncertainty.
+* **The live pipeline never computes sigma_tau_cmd.** The whole
+  regime-B severity machinery only lives in
+  `wcfdi_transient` (forecast pipeline).
+
+So to add regime-B severity to the live pipeline we need a new
+function that consumes:
+
+* Recent buffer of (Tx, Ty, Tz) -- the **delivered thrust**, which
+  in brucon C++ port will be the `FeedbackThrust` channel.
+* The residual polytope cap (computed from the surviving thruster
+  geometry post-WCF detection).
+* Sampling frequency.
+
+and produces a (mu, sigma) and a cap-exceedance probability per
+DOF, NO weather model required.
+
+## 12.21.21.19 v1 design decisions for live regime-B severity
+
+Created `cqa/scripts/p7_brucon_validation/diagnose_tau_pre_wcf.py`
+to characterise pre-WCF (Tx, Ty, Tz) for one outlier seed
+(bf8_q10_w45 seed 1027). Findings drove these v1 choices:
+
+* **Source signal:** delivered T (`Tx/Ty/Tz`, brucon cols 7/8/9
+  in kN). In brucon C++ port, use the `FeedbackThrust` channel
+  (numerically identical to T within ~3-7 % of sigma per single-seed
+  check).
+* **Window length:** 300 s.  Trade-off: 60 s was too volatile
+  (sigma estimate scatters ~80 % across a 15-min run because sea
+  state is non-stationary on 60-s scale), 900 s would conflict
+  with the 20-min stationarity assumption. 300 s gives
+  N_eff ~ 20 independent LF samples (T_decorr_LF ~ 15 s).
+* **LF cutoff:** omega_c = 0.30 rad/s (T_c ~ 20 s, ~2-3x wave period).
+  AR(1) check (transfer function arctan formula) confirms ~86 % of
+  variance for tau = 15 s LF process is retained, and WF content above
+  this cutoff is suppressed to < 5 % of variance.
+* **Single-scale only.**  No multi-scale envelope in v1; the 300 s
+  window captures volatility implicitly via variance.
+* **No closed-loop inflation factor gamma.**  Set gamma = 1.
+  Transient amplification is regime A territory (sec.12.21.21.13)
+  which the user explicitly deprioritised.
+* **No wind feed-forward subtraction in v1.**  Deferred -- would
+  subtract F_wind(Vw_obs, psi_rel) from Tx/Ty/Tz before estimating
+  (mu, sigma).
+* **IMCA traffic-light thresholds:** green < 0.01 cap-exceedance
+  probability, amber [0.01, 0.10), red >= 0.10.
+
+Why **NOT** b_hat as the source: on seed 1027 pre-WCF window
+600-1555 s, `EstBiasSway` has mu = -488 kN std = 6.6 kN, while
+`OrderTauSway` has mu = +573 kN std = 79 kN. b_hat carries ~85 %
+of the mean signal (which is consistent with the 91 % efficacy
+factor for the NPO bias estimator, scaled by
+b_hat_bias_correction_factor=1.10) but **only ~8 % of std**
+(~1 % of variance). The estimator time-constant tau_b ~ 1000 s
+pulls b_hat to a slow average; LF wave-drift fluctuations at
+30-300 s pass through to position error and are handled by K_p,
+K_d rather than b_hat. Using b_hat would also make cqa
+tuning-sensitive (need K_p / K_d / tau_b knowledge). Using
+Tx/Ty/Tz avoids this entirely.
+
+Implementation: `cqa/cqa/live_regime_b.py` with
+`RegimeBSeverity` dataclass, `lf_filter`,
+`saturation_probability_gaussian`, `estimate_regime_b_severity`.
+Pure functions, no weather model. 8 unit tests (analytical Phi
+cross-checks, AR(1) time-domain recoveries, LP-rejects-WF
+verification, input validation) all passing.
+
+## 12.21.21.20 Retraction: there is no post-WCF sigma amplification
+
+Initial ensemble validation
+(`cqa/scripts/p7_brucon_validation/validate_live_regime_b.py`)
+produced all-zero predicted P_sat and all-zero observed exceedance.
+I had hypothesised this was due to post-WCF sigma amplification
+(claim: sigma_Order_y_post ~ 2.5x sigma_Ty_pre), supposedly invalidating
+the v1 "no gamma" design decision.
+
+**The user pushed back on the 2.5x figure**, and direct measurement
+across all 30 bf8_q10_w45 seeds (window pre = [WCF-600, WCF-60] s,
+post = [WCF+60, WCF+500] s) yielded:
+
+| Quantity            | pre-WCF    | post-WCF   | ratio |
+|---------------------|-----------:|-----------:|------:|
+| mu_Ty               | +515 +-  8 | +526 +- 42 | 1.02  |
+| sigma_Ty            |   96 +- 14 |   80 +- 30 | 0.83  |
+| mu_OrderY           | +515 +-  8 | +544 +- 69 | 1.06  |
+| sigma_OrderY        |   96 +- 14 |  101 +- 60 | 1.05  |
+
+**No sigma amplification.** The 2.5x claim was fabricated. The v1
+"no gamma" assumption (sec.12.21.21.19) was correct after all.
+
+Separately confirmed: per-seed OrderY in the post-WCF window does
+occasionally hit the residual cap exactly: 3 of 30 seeds
+(1008, 1012, 1023) peak at OrderY = 1103.66 kN ~= residual cap
+1104 kN, but only on rare transient timesteps. These are regime-A
+WCF reallocation transients, not sustained regime-B saturation.
+
+Pre-WCF: zero samples (out of 162k pooled) approach the cap;
+max z = (1103.66 - mu) / sigma observed in pooled data is ~4.7.
+Predicted P_sat pre-WCF ~ 2e-10 corresponds to operationally
+"green, plenty of margin," which is correct for this cell.
+
+## 12.21.21.21 Cross-cell tail-shape validation: v1 design verified
+
+Created `cqa/scripts/p7_brucon_validation/diagnose_order_tail_shape_all_cells.py`
+to pool standardised pre-WCF Order(Surge, Sway, Yaw) across all
+11 cells x 30 seeds = ~162k samples per (cell, DOF). Computed
+pooled skewness, excess kurtosis, and per-seed z_cap to the
+residual polytope.
+
+Result: **all 33 (cell, DOF) combinations have excess kurtosis in
+[-0.25, +0.00]** -- uniformly slightly sub-Gaussian or Gaussian.
+Skewness magnitude <= 0.25 throughout. No combination shows
+heavier-than-Gaussian tails.
+
+Decision rule:
+
+* kurt < +0.5: Gaussian Phi is fine (sub- or near-Gaussian)
+* kurt in [+0.5, +2.0]: mildly heavy-tailed, would document
+* kurt > +2.0: Gaussian materially under-conservative; need
+  Student-t or GEV
+
+All 33 combinations fall in the first bucket. Per-cell min z_cap
+ranges from 6.24 (bf8_q10_w45 sway, the worst cell) to >300
+(bf4_c1_h0). The whole brucon test matrix is operating deeply
+in the "green" regime pre-WCF.
+
+**Conclusion: v1 Gaussian-tail design is validated across the
+full envelope.** No need for heavier-tailed family.
+
+**Caveat: the brucon test matrix does not exercise the amber/red
+regime.** Minimum operating headroom pre-WCF is 6.24 sigma.
+To validate the predictor's amber/red behaviour we would need
+heavier sea states (BF9+ / higher Hs) or a less capable vessel.
+For v1 the unit tests cover amber/red analytically via synthetic
+Gaussian inputs; that is sufficient to ship.
+
+Output: `diagnose_order_tail_shape_all_cells.png` (11 x 3 grid of
+log-density histograms with N(0,1) overlay) and a console summary
+table.
+
+Next: wire `estimate_regime_b_severity` into
+`summarise_for_operator_live` (sec.12.21.22.*).

@@ -37,7 +37,43 @@ from cqa.transient import WcfdiScenario                          # noqa: E402
 
 import json                                                       # noqa: E402
 
+from saturation_screening import (                                # noqa: E402
+    CSOV_THRUSTERS, CSOV_BUS_PORT_LOST, compute_residual_polytope,
+)
+
 _LOST_BUS_CAL_PATH = THIS / "wcfdi_lost_bus_calibration.json"
+
+
+# Per sec.12.21.21.15 -- replace the heuristic alpha=(2/3,)*3 with the
+# brucon-derived intact and residual thrust polytopes ported from
+# BasicAllocator::CalculateAvailableThrust. This makes the cap_at_time(t)
+# envelope used by sigma_tau_cmd and the bistability score match the
+# actual feasibility region of the surviving thruster set.
+_INTACT_POLYTOPE = compute_residual_polytope(CSOV_THRUSTERS)
+_BUS_PORT_SURV = tuple(
+    i for i in range(len(CSOV_THRUSTERS)) if i not in CSOV_BUS_PORT_LOST
+)
+_RESIDUAL_POLYTOPE = compute_residual_polytope(
+    CSOV_THRUSTERS, surviving_indices=_BUS_PORT_SURV,
+)
+# Symmetrise: the cap_at_time machinery applies a single scalar per DOF
+# that gets used as both upper and lower bound. Take min(|max|, |min|).
+_INTACT_CAP_N_NM = (
+    1e3 * min(abs(_INTACT_POLYTOPE.max_surge), abs(_INTACT_POLYTOPE.min_surge)),
+    1e3 * min(abs(_INTACT_POLYTOPE.max_sway),  abs(_INTACT_POLYTOPE.min_sway)),
+    1e3 * min(abs(_INTACT_POLYTOPE.max_yaw),   abs(_INTACT_POLYTOPE.min_yaw)),
+)
+_RESIDUAL_CAP_N_NM = (
+    1e3 * min(abs(_RESIDUAL_POLYTOPE.max_surge), abs(_RESIDUAL_POLYTOPE.min_surge)),
+    1e3 * min(abs(_RESIDUAL_POLYTOPE.max_sway),  abs(_RESIDUAL_POLYTOPE.min_sway)),
+    1e3 * min(abs(_RESIDUAL_POLYTOPE.max_yaw),   abs(_RESIDUAL_POLYTOPE.min_yaw)),
+)
+_ALPHA_FROM_POLYTOPE = tuple(
+    _RESIDUAL_CAP_N_NM[i] / _INTACT_CAP_N_NM[i] for i in range(3)
+)
+print(f"[polytope] intact_cap (N, N, Nm) = {_INTACT_CAP_N_NM}")
+print(f"[polytope] residual_cap          = {_RESIDUAL_CAP_N_NM}")
+print(f"[polytope] alpha (per DOF)       = {_ALPHA_FROM_POLYTOPE}")
 
 
 def _scenario_for_cell(tag: str) -> WcfdiScenario | None:
@@ -68,8 +104,13 @@ def _scenario_for_cell(tag: str) -> WcfdiScenario | None:
     # at the live-cell defaults so the cap_at_time(t) reallocation
     # envelope is unchanged. Only the deficit pulse + IC re-init are
     # calibrated.
+    # Use the brucon-derived polytope for both intact and residual cap
+    # (sec.12.21.21.15). This replaces the heuristic alpha=(2/3,)*3 with
+    # per-DOF residual/intact ratios derived from the surviving thruster
+    # geometry (CSOV bus_port lost = Bow1 + PortMP).
     return WcfdiScenario(
-        alpha=(2.0 / 3.0,) * 3,
+        alpha=_ALPHA_FROM_POLYTOPE,
+        tau_cap_intact=_INTACT_CAP_N_NM,
         gamma_immediate=0.5,
         T_realloc=10.0,
         tau_lost_pre_wcf=tau_lost,
