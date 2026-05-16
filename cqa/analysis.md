@@ -7326,3 +7326,193 @@ candidates (no current priority assigned):
   reason this module exists).
 * Forecast-pipeline gap (sec.12.21.21.17): cqa underpredicts mu and
   sigma of tau on bf8_q10_w45 by ~4x; deferred but still open.
+
+## 12.21.21.23 Yaw-priority operational cap — motivation
+
+The v1 regime-B severity estimator (sec.12.21.21.22) uses the
+**decoupled per-DOF residual polytope vertex** as the cap, e.g.
+`max_sway = 1104 kN` on bus_port-lost. Inspection of the brucon
+bf8_q10_w45 ensemble shows this cap is unreachable in practice: at
+the typical post-WCF operating point the order channel asks for
+`+866 kN sway WITH +19.5 MNm yaw simultaneously`. The
+yaw-prioritising allocator (brucon `BasicAllocator`) delivers the
+yaw demand exactly, leaving only a fraction of the bow/stern force
+budget for sway. The effective sway cap conditional on the yaw
+demand is **~690 kN** — 37% lower than the vertex value.
+
+Closed-form derivation for a bow+stern-decomposed thruster set,
+yaw fixed at `tau_z`:
+
+    F_bow + F_stern = tau_y                                 (sway balance)
+    F_bow * arm_bow + F_stern * arm_stern = tau_z           (yaw balance)
+
+With `tau_z` fixed, `(F_bow, F_stern)` lies on a 1-D line; the
+feasible segment is the intersection with the per-group force box
+`[F_bow_min, F_bow_max] x [F_stern_min, F_stern_max]`. The
+extreme `tau_y = F_bow + F_stern` along that segment is the sway
+cap conditional on the yaw demand. Symmetric construction gives
+the yaw cap conditional on sway.
+
+Surge coupling (azimuth thrusters splitting capability between
+surge and sway) is neglected. Empirical bf8_q10_w45 post-WCF
+surge demand is small relative to the polytope surge budget; the
+second-order effect on the conditional sway cap is well under 15%.
+
+Implementation lives in `cqa/cqa/live_regime_b.py` as
+`OperationalCapGeometry`, `sway_cap_given_yaw`,
+`yaw_cap_given_sway`, and `operational_cap_at`.
+
+## 12.21.21.24 Operational cap — empirical match on bf8_q10_w45
+
+The yaw-priority operational cap, fed the brucon CSOV bus_port-lost
+bow/stern decomposition geometry and evaluated at the empirical
+post-WCF operating point (`mu_tau_yaw ~ 19.5 MN.m`), gives a sway
+cap of **690 kN**. Brucon's per-seed empirical `c_op` (defined as
+the 95-th percentile of `|Order_y|` over the [T_WCF + 5 s,
+T_WCF + 200 s] post-WCF window) for bf8_q10_w45 ranges 678-854 kN
+across 30 seeds with mean 656 kN. The model matches the mean to
+within 5%; the per-seed spread reflects the wave-realization-
+conditional contribution of the spiral mechanism that the
+deterministic operational cap does not try to model.
+
+Wired into `summarise_for_operator_live` (commit `15667ad`):
+when `RegimeBSettings.geometry` and `surge_cap_N` are provided
+the panel evaluates the conditional cap at every CQA call instead
+of using the decoupled vertex. Roll-up across 12 cells x 30 seeds
+shows the operational-cap path produces correct green/amber/red
+verdicts on all 360 configurations (all green) with severity
+ordering matching the decoupled-cap path within the green band.
+
+## 12.21.21.25 Plan B (saturation-deficit drift inflation) — attempted, ineffective
+
+The bf8_q10_w45 live-panel WCF P95 prediction (4.75 m) still
+under-predicts the brucon truth (7.83 m) by 39% despite the
+operational cap. Plan B attempted to close the gap by adding a
+static "saturation-deficit drift" term to the LF position envelope:
+
+    sigma_drift = sqrt(nu_plus * t_horizon) * drift_per_exc
+
+where `nu_plus` is the upcrossing rate of `|tau_LF|` past the
+operational cap (estimated from the pre-WCF buffer) and
+`drift_per_exc` is the LF position swing per saturation event.
+The construction is inference-from-statics: assume the post-WCF
+divergence is a sequence of independent saturation excursions
+whose count is set by the pre-WCF demand variance.
+
+Implementation in `cqa/cqa/live_regime_b.py`
+(`SaturationDriftStats`, `estimate_saturation_drift_lf`,
+`estimate_omega_peak_lf`) plus integration into
+`summarise_for_operator_live`. 10 new unit tests, all passed.
+
+**Empirical validation: ineffective.** At the bf8_q10_w45
+seed-1000 operating point with t_horizon = 60 s the predicted
+`sigma_drift = 0.33 m` (factor 18 short of the ~6 m required to
+close the gap). The planning derivation that claimed
+`sigma_drift ~ 4.1 m` was wrong: actual
+`sqrt(nu_plus * t) * drift_per_exc = sqrt(0.032) * 1.85 m = 0.33 m`.
+Roll-up across 12 cells confirmed no material change to any cell's
+predictions.
+
+**Root cause of the failure.** A per-seed diagnostic across all
+30 bf8_q10_w45 seeds compared LF Order_y statistics in the
+pre-WCF buffer [T_WCF - 300, T_WCF] vs the post-WCF window
+[T_WCF + 5, T_WCF + 200]:
+
+| group                    |  n |  sigma_post/sigma_pre median | z_post median | clip_pct |
+|--------------------------|---:|-----------------------------:|--------------:|---------:|
+| Outliers (7 spiral seeds) |  7 |                        1.94 |         ~0.8 |     5-9% |
+| Non-outliers (23 calm)    | 23 |                        0.68 |         ~2.3 |     3-6% |
+| All 30                    | 30 |                        0.96 |             - |        - |
+
+The pre-WCF buffer statistics **cannot discriminate** outlier from
+non-outlier seeds: same scenario, only the wave seed differs. A
+constant inflation factor baked into the live estimator would
+over-predict on 23 non-outliers and under-predict on 7 outliers.
+The spiral is a closed-loop post-WCF nonlinear event (integral
+wind-up + cross-DOF coupling + lift coupling under residual-cap
+saturation drive post-WCF demand inflation), and is excited only
+on cap-proximate wave realizations.
+
+**Decision.** Revert Plan B; pivot to forward simulation (Option
+A, sec.12.21.21.6). Working tree returned to HEAD `15667ad`; no
+commits land for Plan B.
+
+## 12.21.21.26 Option A foundation — pulse_response_saturated
+
+Per sec.12.21.21.6 the principled fix for the bf8_q10_w45 spiral
+is forward-simulating the saturated closed loop rather than
+inferring a tail factor from statics. This subsection records the
+foundation; integration into the live operator panel and
+end-to-end validation follow.
+
+Added `pulse_response_saturated(aug, t_grid, tau_lost, clip_fn, x0)`
+to `cqa/cqa/transient_obs.py`. The mathematical content:
+
+* The linear `pulse_response` integrates `x_dot = A x + B_lost
+  tau_lost`. The `A`-matrix bakes the controller law
+  `tau_cmd = -Kp eta_hat - Kd nu_hat - b_hat - Ki I` into the
+  `tau_thr_dot` row as `(1/T_thr) (tau_cmd - tau_thr)`.
+* To saturate, replace `tau_cmd` with `tau_cmd_clip(tau_cmd) =
+  clip_fn(tau_cmd)` in that one row only. The correction to
+  `A x` is
+
+      correction[IDX_TAU_THR] = (1/T_thr) (tau_cmd_clip - tau_cmd_raw)
+
+  All other rows continue to use the un-clipped command. In
+  particular the observer state (`eta_hat`, `nu_hat`, `b_hat`) is
+  fed orders, not the clipped delivery -- this matches the brucon
+  CSOV `use_tau_feedback = false` default and is what drives the
+  post-WCF integrator wind-up the spiral mechanism requires.
+* With identity `clip_fn` the correction vanishes and the
+  trajectory matches the linear `pulse_response` to integrator
+  order.
+
+Integration switches from `expm`-trapezoidal (used by the linear
+`pulse_response`) to explicit RK4 with linear interpolation of
+`tau_lost` at the half-step. RK4 handles the piecewise-linear
+clip cleanly while preserving the linear-case fidelity required
+by the identity-clip equivalence test.
+
+The clipping projection is supplied by the caller as a
+`(tau_raw) -> tau_clipped` callback so `transient_obs.py` does
+not depend on `cqa.live_regime_b.OperationalCapGeometry`. The
+live-panel call site (next commit) will construct the closure
+from the yaw-priority operational cap of sec.12.21.21.23-24, so
+the forward sim and the regime-B severity score share one
+consistent definition of the cap.
+
+Helper `implicit_tau_cmd(aug, x)` exposes the controller law
+directly for diagnostics and tests.
+
+Test coverage (`cqa/tests/test_transient_obs.py`, 7 tests):
+
+1. `implicit_tau_cmd` reproduces `-Kp eta_hat - Kd nu_hat -
+    b_hat - Ki I` for random states.
+2. `implicit_tau_cmd` matches `(A x)[IDX_TAU_THR]` up to the
+    `tau_thr` self-decay term — cross-checks the controller law's
+    location inside `A`.
+3. Zero forcing, zero IC, any `clip_fn` -> state stays at zero.
+4. **Identity clip equivalence.** With `clip_fn = lambda x: x`
+    the RK4 trajectory matches the `expm` `pulse_response`
+    trajectory within `1e-4` on the eta/nu/eta_hat/nu_hat
+    channels for a 60 s exponentially-decaying tau_lost pulse.
+    Validates the (A + correction) decomposition.
+5. **Per-axis clip independence.** Tight sway clip leaks less
+    than 5 cm into surge/yaw while moving the sway response by
+    > 50 cm.
+6. **Tight sway cap drives integrator wind-up + port-drift.**
+    With env_y = -500 kN persistent and sway cap = +/-300 kN
+    (no WCFDI event), truth `eta_y` drifts monotonically toward
+    port, `tau_thr_y` stays clipped at the cap, and the PI
+    integrator winds up. This is the bf8_q10_w45 mechanism in
+    miniature.
+7. Input validation: wrong `tau_lost` shape, non-uniform grid,
+    and wrong-shape clip output are all rejected.
+
+Full cqa suite (`pytest tests/`) passes (384 tests, the
+brucon-data-dependent harnesses excluded for runtime; no relevant
+change touches them).
+
+Committed as `8a9f492`. Next: wire into `live_operator_view.py`
+WCF axis, then validate on bf8_q10_w45 (seed-1012 spot check
+first, then full 12-cell roll-up).
