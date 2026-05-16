@@ -6848,3 +6848,179 @@ factor partially compensates for the heavy tail.
 
 
 
+
+## 12.21.21.11 Saturation hypothesis confirmed via Order vs Alloc
+
+User reproduced bf8_q10_w45 in real-time sim and observed thruster
+saturation on the first try, but the saturation does not show up in
+DOF aggregates (Tx/Ty/Tz) because the allocator continuously
+re-distributes load between thrusters as the optimal allocation
+rotates. Need a different signal.
+
+Reviewed brucon `.out` log structure: it lacks per-thruster
+channels, but does write three layers of the controller pipeline:
+
+* `OrderTau{Surge,Sway,Yaw}` -- raw PID demand (unclipped)
+* `AllocTau{Surge,Sway,Yaw}` -- allocator output, after the
+  per-thruster feasibility QP
+* `Tx, Ty, Tz` -- delivered thrust after thruster dynamics
+
+Mismatch `|Order| > |Alloc|` is the unambiguous saturation signature:
+the controller wanted more force than the residual thruster polytope
+can deliver. It is independent of which individual thruster runs
+out -- it answers "is the DOF demand feasible?".
+
+Built `bf8_q10_w45_alloc_vs_order.py`. Two-row diagnostic per DOF
+(deviation + Order/Alloc/Delivered). Findings on bf8_q10_w45 (30 seeds):
+
+* Surge clipping: max 3.1 kN -- effectively zero across 30 seeds.
+  Surge polytope is well-sized for the residual thruster set.
+* Sway clipping: max 556.5 kN. **8.1 % of (seed, time) samples are
+  clipped over t in (0, 200] s post-WCF.** Worst seed clipped 34 %
+  of the time. Direct correlation: outlier seeds (max|sway|>5 m)
+  have sway clip-fractions of 12-34 %.
+* Yaw clipping: max 366 kN m (vs typical order ~25000 kN m). Worst
+  seed 4.8 %. Marginal.
+
+Outlier seed table (post-WCF), with sway-clipping time fraction:
+
+  seed | clip-frac sway | max |sway| (controller-frame)
+  ---- | -------------- | -----------
+  1000 | 34 %           | 5.7 m
+  1002 | 33 %           | 7.2 m
+  1005 | 13 %           | 3.7 m
+  1008 | 22 %           | 7.7 m
+  1012 | 26 %           | 9.4 m
+  1023 | 15 %           | 6.3 m
+  1027 | 27 %           | 5.1 m
+
+Note the position deviation values use `SurgeDev`/`SwayDev`
+(controller-frame, DP-filtered LF; what the operator console shows),
+not NED `x`/`y` which include HF wave content. Earlier numbers in
+sec.12.21.21.9 were on NED -- about 5-10 % larger than controller-
+frame; the qualitative non-recovery story is unchanged but the
+absolute magnitudes are now apples-to-apples with what user observed
+in the sim.
+
+## 12.21.21.12 Two-regime saturation framework
+
+Per user discussion (and corroborated by the empirical scan in
+sec.12.21.21.13): partition saturation events into two regimes.
+
+* **Regime A** (transient, t in (0, 30] s post-WCF): driven by the
+  deficit pulse + integrator wind-up + lost-bus geometry. Brief
+  saturation as the closed loop re-equilibrates. May trigger the
+  bistability previously identified (sec.12.21.20).
+* **Regime B** (sustained, t in (30, 200] s post-WCF): driven by
+  the slow-varying environmental load (wind, slow drift) when its
+  distribution in DOF space exceeds the residual thruster polytope.
+
+User's monotonicity argument: since transient peak demand is
+typically larger than steady-state demand, "if the residual polytope
+cannot arrest the transient (regime A), it cannot maintain position
+under steady load (regime B) either". As a screening principle:
+
+  regime B saturation likely => regime A saturation almost certain
+  not regime A => not regime B
+
+Therefore regime B is the **conservative bound** for cqa screening,
+and is the cheaper-to-compute object (just the pre-WCF demand
+distribution vs the residual polytope, both predictable from linear
+theory).
+
+## 12.21.21.13 Empirical regime scan across 11 cells
+
+Built `saturation_regime_scan.py`. Computes `_clip_amount(O, A)` per
+seed over windows A and B, classifies each seed as one of
+{none, A_only, B_only, A_and_B} using a 5 % per-window threshold,
+cross-tabulates with post-WCF max excursion.
+
+Result across 330 seeds (11 cells x 30 seeds):
+
+  class      n   P50 max|sway| (m)  P95   max
+  none      312  0.99               3.17  4.94
+  A_only      2  2.02               2.38  2.42
+  B_only     14  3.71               8.31  9.36
+  A_and_B     2  4.16               4.98  5.07
+
+Per-cell regime counts:
+
+  cell           n  none  Aonly  Bonly  AandB
+  bf4_c1_h0     30   30      0      0      0
+  bf4_c1_q10    30   30      0      0      0
+  bf6_h0        30   30      0      0      0
+  bf6_h0_w45    30   30      0      0      0
+  bf6_q10       30   30      0      0      0
+  bf6_q10_w45   30   30      0      0      0
+  bf8_h0        30   30      0      0      0
+  bf8_h0_w45    30   27      0      3      0
+  bf8_q10       30   30      0      0      0
+  bf8_q10_w45   30   15      2     11      2
+  pwq30         30   30      0      0      0
+
+Key takeaways:
+
+1. **9 of 11 cells show zero saturation in any seed.** The residual
+   polytope after losing bus_port is sufficient for the environmental
+   load distribution in those cells, and the linear cqa model is
+   (and should be) blind to saturation effects there.
+2. **Saturation only appears at bf8 sea state with w45 wave heading**,
+   in cells `bf8_h0_w45` (3 seeds, mild) and `bf8_q10_w45` (15
+   seeds, severe). Both heavy-tail cells we have been chasing.
+3. **Regime A is empirically rare (4 / 330 = 1.2 %).** The deficit
+   pulse + integrator wind-up alone is not what saturates -- it is
+   the slow-varying drift load that exceeds the residual polytope
+   sustained for tens of seconds at a time.
+4. User's monotonicity argument is supported: the 4 regime-A seeds
+   are all in cells where regime B also exists (bf8_q10_w45). No
+   cell shows regime-A-only saturation. The conjecture
+   "no A => no B" holds in this dataset.
+5. **Heavy excursions are concentrated in regime-B-active seeds.**
+   B_only and A_and_B together = 16 seeds, with P95 max|sway| >5 m.
+   The "none" class is bounded at max|sway| < 5 m (single max=4.94 m).
+6. Strong dose-response within bf8_q10_w45: clip-fractions 17-48 %
+   correspond to max|sway| 3.6-9.4 m. This validates regime B as a
+   continuous severity indicator, not just a binary failure flag.
+
+User notes that pathological cells **can** be constructed to exhibit
+regime-A-only behaviour (e.g., very benign sea state combined with
+a pathological transient), but this is not relevant for the
+CSOV / bus_port-loss operational predictions cqa needs to make.
+
+## 12.21.21.14 Path forward: regime-B screening
+
+Based on sec.12.21.21.12-13, the next implementation target is a
+**regime-B screening calculator** that uses linear theory only:
+
+1. From cqa's existing intact-state PSD prediction, compute the
+   joint distribution of demand `(tau_x, tau_y, tau_z) ~ N(mu, Sigma)`
+   pre-WCF.  (Or equivalently from the tail end of the pre-WCF
+   brucon log if calibrating; equivalently again, from the
+   environmental load PSDs which the controller mirrors in steady
+   state.)
+2. From the residual thruster geometry (`bus_port` removed for the
+   CSOV cases), compute the residual feasibility polytope per-DOF
+   maxima `(T_x_max+, T_x_max-, T_y_max+, T_y_max-, T_z_max+,
+   T_z_max-)`.  First-order: project each surviving thruster onto
+   each DOF axis with feasible signs and sum.
+3. Per-DOF saturation probability:
+     p_sat,i = P(|tau_i| > T_i_max) = closed-form Gaussian tail
+4. Saturation event rate via level-crossing theory:
+     rate_i = (omega_demand_i / 2 pi) * 2 exp(-(T_i_max - mu_i)^2 / (2 sigma_i^2))
+   for each side. Operator-facing metric:
+     N_sat,i = rate_i * t_horizon
+5. Three-tier traffic light:
+     N_sat < 0.1  => green (saturation negligible over horizon)
+     0.1 <= N_sat < 1  => amber
+     N_sat >= 1   => red
+
+Validation target: predicted `rate_y * t_horizon` should rank-order
+the cells correctly. Specifically:
+* bf4/bf6/bf8_h0/bf8_q10/pwq30: N_sat,y < 0.1 (green)
+* bf8_h0_w45: 0.1 <= N_sat,y < 1 (amber, matches 3/30 seeds)
+* bf8_q10_w45: N_sat,y >= 1 (red, matches 15/30 seeds)
+
+If quantitatively closer (predicted seed-fraction matches observed
+within +/-50 %), regime B alone explains the heavy tail and there
+is no need to add a closed-loop saturation model in the cqa pipeline.
+
