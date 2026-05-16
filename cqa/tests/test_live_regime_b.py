@@ -19,6 +19,10 @@ from cqa.live_regime_b import (
     saturation_probability_gaussian,
     estimate_regime_b_severity,
     lf_filter,
+    OperationalCapGeometry,
+    sway_cap_given_yaw,
+    yaw_cap_given_sway,
+    operational_cap_at,
 )
 
 
@@ -204,3 +208,148 @@ def test_input_shape_validation():
     buf = np.zeros((100, 3))
     with pytest.raises(ValueError):
         estimate_regime_b_severity(buf, fs_hz=10.0, cap_residual=(1, 1))
+
+
+# ---------------------------------------------------------------------------
+# 4. Yaw-priority operational cap (sec.12.21.21.24)
+# ---------------------------------------------------------------------------
+
+# CSOV bus_port-lost geometry from sec.12.21.21.24 (brucon polytope port).
+_CSOV_GEOM = OperationalCapGeometry(
+    F_bow_max=629.0e3, F_bow_min=-629.0e3,
+    F_stern_max=522.0e3, F_stern_min=-522.0e3,
+    arm_bow=36.29, arm_stern=-48.09,
+)
+
+
+def test_sway_cap_at_zero_yaw_recovers_unconstrained_sum():
+    """At tau_z = 0, the sway cap should equal F_bow_max + F_stern matching
+    yaw zero (i.e. F_stern = -F_bow*arm_bow/arm_stern)."""
+    lo, hi = sway_cap_given_yaw(0.0, _CSOV_GEOM)
+    # At zero yaw, F_stern = -F_bow * arm_bow / arm_stern
+    # F_bow = +629e3 => F_stern = -629e3 * 36.29 / -48.09 = +474.6 kN
+    # Both within bounds; tau_y = 629 + 474.6 = 1103.6 kN.
+    assert hi == pytest.approx(1103.6e3, rel=1e-3)
+    assert lo == pytest.approx(-1103.6e3, rel=1e-3)
+
+
+def test_sway_cap_shrinks_with_yaw_demand():
+    """Increasing |tau_z| from 0 should monotonically shrink the achievable
+    sway range."""
+    _, hi0 = sway_cap_given_yaw(0.0, _CSOV_GEOM)
+    _, hi15 = sway_cap_given_yaw(15e6, _CSOV_GEOM)
+    _, hi30 = sway_cap_given_yaw(30e6, _CSOV_GEOM)
+    assert hi0 > hi15 > hi30 > 0
+    # Symmetric on the negative side.
+    _, hi_n15 = sway_cap_given_yaw(-15e6, _CSOV_GEOM)
+    assert hi15 == pytest.approx(hi_n15, rel=0.05)
+
+
+def test_sway_cap_at_brucon_operating_point():
+    """At the empirically-measured bf8_q10_w45 post-WCF operating point
+    (tau_z ~ +19.5 MNm), the predicted sway cap should match the
+    observed Alloc_y mean to within ~15%. See sec.12.21.21.24.
+
+    Empirical: mean Alloc_y at clip moments = +656 kN, peak = +864 kN.
+    """
+    lo, hi = sway_cap_given_yaw(19.5e6, _CSOV_GEOM)
+    # Predicted hi ~ 690 kN (computed in the diagnostic).
+    assert hi == pytest.approx(690e3, rel=0.05)
+    # Empirical mean Alloc_y is 656 kN -- predicted 690 should be within 10%.
+    empirical_mean = 656e3
+    assert abs(hi - empirical_mean) / empirical_mean < 0.10
+
+
+def test_yaw_cap_given_sway_symmetric():
+    """At tau_y = 0, yaw cap should be near decoupled max_yaw."""
+    lo, hi = yaw_cap_given_sway(0.0, _CSOV_GEOM)
+    # At tau_y=0, F_stern = -F_bow. F_bow at +629 kN -> F_stern -629
+    # (clipped to -522). At F_stern=-522, F_bow=+522.
+    # tau_z = 522*36.29 + (-522)*(-48.09) = 522 * (36.29+48.09) = 44048 kN.m
+    assert hi == pytest.approx(44048e3, rel=1e-3)
+    assert lo == pytest.approx(-44048e3, rel=1e-3)
+
+
+def test_yaw_cap_shrinks_with_sway_demand():
+    _, hi0 = yaw_cap_given_sway(0.0, _CSOV_GEOM)
+    _, hi500 = yaw_cap_given_sway(500e3, _CSOV_GEOM)
+    _, hi_max = yaw_cap_given_sway(1100e3, _CSOV_GEOM)
+    assert hi0 > hi500 > hi_max > 0
+
+
+def test_operational_cap_at_assembles_three_dofs():
+    """operational_cap_at should return a (3,) array with the supplied
+    surge_cap_N at index 0 and conditional caps at indices 1 and 2."""
+    mu = np.array([100e3, 400e3, 10e6])  # surge, sway, yaw
+    surge_cap = 1e6
+    cap = operational_cap_at(mu, _CSOV_GEOM, surge_cap_N=surge_cap)
+    assert cap.shape == (3,)
+    assert cap[0] == surge_cap
+    # Sway cap should be less than the decoupled max (1103 kN) because
+    # yaw demand is non-zero.
+    assert 0 < cap[1] < 1103e3
+    # Yaw cap should be less than decoupled max for the same reason.
+    assert 0 < cap[2] < 44048e3
+
+
+def test_estimate_severity_with_geometry_path():
+    """End-to-end test: pass a buffer with known LF (mu, sigma) and verify
+    that severity is computed against the operational (yaw-coupled) cap.
+
+    At the bf8_q10_w45 operating point (mu_y=+493 kN, sigma_y=86 kN,
+    mu_z=+14.6 MNm), operational sway cap is ~700 kN. z-margin =
+    (700-493)/86 ~ 2.4 sigma -> p_sat ~ 8e-3 -> amber territory.
+    Contrast with the legacy decoupled cap of 1104 kN which would give
+    p_sat ~ 1e-12.
+    """
+    rng = np.random.default_rng(seed=2024)
+    fs = 10.0
+    N = 3000  # 300 s window
+    # Build a wide-band Gaussian LF buffer with EXACTLY mu, sigma at
+    # frequencies the LP filter will preserve. Use raw Gaussian (white)
+    # because lf_filter at 0.30 rad/s drops only a small fraction of
+    # the spectrum.
+    sway = rng.normal(loc=493e3, scale=86e3, size=N)
+    surge = rng.normal(loc=200e3, scale=50e3, size=N)
+    yaw = rng.normal(loc=14.6e6, scale=3e6, size=N)
+    tau_buf = np.column_stack([surge, sway, yaw])
+
+    res = estimate_regime_b_severity(
+        tau_buf, fs_hz=fs,
+        geometry=_CSOV_GEOM, surge_cap_N=1.36e6,
+    )
+    # mu_y should round-trip ~+493 kN (LP filter preserves DC).
+    assert res.mu[1] == pytest.approx(493e3, abs=20e3)
+    # sigma_y after LP filter will be REDUCED from the white 86 kN by
+    # the fraction of white power retained below 0.30 rad/s -> for white
+    # input it's roughly sqrt(f_c/(fs/2)) ~ sqrt(0.048/5) ~ 0.10.
+    # Don't pin sigma exactly; just verify it's positive and not zero.
+    assert res.sigma[1] > 0
+    # Operational cap on sway at this mu_z ~ 700 kN (should be markedly
+    # less than the decoupled vertex cap of 1104 kN).
+    cap_sway = res.cap_residual[1]
+    assert 600e3 < cap_sway < 800e3
+    # Severity must be greater than the decoupled-cap result. Compute
+    # legacy cap as a sanity check.
+    res_legacy = estimate_regime_b_severity(
+        tau_buf, fs_hz=fs, cap_residual=(1.36e6, 1.104e6, 47.93e6),
+    )
+    assert res.severity > res_legacy.severity, (
+        f"geometry path ({res.severity:.2e}) should report higher severity "
+        f"than legacy decoupled cap ({res_legacy.severity:.2e})"
+    )
+
+
+def test_geometry_path_requires_surge_cap():
+    """geometry without surge_cap_N should raise."""
+    buf = np.zeros((100, 3))
+    with pytest.raises(ValueError):
+        estimate_regime_b_severity(
+            buf, fs_hz=10.0, geometry=_CSOV_GEOM
+        )
+
+
+def test_at_least_one_of_cap_or_geometry_required():
+    buf = np.zeros((100, 3))
+    with pytest.raises(ValueError):
+        estimate_regime_b_severity(buf, fs_hz=10.0)

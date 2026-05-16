@@ -185,6 +185,7 @@ from .decision_matrix import _imca_traffic, _worst
 from .live_regime_b import (
     estimate_regime_b_severity,
     RegimeBSeverity,
+    OperationalCapGeometry,
     DEFAULT_AMBER as _REGB_AMBER,
     DEFAULT_RED as _REGB_RED,
 )
@@ -760,6 +761,8 @@ def summarise_for_operator_live(
     rng: Optional[np.random.Generator] = None,
     joint: Optional[GangwayJointState] = None,
     cap_residual_N_Nm: Optional[tuple] = None,
+    regime_b_geometry: Optional["OperationalCapGeometry"] = None,
+    regime_b_surge_cap_N: Optional[float] = None,
 ) -> LiveOperatorSummary:
     """Build the operator-facing two- or three-bar summary from the live state.
 
@@ -1044,13 +1047,25 @@ def summarise_for_operator_live(
     if (
         obs_state.tau_buffer is not None
         and obs_state.tau_buffer_fs_hz is not None
-        and cap_residual_N_Nm is not None
+        and (cap_residual_N_Nm is not None or regime_b_geometry is not None)
     ):
-        rb: RegimeBSeverity = estimate_regime_b_severity(
-            tau_buffer=obs_state.tau_buffer,
-            fs_hz=float(obs_state.tau_buffer_fs_hz),
-            cap_residual=cap_residual_N_Nm,
-        )
+        if regime_b_geometry is not None:
+            if regime_b_surge_cap_N is None:
+                raise ValueError(
+                    "regime_b_geometry requires regime_b_surge_cap_N."
+                )
+            rb: RegimeBSeverity = estimate_regime_b_severity(
+                tau_buffer=obs_state.tau_buffer,
+                fs_hz=float(obs_state.tau_buffer_fs_hz),
+                geometry=regime_b_geometry,
+                surge_cap_N=float(regime_b_surge_cap_N),
+            )
+        else:
+            rb = estimate_regime_b_severity(
+                tau_buffer=obs_state.tau_buffer,
+                fs_hz=float(obs_state.tau_buffer_fs_hz),
+                cap_residual=cap_residual_N_Nm,
+            )
         regime_b_present = True
         regime_b_severity = rb.severity
         regime_b_p_sat = rb.p_sat

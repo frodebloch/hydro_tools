@@ -33,6 +33,10 @@ from live_cell_per_seed_pwq30 import (                            # noqa: E402
 from cqa.config import csov_default_config                       # noqa: E402
 from cqa.live_decision import LiveObserverState                  # noqa: E402
 from cqa.live_operator_view import summarise_for_operator_live   # noqa: E402
+from cqa.live_regime_b import (                                  # noqa: E402
+    DEFAULT_WINDOW_S as REGB_WIN_S,
+    OperationalCapGeometry,
+)
 from cqa.transient import WcfdiScenario                          # noqa: E402
 
 import json                                                       # noqa: E402
@@ -74,6 +78,24 @@ _ALPHA_FROM_POLYTOPE = tuple(
 print(f"[polytope] intact_cap (N, N, Nm) = {_INTACT_CAP_N_NM}")
 print(f"[polytope] residual_cap          = {_RESIDUAL_CAP_N_NM}")
 print(f"[polytope] alpha (per DOF)       = {_ALPHA_FROM_POLYTOPE}")
+
+# Per sec.12.21.21.24, the decoupled residual cap is unreachable in
+# practice (yaw consumes part of the bow/stern sway capacity). The
+# yaw-priority operational cap uses the bow+stern force decomposition
+# to compute a tighter cap conditional on the LF mean of the other DOFs.
+_REGB_GEOMETRY = OperationalCapGeometry(
+    F_bow_max  = 1e3 * _RESIDUAL_POLYTOPE.max_sway_bow,
+    F_bow_min  = 1e3 * _RESIDUAL_POLYTOPE.min_sway_bow,
+    F_stern_max= 1e3 * _RESIDUAL_POLYTOPE.max_sway_stern,
+    F_stern_min= 1e3 * _RESIDUAL_POLYTOPE.min_sway_stern,
+    arm_bow    = _RESIDUAL_POLYTOPE.arm_bow,
+    arm_stern  = _RESIDUAL_POLYTOPE.arm_stern,
+)
+_REGB_SURGE_CAP_N = _RESIDUAL_CAP_N_NM[0]
+print(f"[regb-geom] bow ({_REGB_GEOMETRY.F_bow_min/1e3:+.0f}, "
+      f"{_REGB_GEOMETRY.F_bow_max/1e3:+.0f}) kN @ arm {_REGB_GEOMETRY.arm_bow:+.2f} m")
+print(f"[regb-geom] stern ({_REGB_GEOMETRY.F_stern_min/1e3:+.0f}, "
+      f"{_REGB_GEOMETRY.F_stern_max/1e3:+.0f}) kN @ arm {_REGB_GEOMETRY.arm_stern:+.2f} m")
 
 
 def _scenario_for_cell(tag: str) -> WcfdiScenario | None:
@@ -155,13 +177,6 @@ def _validate_cell(tag: str) -> dict | None:
         if d is None:
             continue
         sigma_post = build_live_sigma_posterior(d, sigma_R_b_hat_m=sigma_R_b_hat_m)
-        obs = LiveObserverState(
-            eta_hat=d["eta_hat"], nu_hat=d["nu_hat"], b_hat=d["b_hat"],
-            eta_wave=d["eta_wave"],
-            heading_compass=float(d.get("heading_compass", 0.0)),
-        )
-        scenario = _scenario_for_cell(tag)
-        s = summarise_for_operator_live(cfg, obs, sigma_post, scenario=scenario)
 
         seed_dir = live_cell.WORK_ROOT / f"{tag}_seed{seed:04d}"
         main_p = next((p for p in seed_dir.glob("*.out")
@@ -169,6 +184,32 @@ def _validate_cell(tag: str) -> dict | None:
         M = _load_tsv(main_p)
         t_main = M["t"]
         win_m = (t_main >= live_cell.WIN_START) & (t_main <= live_cell.WIN_END)
+
+        # Regime-B buffer: last REGB_WIN_S (=300s) of pre-WCF delivered
+        # thrust Tx/Ty/Tz, ending at T_EVAL = T_WCF - 5. brucon stores
+        # forces in kN, moments in kNm -> convert to N, Nm.
+        regb_lo = live_cell.T_EVAL - REGB_WIN_S
+        regb_hi = live_cell.T_EVAL
+        regb_m = (t_main >= regb_lo) & (t_main <= regb_hi)
+        tau_buffer = 1e3 * np.column_stack(
+            [M["Tx"][regb_m], M["Ty"][regb_m], M["Tz"][regb_m]]
+        )
+        dt = float(np.median(np.diff(t_main[regb_m])))
+        regb_fs_hz = 1.0 / dt if dt > 0 else 10.0
+
+        obs = LiveObserverState(
+            eta_hat=d["eta_hat"], nu_hat=d["nu_hat"], b_hat=d["b_hat"],
+            eta_wave=d["eta_wave"],
+            heading_compass=float(d.get("heading_compass", 0.0)),
+            tau_buffer=tau_buffer,
+            tau_buffer_fs_hz=regb_fs_hz,
+        )
+        scenario = _scenario_for_cell(tag)
+        s = summarise_for_operator_live(
+            cfg, obs, sigma_post, scenario=scenario,
+            regime_b_geometry=_REGB_GEOMETRY,
+            regime_b_surge_cap_N=_REGB_SURGE_CAP_N,
+        )
         # Intact-axis truth: actual radial distance from setpoint (do NOT
         # demean). The operator panel reports |eta_hat_LF + nu|, i.e.
         # the actual offset+noise distance from the DP setpoint, so the
@@ -201,6 +242,11 @@ def _validate_cell(tag: str) -> dict | None:
             intact_traffic=s.intact_traffic,
             wcf_traffic=s.wcf_traffic,
             overall=s.overall_traffic,
+            regb_severity=s.regime_b_severity,
+            regb_traffic=s.regime_b_traffic,
+            regb_p_sat_sway=(
+                s.regime_b_p_sat[1] if s.regime_b_p_sat is not None else 0.0
+            ),
         ))
     if not rows:
         return None
@@ -212,6 +258,8 @@ def _validate_cell(tag: str) -> dict | None:
     wcf_p95_pred = np.array([r["wcf_p95_pred"] for r in rows])
     wcf_p50_pred = np.array([r["wcf_p50_pred"] for r in rows])
     wcf_truth = np.array([r["wcf_peak_truth"] for r in rows])
+    regb_sev = np.array([r["regb_severity"] for r in rows])
+    regb_psat = np.array([r["regb_p_sat_sway"] for r in rows])
 
     # Apples-to-apples WCF truth: the panel pred is a *distribution*
     # (P50/P95 of the post-WCF radial peak under noise), so the truth
@@ -251,6 +299,16 @@ def _validate_cell(tag: str) -> dict | None:
         n_red=sum(r["overall"] == "red" for r in rows),
         n_amber=sum(r["overall"] == "amber" for r in rows),
         n_green=sum(r["overall"] == "green" for r in rows),
+        # Regime-B (sustained mean-thrust saturation risk on residual
+        # polytope). See cqa.live_regime_b. severity = max_i p_sat,
+        # IMCA thresholds green<0.01, amber [0.01,0.10), red>=0.10.
+        regb_sev_mean=float(regb_sev.mean()),
+        regb_sev_p90=float(np.quantile(regb_sev, 0.90)),
+        regb_sev_max=float(regb_sev.max()),
+        regb_psat_sway_max=float(regb_psat.max()),
+        regb_n_green=sum(r["regb_traffic"] == "green" for r in rows),
+        regb_n_amber=sum(r["regb_traffic"] == "amber" for r in rows),
+        regb_n_red=sum(r["regb_traffic"] == "red" for r in rows),
     )
 
 
@@ -276,7 +334,8 @@ def main() -> int:
            f"{'iP95.pr':>7} {'iP95.tr':>7} {'P95bs%':>7} {'iP50bs%':>8} {'cov%':>5}   "
            f"{'wP50.pr':>7} {'wP50.tr':>7} {'P50bs%':>7} "
            f"{'wP95.pr':>7} {'wP95.tr':>7} {'P95bs%':>7} {'cov%':>5}   "
-           f"{'g/a/r':>9}")
+           f"{'g/a/r':>9}   "
+           f"{'rgB.mn':>8} {'rgB.p90':>8} {'rgB.mx':>8} {'rgB g/a/r':>11}")
     print(hdr)
     print("-" * len(hdr))
     for m in results:
@@ -288,10 +347,13 @@ def main() -> int:
               f"{m['wcf_p50_bias_pct']:>+6.0f}% "
               f"{m['wcf_p95_pred_mean']:>7.3f} {m['wcf_truth_p95']:>7.3f} "
               f"{m['wcf_p95_bias_pct']:>+6.0f}% {100*m['wcf_p95_cov']:>4.0f}%   "
-              f"{m['n_green']}/{m['n_amber']}/{m['n_red']:<5}")
+              f"{m['n_green']}/{m['n_amber']}/{m['n_red']:<5}   "
+              f"{m['regb_sev_mean']:>8.2e} {m['regb_sev_p90']:>8.2e} "
+              f"{m['regb_sev_max']:>8.2e} "
+              f"{m['regb_n_green']}/{m['regb_n_amber']}/{m['regb_n_red']:<7}")
 
-    # ---- Plot: intact and WCF coverage across cells ----
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    # ---- Plot: intact, WCF, and regime-B severity across cells ----
+    fig, axes = plt.subplots(1, 3, figsize=(20, 5))
     tags = [m["tag"] for m in results]
     x = np.arange(len(tags))
 
@@ -322,6 +384,27 @@ def main() -> int:
     ax.set_title("WCF axis  -  pred vs brucon LF peak across cells")
     ax.legend(fontsize=8, loc="upper left")
     ax.grid(True, axis="y", alpha=0.3)
+
+    ax = axes[2]
+    sev_mean = np.array([m["regb_sev_mean"] for m in results])
+    sev_p90 = np.array([m["regb_sev_p90"] for m in results])
+    sev_max = np.array([m["regb_sev_max"] for m in results])
+    # Floor for log axis: tiny but non-zero so log10 doesn't blow up.
+    floor = 1e-10
+    ax.bar(x - 0.25, np.maximum(sev_mean, floor), width=0.25,
+           color="#1f77b4", alpha=0.8, label="ensemble mean")
+    ax.bar(x + 0.00, np.maximum(sev_p90,  floor), width=0.25,
+           color="#888888", alpha=0.8, label="ensemble P90")
+    ax.bar(x + 0.25, np.maximum(sev_max,  floor), width=0.25,
+           color="#444444", alpha=0.8, label="ensemble max")
+    ax.set_yscale("log")
+    ax.set_xticks(x); ax.set_xticklabels(tags, rotation=45, ha="right", fontsize=8)
+    ax.axhline(0.01, color="#ff9900", ls="--", lw=1, label="IMCA amber 0.01")
+    ax.axhline(0.10, color="#d62728", ls="--", lw=1, label="IMCA red 0.10")
+    ax.set_ylabel("regime-B severity = max p_sat (residual polytope)")
+    ax.set_title("REGIME-B  -  sustained mean-thrust saturation risk")
+    ax.legend(fontsize=8, loc="upper left")
+    ax.grid(True, axis="y", which="both", alpha=0.3)
 
     fig.suptitle("Live operator panel  -  12-cell brucon roll-up", fontsize=12)
     fig.tight_layout()
