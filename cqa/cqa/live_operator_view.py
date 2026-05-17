@@ -176,6 +176,7 @@ from .live_decision import (
 )
 from .transient_obs import (
     pulse_response,
+    pulse_response_saturated,
     pulse_response_with_lift_coupling,
     N_STATE,
     IDX_TAU_THR,
@@ -186,6 +187,7 @@ from .live_regime_b import (
     estimate_regime_b_severity,
     RegimeBSeverity,
     OperationalCapGeometry,
+    operational_cap_at,
     DEFAULT_AMBER as _REGB_AMBER,
     DEFAULT_RED as _REGB_RED,
 )
@@ -843,7 +845,33 @@ def summarise_for_operator_live(
     )
 
     K_lift = float(getattr(cfg.vessel, "lift_coupling_K_per_rad", 0.0))
-    if K_lift > 0.0:
+    # When a yaw-priority operational cap geometry is supplied, switch the
+    # WCF axis forward sim to pulse_response_saturated (sec.12.21.21.26).
+    # The clip closure re-evaluates the conditional sway/yaw cap at every
+    # integration step from the current implicit tau_cmd, capturing the
+    # bf8_q10_w45 spiral mechanism: yaw demand growth shrinks the sway
+    # cap, sway saturates more, integrator winds up further, etc. With
+    # geometry absent the legacy linear pulse_response path is preserved.
+    if regime_b_geometry is not None:
+        if regime_b_surge_cap_N is None:
+            raise ValueError(
+                "regime_b_geometry requires regime_b_surge_cap_N."
+            )
+        _geom = regime_b_geometry
+        _scap = float(regime_b_surge_cap_N)
+
+        def _yaw_priority_clip(tau_raw: np.ndarray) -> np.ndarray:
+            cap = operational_cap_at(tau_raw, _geom, surge_cap_N=_scap)
+            return np.array([
+                np.clip(tau_raw[0], -cap[0], +cap[0]),
+                np.clip(tau_raw[1], -cap[1], +cap[1]),
+                np.clip(tau_raw[2], -cap[2], +cap[2]),
+            ], dtype=float)
+
+        X = pulse_response_saturated(
+            aug, t_grid, tau_lost, _yaw_priority_clip, x0=x0_pulse,
+        )
+    elif K_lift > 0.0:
         X = pulse_response_with_lift_coupling(
             aug, t_grid, tau_lost,
             b_hat0=tau_env, K_lift=K_lift,
