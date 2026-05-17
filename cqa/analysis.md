@@ -7613,3 +7613,208 @@ the MC ensemble; (d) validate on bf8_q10_w45 outlier seeds
 (1000, 1002, 1005, 1008, 1012, 1023, 1027) first, then 12-cell
 roll-up. Scope is larger than Plan A and requires user agreement
 before commencing.
+
+#### sec.12.21.21.28: Observer K_b_pos units bug -- brucon convention is acceleration; cqa was applying gain to force-units b_hat. Patched. {#sec-12-21-21-28}
+
+Following the empirical no-op finding at sec.12.21.21.27, this
+section reports a structural bug discovered during the analytical
+Option 2 sub-diagnostic sequence (Tests A/B/C/D/E/F in
+``scripts/p7_brucon_validation/linearity_reconstruction_diagnostic.py``).
+The proximate goal was to test whether the post-WCF spiral on
+bf8_q10_w45 outlier seeds (e.g. 1012, P95 sway 10.32 m) could be
+reconstructed by a linear model driven by brucon-extracted forcing
+signals; the deeper question is whether linearity holds well
+enough to support an analytical excursion-distribution machinery
+in ``cqa.live_regime_b`` (an alternative to the stochastic MC
+Option 1 of sec.12.21.21.6).
+
+##### Test sequence (closed-loop linear forward sim from x0=0, 180s post-WCF)
+
+The reconstruction tests are layered injections into the 27-state
+``build_observer_augmented_system_full`` closed loop:
+
+- **Test A** (dtau only): inject ``-(1/T_thr) * dtau(t)`` on the
+  ``tau_thr`` channel, where ``dtau = OrderTau - T_delivered``
+  is the brucon controller's saturation gap. No env force, no lift.
+- **Test E** (dtau + env): Test A plus ``B_d @ (F_env(t) - F_env_pre)``
+  where ``F_env = Drift + Wind + Cur`` from brucon .out columns
+  10/14/18 etc, demeaned by the [T_WCF-30, T_WCF-5] mean.
+- **Test F** (E + K_lift): Test E plus Picard iteration of the
+  slender-body lift coupling ``coupling_y = -Fx0 * K_lift * dpsi``.
+- Test B and C (open-loop with controller override) were tried but
+  ruled out as unphysical (they bypass the controller A-matrix,
+  effectively integrating ``A - E_thr·L_imp/T_thr`` instead of
+  ``A``); their reconstructions massively over-predict.
+
+##### Result of the sub-diagnostic sequence (pre-bugfix)
+
+On seed 1012 (outlier, brucon P95 sway = 10.32 m) and
+seed 1001 (calm, brucon P95 sway = 2.46 m):
+
+| seed     | brucon | Test A      | Test E (+env) | Test F (+lift) |
+|----------|--------|-------------|---------------|----------------|
+| 1012 out | 10.32  | 6.44 (0.62) | 8.04 (0.78)   | 9.10 (0.88)    |
+| 1001 cal |  2.46  | 1.04 (0.42) | 3.17 (1.29)   | 3.96 (1.61)    |
+
+The outlier ratio improves monotonically; the calm seed
+over-predicts severely and gets worse with each added layer. The
+calm/outlier asymmetry under nominally-linear forcing pointed
+toward the observer absorbing low-frequency env force differently
+in brucon than in cqa.
+
+##### Observer audit: cqa b_hat(t) vs brucon EstBiasSway(t)
+
+Per-seed comparison of post-WCF ``b_hat_y(t)`` from Test E vs
+brucon's ``EstBiasSway(t)`` logged in ``*_estimator.out``:
+
+| seed     | brucon b_hat_y RMS / peak | cqa b_hat_y RMS / peak  | xcorr peak | lag    |
+|----------|---------------------------|-------------------------|------------|--------|
+| 1012 out | 30.3 / 93.2 kN            | 0.00001 / 0.013 kN      | 0.92       | +5.6 s |
+| 1001 cal | 19.0 / 62.4 kN            | 0.00001 / 0.013 kN      | 0.94       | +4.1 s |
+
+cqa b_hat is **~7 orders of magnitude too small** but has the
+correct shape (high cross-correlation). This pins the bug to a
+gain mis-scaling, not a structural error in the observer
+equations.
+
+##### Root-cause analysis
+
+Source-of-truth read of the brucon NPO
+(``/home/blofro/src/brucon/libs/dp/dp_estimator/nonlinear_passive_observer.cpp``)
+shows two non-obvious facts:
+
+1. Line 254-259 -- ``BiasEstimateDot = -(1/T_b) * bias + K_b_pos *
+   pos_innov + K_b_vel * vel_innov``. This is the equation cqa
+   reproduced.
+2. Line 178-184 -- ``BiasForceEstimate(bias) = bias *
+   (ScaledMass + ScaledAddedMass)``. The internal
+   ``bias_estimate_`` is in **acceleration units** (m/s^2 or
+   rad/s^2); brucon converts to force via this multiplication
+   before feeding it to the controller / observer.
+
+The prototxt ``bias_gain_position: 0.0012`` is therefore a gain on
+``bias_acceleration_dot`` per metre of innovation. Its
+force-domain equivalent is ``M_diag * 0.0012``:
+
+| DOF   | M_diag           | M * K_b_pos       |
+|-------|------------------|-------------------|
+| surge | 1.18e7 kg        | 14 144 N/(m·s)    |
+| sway  | 1.86e7 kg        | 22 297 N/(m·s)    |
+| yaw   | 1.15e10 kg·m²    | 2.30e7 (N·m)/rad/s|
+
+cqa was applying 0.0012 N/(m·s) on sway -- a factor of 1.86e7 too
+small. Under a 1 m position residual the cqa b_hat would
+accumulate 0.0012 N/s; the brucon equivalent accumulates 22 kN/s.
+
+##### Patch
+
+``cqa/cqa/transient_obs.py:build_observer_augmented_system_full``
+now applies ``K_b_pos_force = M @ K_b_pos`` at the b_hat row
+(formerly ``add_G_times_e(IDX_B_HAT, K_b_pos)``). The docstring,
+state-space write-up, ``ObserverGains`` field comment, and
+steady-state sanity-check derivation were updated to reflect the
+``M·K_b_pos·e`` formula.
+
+##### Regression test
+
+``tests/test_transient_obs.py::test_b_hat_dynamics_match_brucon_acceleration_units``
+integrates the augmented system from x0=0 with a constant 100 kN
+sway env-force step for 120 s. Asserts:
+
+- ``|b_hat_y(120s)| > 1 kN`` (failed at ~1e-5 kN before the patch).
+- ``|b_hat_y(60s)| > |b_hat_y(0.5s)|`` (monotone build-up).
+
+Locks the convention into the test suite. Full test run: 8/8
+``test_transient_obs.py`` passing; 390 tests passing across the
+cqa suite.
+
+##### Effect on the observer audit (post-bugfix Test E rerun)
+
+| seed     | brucon b_hat_y RMS  | cqa b_hat_y RMS  | xcorr | lag    |
+|----------|---------------------|------------------|-------|--------|
+| 1012 out | 30.3 kN             | **66.6 kN**      | 0.94  | +4.5 s |
+| 1001 cal | 19.0 kN             | **22.7 kN**      | 0.99  | 0.0 s  |
+
+Calm seed: cqa b_hat magnitude now within 20% of brucon, lag zero,
+correlation 0.99 -- excellent agreement. Outlier seed: cqa b_hat
+overshoots by 2x, which is itself diagnostic: brucon's
+NPO uses velocity-dependent gain scaling
+(``UpdateVelocityDependentGains`` at line 213-251 of the brucon
+file) which detunes the bias estimator when surge/heading speed is
+high. Our linear model has constant gains. This explains the
+outlier overshoot and is a known second-order item (cf.
+sec.12.21.21.28b TODO).
+
+##### Effect on the diagnostic Test E sway ratios (post-bugfix)
+
+| seed     | brucon | Test A      | Test E (+env) | Test F (+lift) |
+|----------|--------|-------------|---------------|----------------|
+| 1012 out | 10.32  | 5.88 (0.57) | 7.06 (0.68)   | 7.89 (0.77)    |
+| 1001 cal |  2.46  | 0.95 (0.38) | 3.81 (1.55)   | 4.85 (1.97)    |
+
+The Test E ratios worsened on both seeds after the bugfix. Reason:
+the reconstruction starts from ``x0 = 0`` (b_hat(0) = 0), but in
+reality at T_WCF brucon's observer has been running 1560 s and
+``b_hat(T_WCF) ~ -F_env_pre`` (intact steady state). With the
+working observer, b_hat now needs ~5 s to climb from zero, during
+which env force enters unopposed; once b_hat catches up the
+controller over-corrects. The IC bug is structural, present
+all along but masked by the K_b_pos bug zeroing out the b_hat
+channel altogether. **The fix to the diagnostic is to use the
+intact steady state as x0**, i.e. solve
+``A @ x0 = -B_d @ tau_env_pre`` and integrate from there with
+``F_env(t) - F_env_pre`` as the perturbation. To be addressed in
+sec.12.21.21.28b.
+
+##### Effect on the 12-cell live-operator panel (post-bugfix)
+
+Re-run of ``scripts/p7_brucon_validation/roll_up_live_operator_panel.py``:
+
+| cell             | wP95 pred | wP95 truth | bias  | regB g/a/r |
+|------------------|-----------|------------|-------|------------|
+| bf4_c1_h0        |   0.532   |   0.635    | -16%  | 30/0/0     |
+| bf4_c1_q10       |   0.574   |   0.668    | -14%  | 30/0/0     |
+| bf6_h0           |   1.449   |   1.493    |  -3%  | 30/0/0     |
+| bf6_q10          |   1.438   |   1.300    | +11%  | 30/0/0     |
+| bf6_h0_w45       |   1.677   |   1.865    | -10%  | 30/0/0     |
+| bf6_q10_w45      |   1.657   |   2.015    | -18%  | 30/0/0     |
+| bf8_h0           |   3.970   |   4.268    |  -7%  | 30/0/0     |
+| bf8_q10          |   4.285   |   4.647    |  -8%  | 30/0/0     |
+| bf8_h0_w45       |   4.800   |   5.411    | -11%  | 30/0/0     |
+| **bf8_q10_w45**  |   4.886   |   7.825    | **-38%** | 26/4/0  |
+| pwo              |   2.546   |   3.320    | -23%  | 30/0/0     |
+| pwq30            |   2.406   |   2.075    | +16%  | 30/0/0     |
+
+The bf8_q10_w45 P95 bias moved from -39% (sec.12.21.21.27) to
+-38% -- effectively unchanged. The K_b_pos bug fix is
+**structurally correct but operationally null on the live-panel
+metric** because:
+
+- The live panel's WCF axis uses ``pulse_response_saturated``
+  starting from the intact steady state (computed via
+  ``np.linalg.solve(A, -B_d @ tau_env)``), where b_hat is
+  already at its SS value ``M·K_b_pos·T_b * e_ss``. The bug
+  affected b_hat's *transient* response, not its steady state at
+  high T_b = 1000 s; the SS solve is dominated by the
+  ``-Tb_inv * b_hat = M·K_b_pos·e`` algebraic balance and that
+  balance is independent of scaling on K_b_pos to leading order
+  (because both terms scale linearly with the gain).
+- The post-WCF spiral on bf8_q10_w45 is therefore driven by
+  saturation dynamics that the saturated forward sim already
+  models correctly; the missing 38% is downstream of the observer.
+
+##### Status
+
+- K_b_pos bug fixed and locked in by regression test. Committed
+  separately from the diagnostic / Option 2 work.
+- The bf8_q10_w45 -38% gap remains open. Next sub-diagnostic
+  (sec.12.21.21.28b) is to fix Test E's x0 to the intact SS and
+  re-run; expected Test E ratios near 1.0 on both seeds if
+  linearity holds.
+- Open second-order items:
+  (a) velocity-dependent gain scaling in the NPO
+      (``UpdateVelocityDependentGains``) is not modelled in cqa;
+      causes b_hat outlier overshoot but is unlikely to be the
+      dominant 38% gap driver since calm seed is well-matched.
+  (b) The diagnostic worsened on Test E because of x0=0 IC; this
+      will be addressed independently.

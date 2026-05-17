@@ -254,3 +254,74 @@ def test_pulse_response_saturated_validates_inputs():
 
     with pytest.raises(ValueError, match="must return"):
         pulse_response_saturated(aug, t, np.zeros((101, 3)), bad_clip)
+
+
+# --------------------------------------------------------------------------- #
+# Observer-bias unit/convention regression (sec.12.21.21.28)                  #
+# --------------------------------------------------------------------------- #
+def test_b_hat_dynamics_match_brucon_acceleration_units():
+    """Under a sustained env-force step, b_hat must converge toward
+    -F_env (modulo T_b decay).
+
+    Brucon convention (nonlinear_passive_observer.cpp:178-184, 254-259):
+    bias_estimate stored in ACCELERATION units (m/s^2 or rad/s^2),
+    converted to force via bias_estimate * (ScaledMass + ScaledAddedMass).
+    The prototxt K_b_pos = 0.0012 1/s is the gain on bias_acceleration
+    per metre of innovation.
+
+    cqa stores b_hat in FORCE units, so the builder must apply
+    K_b_pos_force = M @ K_b_pos. Without this scaling b_hat is ~M
+    times too small (sway factor ~1.86e7) and observer is effectively
+    inert -- see sec.12.21.21.28 of analysis.md.
+
+    Steady state for b_hat_dot = -b_hat/T_b + M·K_b_pos · e == 0
+    with e = -F_env/Kp_equivalent driven by the closed loop:
+        |b_hat_ss| ~ |F_env| * (1 - 1/(1 + T_b · M·K_b_pos · gain_factor))
+    For T_b = 1000 s and the closed-loop gain at this bandwidth, the
+    cqa observer should track F_env to within an order of magnitude
+    within ~60 s. The pre-fix bug left b_hat ~7 orders of magnitude
+    too small, easily detected.
+    """
+    from cqa.transient_obs import pulse_response
+    aug = _build_aug()
+
+    # Sustained sway env force step of 100 kN
+    F_env_y = 100_000.0
+    tau_env_const = np.array([0.0, F_env_y, 0.0])
+
+    # Integrate from x0 = 0 for 120 s. tau_env_const drives nu via B_d.
+    dt = 0.1
+    t = np.arange(0.0, 120.0 + 0.5 * dt, dt)
+    N = len(t)
+    n = aug.n_state
+
+    X = np.zeros((N, n))
+    A = aug.A
+    B_d = aug.B_d
+    for k in range(1, N):
+        x_k = X[k - 1]
+        def f(x):
+            return A @ x + B_d @ tau_env_const
+        k1 = f(x_k)
+        k2 = f(x_k + 0.5 * dt * k1)
+        k3 = f(x_k + 0.5 * dt * k2)
+        k4 = f(x_k + dt * k3)
+        X[k] = x_k + (dt / 6.0) * (k1 + 2 * k2 + 2 * k3 + k4)
+
+    b_hat_y = X[:, IDX_B_HAT][:, 1]
+    # At t = 120 s the observer should have built up b_hat_y on the
+    # order of F_env_y (sign opposes env force in the controller's
+    # frame: b_hat is the observer's estimate of the same force, fed
+    # forward by tau_cmd as -b_hat to oppose it). Empirically for
+    # this configuration |b_hat_y(120s)| ~ 20-100 kN with the correct
+    # M scaling; without the scaling it would be ~1e-5 kN.
+    assert abs(b_hat_y[-1]) > 1_000.0, (
+        f"b_hat_y after 120 s of 100 kN env step is {b_hat_y[-1]:.3e} N, "
+        f"which is ~M times too small (K_b_pos applied without M scaling?)"
+    )
+    # Monotone growth in magnitude over the first 60 s (no
+    # oscillation past zero in this constant-force regime).
+    idx_60 = np.argmin(np.abs(t - 60.0))
+    assert abs(b_hat_y[idx_60]) > abs(b_hat_y[5]), (
+        "b_hat_y did not grow over first 60 s under sustained env step"
+    )

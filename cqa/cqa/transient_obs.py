@@ -48,7 +48,7 @@ Continuous-time linear dynamics, innovation
     M·nu_dot     = -D·nu + tau_thr + tau_env_const + w(t) + tau_lost(t)     (truth, dual-inject)
     eta_hat_dot  = nu_hat + omega_c·e                                       (observer η̂)
     M·nu_hat_dot = -D·nu_hat + b_hat + tau_cmd + M·K_a_pos·e                (observer ν̂; consumes tau_cmd)
-    b_hat_dot    = -(1/T_b)·b_hat + K_b_pos·e                               (observer bias, dynamic)
+    b_hat_dot    = -(1/T_b)·b_hat + M·K_b_pos·e                             (observer bias, dynamic)
     tau_thr_dot  = (1/T_thr)·(tau_cmd - tau_thr)                            (thrust lag)
     I_dot        = eta_hat                                                  (controller integrates η̂)
     xi_dot       = eta_wave + k1·e                                          (wave filter integrator)
@@ -62,7 +62,11 @@ Wave filter constants (per DOF, brucon ``SecondOrderWaveFilter``)::
     k2 =  2 omega_p (1 - zeta_w)
 
 Observer gains (per DOF, diag) come from the brucon CSOV
-``observer.prototxt``::
+``observer.prototxt`` (raw prototxt values; cqa applies the brucon
+acceleration-units convention by multiplying ``K_b_pos`` by ``M``
+inside ``build_observer_augmented_system_full`` - see
+sec.12.21.21.28 of analysis.md and the comment on the b_hat row in
+that builder)::
 
     surge: K_b_pos = 0.0012,  K_a_pos = 0.12,  ω_c = 1.04 rad/s,  T_b = 1000 s
     sway : K_b_pos = 0.0012,  K_a_pos = 0.12,  ω_c = 1.04 rad/s,  T_b = 1000 s
@@ -110,7 +114,7 @@ N_STATE = 27
 @dataclass
 class ObserverGains:
     """Per-DOF diagonal observer gains (surge, sway, yaw)."""
-    K_b_pos: np.ndarray  # (3,) bias-from-position gain [1/s]
+    K_b_pos: np.ndarray  # (3,) bias-from-position gain [1/s], brucon prototxt convention; applied as M·K_b_pos in the builder
     K_a_pos: np.ndarray  # (3,) acceleration-from-position gain [1/s^2]
     omega_c: np.ndarray  # (3,) wave-filter cutoff / position-innov gain [1/s]
     T_b: np.ndarray      # (3,) bias time constant [s]
@@ -250,9 +254,23 @@ def build_observer_augmented_system_full(
     # chain (which is the actual physical channel where the bias FF
     # rejects the env force on the vessel).
 
-    # --- Row 12..14 : b_hat_dot = -(1/T_b) b_hat + K_b_pos · e ---
+    # --- Row 12..14 : b_hat_dot = -(1/T_b) b_hat + M · K_b_pos · e ---
+    #
+    # BRUCON CONVENTION (nonlinear_passive_observer.cpp:178-184,
+    # 254-259): brucon stores ``bias_estimate_`` internally in
+    # ACCELERATION units, with bias_estimate_dot = -bias/T_b +
+    # K_b_pos * pos_innov. The bias is converted to FORCE via
+    # BiasForceEstimate = bias_estimate * (ScaledMass + ScaledAddedMass)
+    # before being fed to the controller / observer ν̂_dot equation.
+    # cqa stores b_hat in FORCE units throughout, so the brucon gain
+    # K_b_pos [1/s] must be multiplied by M_diag to give the
+    # force-domain gain [N/(m·s)] that drives b_hat_dot. Without this
+    # scaling, b_hat is ~M-times too small (sway factor ~1.86e7),
+    # leaving env force largely uncancelled in our linear sim. See
+    # sec.12.21.21.28 of analysis.md.
     A[IDX_B_HAT, IDX_B_HAT] = -Tb_inv
-    add_G_times_e(IDX_B_HAT, K_b_pos)
+    K_b_pos_force = M @ K_b_pos
+    add_G_times_e(IDX_B_HAT, K_b_pos_force)
 
     # --- Row 15..17 : tau_thr_dot = (1/T_thr) (tau_cmd - tau_thr) ---
     inv_T_thr = 1.0 / T_thr
@@ -314,7 +332,7 @@ def intact_mean_steady_state_obs(aug: AugmentedSystemObs, tau_env: np.ndarray) -
     -----
     Substituting into the dynamics::
 
-        b_hat_dot = -b̂/T_b + K_b_pos·(η - η̂)        = 0 + 0 = 0  ✓
+        b_hat_dot = -b̂/T_b + M·K_b_pos·(η - η̂)      = 0 + 0 = 0  ✓
         eta_dot   = ν                                = 0           ✓
         M ν_dot   = -D·0 + τ_thr_ss + τ_env          = -τ_env + τ_env = 0  ✓
         eta_hat_dot = ν̂ + ω_c·(η - η̂)               = 0 + 0 = 0  ✓
