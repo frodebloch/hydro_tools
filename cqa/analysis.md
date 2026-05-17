@@ -7516,3 +7516,100 @@ change touches them).
 Committed as `8a9f492`. Next: wire into `live_operator_view.py`
 WCF axis, then validate on bf8_q10_w45 (seed-1012 spot check
 first, then full 12-cell roll-up).
+
+## 12.21.21.27 Plan A wiring — empirically a no-op; substrate kept for Option 1
+
+Wired `pulse_response_saturated` into `summarise_for_operator_live`
+WCF axis (`cqa/cqa/live_operator_view.py`). When the caller passes
+`regime_b_geometry` (an `OperationalCapGeometry`) plus
+`regime_b_surge_cap_N`, a `_yaw_priority_clip(tau_raw)` closure is
+built that re-evaluates `operational_cap_at(tau_raw, geom,
+surge_cap_N)` at every RK4 step and projects `tau_cmd` onto the
+yaw-priority cap. The K_lift correction is dropped from the
+saturated branch (lift-coupling effect was <1%, sec.12.21.21.7);
+linear and K_lift-only branches are preserved for callers without
+geometry. `roll_up_live_operator_panel.py` already constructs
+`_REGB_GEOMETRY` from `compute_residual_polytope(CSOV_THRUSTERS,
+surviving_indices=_BUS_PORT_SURV)` and passes both arguments, so
+the saturated path is automatically active in the validation
+roll-up. All 65 live-panel unit tests still pass (none of them
+provide `regime_b_geometry`, so the new branch is dormant in unit
+tests; validation is exclusively through the brucon roll-up).
+
+**Empirical validation: no-op on the target cell.** Roll-up across
+12 cells × 30 seeds (HEAD `a53c2d8` vs HEAD `073f59f`):
+
+| cell           | wP95.pred (a53c2d8) | wP95.pred (073f59f) | wP95.truth | bias  |
+|----------------|--------------------:|--------------------:|-----------:|------:|
+| **bf8_q10_w45** |          **4.786** |               4.770 |      7.825 | **-39%** |
+| bf8_h0_w45     |               4.705 |              ~4.70  |      5.411 |  -13% |
+| bf8_q10        |               4.148 |              ~4.15  |      4.647 |  -11% |
+| pwq30          |               2.367 |              ~2.37  |      2.075 |  +14% |
+
+All other cells essentially unchanged. The bf8_q10_w45 gap is not
+closed.
+
+**Diagnostic.** At the bf8_q10_w45 representative operating point
+(b_hat_y = -500 kN, b_hat_bias_correction = 1.10):
+
+- `tau_env = b_corr * b_hat = (-330, -550, 0)` kN, kN.m.
+- WCFDI `tau_lost(t=0) = (-165, -275, 0)` kN per
+  `WcfdiScenario(alpha=2/3, gamma_immediate=0.5)`.
+- Unconditional operational cap (no yaw demand) =
+  `(838, 1104, 24087)` kN, kN.m.
+- `|tau_cmd_raw|` peaks at 156 kN sway in forward sim — 14% of the
+  1104 kN sway cap.
+- **Clip activates 0% of integration steps.** Linear and saturated
+  trajectories are bit-identical.
+
+**Root cause (same as Plan B's failure).** The deterministic
+forward sim has no stochastic LF wave forcing. `tau_env = b_hat`
+mean is well below the cap, WCFDI `tau_lost` is itself a fraction
+of `tau_env`, and with no yaw demand the conditional cap stays at
+its loose unconditional vertex. The bf8_q10_w45 spiral in brucon
+requires three ingredients that the live deterministic forward sim
+lacks:
+
+1. **Stochastic LF wave-drift forcing on top of mean.**
+   sec.12.21.21.9 shows `std_sway` grows 1.40 m -> 2.70 m over
+   t = 20-80 s post-WCF, contributing ~200 kN std of LF forcing.
+2. **Concurrent yaw demand** (~20 MN.m at the operating point) that
+   shrinks the sway cap from 1104 kN -> ~690 kN via the
+   yaw-priority projection.
+3. **Closed-loop integrator wind-up + lift coupling** under
+   residual-cap saturation across the post-WCF window.
+
+Plan A (deterministic forward sim) and Plan B (static
+saturation-deficit drift, sec.12.21.21.25) both fail for the same
+underlying reason: spiral severity is **wave-realisation-conditional**
+and cannot be recovered from `tau_env` mean or from pre-WCF buffer
+statistics alone. The per-seed diagnostic in sec.12.21.21.25
+already established that pre-WCF buffer statistics do not
+discriminate the 7 spiral outliers from the 23 calm seeds.
+
+**Decision: keep the wiring; document as no-op; defer the gap to
+Option 1.** Rationale:
+
+- The wiring is the necessary substrate for sec.12.21.21.6
+  Option 1 (stochastic post-WCF excursion model). Option 1 is an
+  ensemble Monte-Carlo of `pulse_response_saturated` realisations
+  with synthetic stochastic LF wave-drift forcing added to
+  `tau_env`; the MC sampler needs the saturation-aware forward sim
+  already in place.
+- Saturated and linear paths agree to RK4 tolerance on identity
+  clip (sec.12.21.21.26 test #4), so making saturation the default
+  active branch is a strict generalisation: no regression risk on
+  cells where the cap is never hit.
+- The K_lift correction was <1% on every cell, so dropping it from
+  the saturated branch is operationally invisible.
+
+Committed as `a53c2d8`. Open: sec.12.21.21.6 Option 1 (stochastic
+post-WCF excursion model). Concrete shape: (a) source `sigma_LF`
+of stochastic forcing from the existing Bayesian b_hat posterior /
+LF wave-drift sigma estimate; (b) MC sampler over N realisations
+of `pulse_response_saturated` with `tau_env(t) = b_hat_mean +
+sigma_LF * eps(t)`; (c) take P95 of post-WCF peak excursion across
+the MC ensemble; (d) validate on bf8_q10_w45 outlier seeds
+(1000, 1002, 1005, 1008, 1012, 1023, 1027) first, then 12-cell
+roll-up. Scope is larger than Plan A and requires user agreement
+before commencing.
