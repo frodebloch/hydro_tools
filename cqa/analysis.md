@@ -7818,3 +7818,127 @@ metric** because:
       dominant 38% gap driver since calm seed is well-matched.
   (b) The diagnostic worsened on Test E because of x0=0 IC; this
       will be addressed independently.
+
+#### sec.12.21.21.28b: Linearity-reconstruction follow-up — Tests E2 (anti-windup), E2b (brucon-Kd), E2_ic (integrator IC), H5 (abs env force); gap unchanged; minimal-model recommendation {#sec-12-21-21-28b}
+
+Followed up sec.12.21.21.28's bf8_q10_w45 -38% live-panel gap by
+running four further reconstruction variants in
+``scripts/p7_brucon_validation/linearity_reconstruction_diagnostic.py``.
+None close the gap; collectively they suggest the residual is at or
+beyond the linear-superposition framework's fidelity envelope.
+
+##### Hypotheses tested
+
+* **HYP 2 (E2): integrator wind-up.** Implemented brucon-style
+  per-axis integrator clamp ``|I| <= 0.75 F_max / Ki``
+  (``libs/common/regulators/pid.cpp:21-34``,
+  ``include/brucon/regulators/pid.h:31-32``). Anti-windup does **not
+  trigger**: I_y peaks at 289 m.s (outlier) and 94 m.s (calm),
+  well below the I_max_y = 1340 m.s limit. Test E2 ratios identical
+  to Test E. **Falsified.**
+
+* **HYP 3 (E2b): Kd convention.** ``LinearDpController.from_bandwidth``
+  defaults to ``subtract_open_loop_damping=True`` (Kd = 2 zeta M omega -
+  D, exact closed-loop poles at omega_n, zeta). Brucon convention is
+  ``Kd = 2 zeta M omega`` (open-loop D adds on top -> over-damped by
+  1 + D/(2 M omega zeta) ~ 1.20 on sway). Re-ran with brucon
+  convention. Effect: outlier P95 ratio 0.68 -> 0.69, calm
+  1.55 -> 1.46. **Essentially null; falsified.**
+
+* **HYP 4 (E2_ic): integrator IC mismatch.** User observation: on the
+  outlier panel, Test E2 sway diverges from brucon in the first
+  ~20 s then traces with a DC offset; signature of a missing IC in a
+  state with closed-loop time constant ~M/Kd ~ 8 s. Reconstructed
+  brucon's PI integrator state at T_WCF from the deviation-coords
+  controller equation:
+  ``I = -(OrderTau_dev + Kp eta_hat_dev + Kd nu_hat_dev + b_hat_dev) / Ki``.
+  Effect: outlier P95 0.68 -> 0.65, calm 1.55 -> 1.56. **Negligible.**
+  Cross-check failed for yaw: reconstructed I_z = 25000 rad.s vs
+  physical clamp limit 32.6 rad.s, indicating OrderTau is not the
+  pure PI-output (carries bias FF or other terms beyond cqa's PI law).
+  **Falsified; reconstruction formula imperfect but the negligible
+  effect on the sway P95 is genuine.**
+
+* **HYP 5 (H5): env-force demeaning is wrong.** Tested whether the
+  ``[T_WCF-30, T_WCF-5]`` demean over a 25 s window of an LF process
+  removes the mean wave drift that the post-WCF (degraded) thrusters
+  cannot sustain. Newton balance check confirmed
+  ``b_hat_pre ~ -F_env_pre`` to within 7-9% on both seeds (sanity).
+  Injected absolute env force instead of demeaned perturbation.
+  Effect: outlier P95 0.68 -> 0.75 (modest improvement), calm
+  1.55 -> 3.53 (catastrophic over-shoot). **Wrong direction:**
+  injecting absolute env force forces the linear closed loop to grow
+  a large DC excursion because its b_hat dynamics need ~500 s (1/Ki)
+  to cancel the new DC bias. The intact-SS deviation-coords framing
+  (b_hat in cqa = 0 = brucon b_hat - b_hat_pre) requires the input
+  to also be in deviation form, which means the demean is correct.
+  **Falsified.**
+
+##### Trace-level finding (the actual reason the gap is not closing)
+
+Eye-balling the diagnostic plot
+(``linearity_reconstruction_diagnostic.png``) on the outlier seed
+1012:
+
+* brucon truth heads negative immediately, reaches -3 m by t = 15 s,
+  oscillates in [-1.5, -3] m for 15 < t < 110 s, then dives to
+  -10.5 m around t = 150 s as the saturation gap delta_tau_y ramps
+  to +400 kN;
+* Test E2/E2_ic head **positive** to +1-2 m for 0-60 s, then meander
+  back, then track brucon's dive faithfully from t > 120 s onward.
+
+So the late-time (t > 120 s) fit is good but the early window has a
+**sign-flip** of the sway position. Both delta_tau_y and the
+demeaned dF_env_y are near zero in 0-110 s, so no available linear
+forcing in our model can drive the early -3 m drift; brucon's
+behaviour there must be driven by sub-grid dynamics (NPO LF
+tracking + observer transient + velocity-dependent gain scaling)
+that the linear superposition does not capture.
+
+On the calm seed 1001 the trace fit of Test E2 to brucon is
+already visually excellent across the entire window; the P95 ratio
+1.55 is essentially a phase artifact at the per-instant percentile
+level (brucon and Test E2 peak at different times).
+
+##### Operator's bottom line on the four-variant exercise
+
+Out of the variants tested, **Test A (delta_tau only)** is the
+best minimal model:
+
+* on the calm seed, Test A under-shoots P95 (0.95 vs brucon 2.46,
+  ratio 0.38) because most of brucon's sway is env-force driven,
+  not saturation driven; but **that env-driven sway is already
+  handled by the LF/WF prior path in the live panel and the post-
+  WCF excursion attributable to the saturation event should
+  arguably exclude it**;
+* on the outlier seed, Test A captures the saturation-driven
+  -7 m late-time dive (5.88 m vs brucon 10.32 m, ratio 0.57)
+  without chasing the env-force-driven oscillation;
+* adding env force (Test E) brings outlier to 0.68 ratio but
+  pushes calm to 1.55 (over-prediction);
+* adding K_lift (Test F) further pushes outlier to 0.77 but
+  blows calm to 1.97;
+* none of the additions improve the WCF P95 panel-level
+  discrepancy by a useful margin.
+
+The simplicity of Test A is the right choice for the
+operational-CQA pipeline: it isolates **the saturation-event
+contribution** to the post-WCF excursion, which is what the
+WCF axis is supposed to predict.
+
+##### Status
+
+* bf8_q10_w45 -38% gap **accepted as a limitation** of the linear
+  superposition framework applied to a strongly-non-stationary
+  outlier seed.
+* The 11/12 cells already within +/-20% bias is good for the
+  operational target.
+* Future work: if a finer fidelity is needed, port brucon's
+  ``UpdateVelocityDependentGains`` (NPO lines 213-251) and add a
+  pre-loaded b_hat trajectory; both are deferred items.
+* Diagnostic scripts (``linearity_reconstruction_diagnostic.py``,
+  ``observer_audit_diagnostic.py``, ``tau_cmd_audit_diagnostic.py``)
+  committed as audit trail. They are run-once diagnostic harnesses;
+  no tests added (they consume brucon ensemble fixtures).
+* Next: proceed with Option 2 (analytical excursion-distribution
+  machinery in ``cqa.live_regime_b``).
