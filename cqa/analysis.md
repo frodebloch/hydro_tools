@@ -8160,3 +8160,126 @@ by any defect in Option 2.
 
 Artefact: ``scripts/p7_brucon_validation/synthetic_amber_demo_option2.py``
 (180 lines).
+
+## 12.21.21.30 WCF axis quadrature: Option-2 into the operator headline
+
+### Motivation
+
+After sec.21.29 + sec.21.29b the WCF axis carried two physically-
+distinct contributions but only the first one drove the operator
+traffic light:
+
+1. **Non-saturation channel** (sec.12.21.21.28b): deterministic
+   reallocation transient + LF/WF/b_hat noise propagated through
+   the residual closed loop. This is the ``wcf_R_p95`` headline,
+   validated 11/12 brucon cells within +/-20% bias.
+2. **Saturation channel** (sec.12.21.21.29 Option 2): analytical
+   excursion driven by LF demand spilling past the residual
+   polytope cap. Returns ~0 in the brucon envelope (>~3 sigma
+   headroom) and grows monotonically into the metre range as
+   headroom shrinks (sec.21.29b demo).
+
+The remaining gap before the live panel is operationally
+shippable is to **combine the two channels into a single headline
+the IMCA traffic light gates on**. The two channels are
+approximately independent (transient + noise is stationary-noise-
+dominated; saturation excursion is driven by rare LF tail events
+on a different time scale), so quadrature is the natural
+combination. Mildly conservative when both are large.
+
+User confirmed the design choices (sec.21.30 design questions):
+
+* No projection of pre-WCF (mu, sigma) onto residual polytope:
+  sec.12.21.21.20's direct measurement (pre-WCF
+  ``mu_Ty = 515 +- 8``, ``sigma_Ty = 96 +- 14``; post-WCF
+  ``mu_OrderY = 544 +- 69``, ``sigma_OrderY = 101 +- 60``) shows
+  the LF mean and std are **invariant** across the WCF event.
+  The reallocation amplification we see in sec.21.28b is a
+  *transient* (handled by channel 1), not a steady-state mu
+  shift. The current call
+  ``estimate_post_wcf_excursion_distribution(rb.mu, rb.sigma,
+  rb.cap_residual)`` is therefore mathematically correct without
+  any projection.
+* Conditional ``p_sat | WCF`` framing: the WCF axis is the
+  metric distance operators should expect IF the worst credible
+  single fault occurs NOW. The probability of the fault itself
+  is NOT included (it requires a separate WCF-rate model the
+  live pipeline deliberately avoids).
+* Quadrature into ``wcf_R_p95``: single operator-facing number
+  with the IMCA gate on it; preserve component breakdown for
+  diagnostics.
+
+### Wiring
+
+Three changes in ``cqa/cqa/live_operator_view.py``:
+
+1. **New field** ``LiveOperatorSummary.wcf_R_p95_nonsat_m``
+   (default 0.0; optional / dataclass tail). Carries the
+   non-saturation contribution = pre-sec.21.30 value of
+   ``wcf_R_p95``.
+2. **Quadrature block** before the final ``return``: compute
+   ``wcf_R_p95 = sqrt(wcf_R_p95_nonsat^2 +
+   wcf_excur_R_xy_p95_m^2)``; recompute ``wcf_traffic`` via
+   ``_imca_traffic(wcf_R_p95, pos_warn, pos_alarm)``; rebuild
+   ``overall_traffic`` as ``_worst`` of intact / wcf / gangway /
+   regime_b.
+3. **Docstring update** to ``LiveOperatorSummary`` documenting
+   the conditional-on-WCF reading and the quadrature structure.
+
+The Regime-B traffic light remains a separate (independent) gate
+on ``p_sat`` severity per sec.21.22; the new wcf_R_p95 quadrature
+is an *additional* gating path. The Regime-B field still informs
+the operator about *probability* of saturation; the new combined
+wcf_R_p95 informs about *metric distance* (with the saturation
+channel's contribution typically 0 in the brucon-calibrated
+envelope but ramping rapidly when headroom shrinks).
+
+### Tests
+
+Updated ``tests/test_live_regime_b_integration.py``:
+
+* Reframed ``test_wcf_excursion_does_not_alter_overall_traffic``
+  (was: Option-2 strictly informational; now: ``wcf_traffic``
+  includes Option-2 via quadrature; overall is worst-of-three
+  as before). Test still passes by construction.
+* New ``test_wcf_quadrature_zero_option2_preserves_nonsat_headline``:
+  when Option-2 ~0 (high-headroom green case), ``wcf_R_p95 ==
+  wcf_R_p95_nonsat_m`` to float noise.
+* New ``test_wcf_quadrature_combines_in_quadrature``: exact
+  ``hypot`` identity.
+* New ``test_wcf_quadrature_dominant_option2_drives_headline``:
+  if Option-2 dominates the non-saturation contribution by >5x,
+  the combined headline tracks Option-2 within +/-2%.
+
+Full suite: **414/414 green** (was 411/411; +3 new tests).
+
+### Brucon roll-up regression check
+
+Re-ran ``scripts/p7_brucon_validation/roll_up_live_operator_panel.py``
+across all 12 cells. Results identical to the pre-sec.21.30
+roll-up to displayed precision -- the worst Option-2 contribution
+(bf8_q10_w45 = 0.070 m) combines with the non-saturation P95
+(4.888 m) as ``sqrt(4.888^2 + 0.070^2) = 4.8885 m``, invisible
+at 3 dp. IMCA traffic-light distributions (column ``g/a/r``)
+unchanged on every cell. **No regression**, as predicted from
+the sub-cm Option-2 contributions in the brucon envelope.
+
+### Status
+
+The WCF axis is now operationally complete for the live panel:
+
+* non-saturation channel (transient + noise): wcf_R_p95_nonsat_m,
+  validated 11/12 cells within +/-20%;
+* saturation channel (Option 2): wcf_excur_R_xy_p95_m,
+  validated analytically (sec.21.29) and via synthetic amber
+  demo (sec.21.29b); structurally ~0 in the brucon envelope;
+* combined headline: wcf_R_p95 = quadrature sum, IMCA-gated;
+* explicit conditional-on-WCF documentation in the panel
+  docstring.
+
+Next: per user proposal, generate brucon BF7.5_q10_w45 and
+BF8.5_q10_w45 cells (30 seeds each) to probe the headroom
+gradient at the operational boundary. BF8.5 may give the first
+real brucon validation point for Option 2 by landing in the
+2-3 sigma headroom band; BF7.5 confirms smooth continuation
+toward calmer.

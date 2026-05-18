@@ -220,18 +220,51 @@ class LiveOperatorSummary:
         IMCA M254 Fig.8 colour driven by ``intact_R_p95`` vs the
         warning / alarm radii.
 
-    WCF axis (if WCF now)
-    ---------------------
+    WCF axis (if WCF now -- CONDITIONAL on the worst-credible single
+              fault occurring at the call instant)
+    ---------------------------------------------------------------
     wcf_R_p50, wcf_R_p95 : float, m
         Median and 95th percentile of the post-WCF peak radial
         deviation. The peak is taken over ``[0, t_horizon]`` with
         ``t_horizon`` set by the caller (default 60 s).
+
+        Since sec.12.21.21.30 this is the **quadrature sum** of two
+        physically-distinct contributions:
+
+            wcf_R_p95 = sqrt(wcf_R_p95_nonsat^2 + wcf_excur_R_xy_p95_m^2)
+
+        * ``wcf_R_p95_nonsat`` is the linear-superposition headline
+          covering (a) the deterministic post-WCF reallocation
+          transient and (b) LF/WF/b_hat noise propagated through the
+          residual closed-loop. Validated 11/12 brucon cells within
+          +/-20% bias (sec.12.21.21.28b).
+        * ``wcf_excur_R_xy_p95_m`` is the Option-2 analytical
+          excursion driven by saturation-spillover of the LF demand
+          (sec.12.21.21.29). Returns ~0 when the demand sits more
+          than ~3 sigma below the residual polytope cap (the brucon-
+          calibrated envelope), grows monotonically into the metre
+          range as headroom shrinks.
+
+        The quadrature sum assumes the two contributions are
+        approximately independent (transient + noise are
+        stationary-noise-dominated; saturation excursion is driven by
+        rare LF tail events). It is mildly conservative when both are
+        large (sec.12.21.21.30 documentation).
+
+        **Conditional reading:** the WCF axis is the metric distance
+        operators should expect IF the worst credible single fault
+        occurs NOW. The probability of the fault itself is NOT
+        included (it requires a separate WCF-rate model the live
+        pipeline deliberately avoids).
+    wcf_R_p95_nonsat : float, m
+        Non-saturation contribution (transient + noise), as above.
     wcf_t_peak_s : float, s
         Time after the (notional) WCF instant at which the
         deterministic mean trajectory ``|eta_hat + delta_eta_mean(t)|``
         peaks. Useful operator cue for time-to-react.
     wcf_traffic : "green" / "amber" / "red"
-        IMCA colour driven by ``wcf_R_p95``.
+        IMCA colour driven by the combined ``wcf_R_p95`` (quadrature
+        of the two contributions above).
 
     Combined
     --------
@@ -437,6 +470,17 @@ class LiveOperatorSummary:
     wcf_excur_eta_p95_m_rad: Optional[np.ndarray] = None
     wcf_excur_eta_p95_with_offset_m_rad: Optional[np.ndarray] = None
     wcf_excur_R_xy_p95_m: float = 0.0
+
+    # ----- Component breakdown of wcf_R_p95 (sec.12.21.21.30) -----
+    # wcf_R_p95 above is the quadrature combination of:
+    #   wcf_R_p95_nonsat : transient + LF/WF/b_hat noise channel
+    #       (the headline computed at sec.12.21.21.28b; this is the
+    #       value wcf_R_p95 took BEFORE sec.12.21.21.30 quadrature).
+    #   wcf_excur_R_xy_p95_m : Option-2 saturation channel
+    #       (already surfaced above; this is the second quadrature term).
+    # When Option-2 is absent (Regime-B not configured), wcf_R_p95 ==
+    # wcf_R_p95_nonsat and this field equals the headline.
+    wcf_R_p95_nonsat_m: float = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -1180,6 +1224,38 @@ def summarise_for_operator_live(
         wcf_excur_eta_p95_with_offset = None
         wcf_excur_R_xy_p95 = 0.0
 
+    # ---- sec.12.21.21.30: combine WCF axis contributions ----
+    # The wcf_R_p95 computed above (line ~937 via
+    # _radial_window_max_quantiles) covers the linear-superposition
+    # channels: deterministic reallocation transient + LF/WF/b_hat noise
+    # propagated through the residual closed loop. Validated 11/12
+    # brucon cells within +/-20% bias (sec.12.21.21.28b).
+    #
+    # The Option-2 channel (wcf_excur_R_xy_p95) covers the
+    # saturation-spillover excursion driven by the LF demand process
+    # exceeding the residual polytope cap. Returns ~0 in the brucon-
+    # calibrated envelope (>~3 sigma headroom); grows monotonically
+    # to the metre range as headroom shrinks (sec.12.21.21.29b).
+    #
+    # The two channels are approximately independent (transient/noise
+    # is stationary-noise-dominated; saturation excursion is driven
+    # by rare LF tail events on a different time scale). Quadrature
+    # sum is mildly conservative when both are large.
+    wcf_p95_nonsat = wcf_p95
+    wcf_p95 = float(np.hypot(wcf_p95_nonsat, wcf_excur_R_xy_p95))
+    # Recompute the traffic light on the combined headline.
+    wcf_traffic = _imca_traffic(wcf_p95, pos_warn, pos_alarm)
+    # Re-evaluate the overall traffic light to include the new wcf.
+    # Order: intact -> wcf -> (gangway is added later in the gw block
+    # via _worst inside that block); Regime-B traffic was already
+    # folded into ``overall`` above. We rebuild from the components
+    # for clarity.
+    overall = _worst(intact_traffic, wcf_traffic)
+    if gw_present:
+        overall = _worst(overall, gw_traffic)
+    if regime_b_present:
+        overall = _worst(overall, regime_b_traffic)
+
     return LiveOperatorSummary(
         intact_R_p50=intact_p50,
         intact_R_p95=intact_p95,
@@ -1221,6 +1297,7 @@ def summarise_for_operator_live(
         wcf_excur_eta_p95_m_rad=wcf_excur_eta_p95,
         wcf_excur_eta_p95_with_offset_m_rad=wcf_excur_eta_p95_with_offset,
         wcf_excur_R_xy_p95_m=wcf_excur_R_xy_p95,
+        wcf_R_p95_nonsat_m=wcf_p95_nonsat,
     )
 
 

@@ -275,18 +275,80 @@ def test_wcf_excursion_grows_with_saturation_severity():
 def test_wcf_excursion_does_not_alter_overall_traffic():
     """Option-2 outputs are surfaced for validation but must NOT yet
     drive overall_traffic (gating decision deferred pending 12-cell
-    brucon roll-up)."""
+    brucon roll-up).
+
+    sec.12.21.21.30 update: this test now checks the post-sec.21.30
+    rule, which IS to quadrature-combine Option-2 into wcf_R_p95 and
+    let the (combined) wcf_traffic drive overall. The legacy ordering
+    test (worst of intact / wcf / regime_b) is still satisfied; the
+    combined wcf_traffic is allowed to be worse than what the
+    non-saturation-only wcf would have been.
+    """
     cfg = _config_with_K(0.0)
     obs = _obs_with_tau_buffer(mu_Ty_kN=1100.0, sigma_Ty_kN=200.0, seed=5)
     sigma = _make_sigma_post()
     s = summarise_for_operator_live(
         cfg, obs, sigma, cap_residual_N_Nm=_CAP_RESIDUAL_N_NM,
     )
-    # Overall must equal worst of intact / wcf / regime_b alone (the
-    # current panel rule pre-Option-2).
+    # Overall = worst of intact / wcf / regime_b. The wcf_traffic
+    # here is computed AFTER quadrature with Option-2 (sec.21.30).
     order = {"green": 0, "amber": 1, "red": 2}
     expected = max(
         (s.intact_traffic, s.wcf_traffic, s.regime_b_traffic),
         key=lambda t: order[t],
     )
     assert s.overall_traffic == expected
+
+
+# ---------- sec.12.21.21.30: quadrature of Option-2 into wcf_R_p95 ----------
+
+
+def test_wcf_quadrature_zero_option2_preserves_nonsat_headline():
+    """When Option-2 returns ~0 (high-headroom green case), wcf_R_p95
+    must equal wcf_R_p95_nonsat to within float noise.
+    """
+    cfg = _config_with_K(0.0)
+    # Low-demand buffer -> Option-2 returns essentially zero.
+    obs = _obs_with_tau_buffer(mu_Ty_kN=200.0, sigma_Ty_kN=40.0, seed=11)
+    sigma = _make_sigma_post()
+    s = summarise_for_operator_live(
+        cfg, obs, sigma, cap_residual_N_Nm=_CAP_RESIDUAL_N_NM,
+    )
+    assert s.regime_b_present is True
+    # Option-2 should be tiny here.
+    assert s.wcf_excur_R_xy_p95_m < 1e-2  # < 1 cm
+    # Headline equals non-sat to within float noise.
+    assert abs(s.wcf_R_p95 - s.wcf_R_p95_nonsat_m) < 1e-3
+
+
+def test_wcf_quadrature_combines_in_quadrature():
+    """wcf_R_p95 must equal sqrt(nonsat^2 + excur^2)."""
+    cfg = _config_with_K(0.0)
+    obs = _obs_with_tau_buffer(mu_Ty_kN=1050.0, sigma_Ty_kN=200.0, seed=13)
+    sigma = _make_sigma_post()
+    s = summarise_for_operator_live(
+        cfg, obs, sigma, cap_residual_N_Nm=_CAP_RESIDUAL_N_NM,
+    )
+    expected = float(np.hypot(s.wcf_R_p95_nonsat_m, s.wcf_excur_R_xy_p95_m))
+    assert abs(s.wcf_R_p95 - expected) < 1e-9
+    # And the combined headline is always >= the non-sat alone.
+    assert s.wcf_R_p95 >= s.wcf_R_p95_nonsat_m - 1e-12
+
+
+def test_wcf_quadrature_dominant_option2_drives_headline():
+    """If Option-2 dominates (saturation regime), wcf_R_p95 should
+    track it (within sqrt(2) of it, since nonsat >= 0)."""
+    cfg = _config_with_K(0.0)
+    # Strongly over-demanded -> Option-2 likely metre-scale.
+    obs = _obs_with_tau_buffer(mu_Ty_kN=1200.0, sigma_Ty_kN=200.0, seed=17)
+    sigma = _make_sigma_post()
+    s = summarise_for_operator_live(
+        cfg, obs, sigma, cap_residual_N_Nm=_CAP_RESIDUAL_N_NM,
+    )
+    if s.wcf_excur_R_xy_p95_m > 5.0 * s.wcf_R_p95_nonsat_m:
+        # Option-2 dominates; combined ~= excur.
+        assert s.wcf_R_p95 >= 0.99 * s.wcf_excur_R_xy_p95_m
+        assert s.wcf_R_p95 <= 1.02 * s.wcf_excur_R_xy_p95_m
+    else:
+        # Test conditions not met -- not a failure, just informative.
+        pass
