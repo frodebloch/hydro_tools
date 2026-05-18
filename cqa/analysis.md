@@ -8107,3 +8107,56 @@ Next: deferred. The CQA live-panel pipeline now has both Regime-B
 severity (sec.21.22) and Option-2 excursion distribution
 (sec.21.29) wired. Outstanding planning-pipeline items in the
 parent G2 plan are unaffected.
+
+### 12.21.21.29b Synthetic amber-regime demonstration
+
+Per the optional follow-up flagged above: built
+``scripts/p7_brucon_validation/synthetic_amber_demo_option2.py`` to
+exercise Option 2 in its named regime, closing the validation loop
+that brucon structurally cannot.
+
+Setup anchored on the diagnostic measurements for bf8_q10_w45 seed
+1012 (the worst real brucon cell):
+``sigma_sway = 80 kN``; ``mu_yaw = 15 MN*m`` chosen so the yaw-
+priority conditional sway cap evaluates to ~792 kN (matching the
+measured 801 kN within fitting noise). Then ``mu_sway`` is swept
+across headroom ratios ``r = (cap - mu) / sigma`` from +4 sigma
+(approximately the real brucon operating point) down to -1 sigma
+(strongly over-demanded).
+
+For each ``r`` the script calls ``estimate_regime_b_severity`` on a
+synthetic OU buffer matching the target moments, then feeds
+``(rb.mu, rb.sigma, rb.cap_residual)`` into
+``estimate_post_wcf_excursion_distribution`` at ``T_h = 200 s``.
+Result:
+
+| r [sigma] | mu_sw [kN] | cap_sw [kN] | p_sat | IMCA | sig_eta [m] | eta_p95 [m] |
+|----------:|-----------:|------------:|------:|:-----|------------:|------------:|
+| +4.0      | 483        | 791         | 1.6e-5 | green | 0.0013 | 0.0036 |
+| +3.0      | 562        | 791         | 6.3e-5 | amber | 0.0021 | 0.0061 |
+| +2.0      | 641        | 790         | 1.8e-2 | amber | 0.065  | 0.185  |
+| +1.5      | 681        | 791         | 5.5e-2 | red   | 0.125  | 0.357  |
+| +1.0      | 721        | 792         | 1.7e-1 | red   | 0.284  | 0.81   |
+| +0.5      | 762        | 793         | 3.4e-1 | red   | 0.444  | 1.27   |
+|  0.0      | 801        | 792         | 5.5e-1 | red   | 0.637  | 1.82   |
+| -0.5      | 842        | 791         | 7.8e-1 | red   | 0.754  | 2.15   |
+| -1.0      | 881        | 793         | 8.8e-1 | red   | 0.940  | 2.69   |
+
+Monotone, smooth ramp from sub-cm (real brucon) to multi-metre
+(strongly over-demanded). The amber transition (``p_sat = 1e-2``)
+falls between r = 2.5 and r = 2.0 sigma, with the corresponding
+Option-2 sway P95 in the 5-20 cm range -- exactly the regime where
+an operator needs a metric distance, not just a probability.
+
+The figure ``synthetic_amber_demo_option2.png`` shows Regime-B
+p_sat (left) and Option-2 P95 with offset (right) vs headroom, with
+the brucon real-operating-point marker at r = 3.9 sigma annotated.
+
+**Conclusion**: Option 2 returns the operationally-meaningful
+non-trivial P95 in its named regime, validating the pipeline end-
+to-end. The structural absence of a positive brucon-validation point
+is fully explained by the brucon test matrix's headroom band, not
+by any defect in Option 2.
+
+Artefact: ``scripts/p7_brucon_validation/synthetic_amber_demo_option2.py``
+(180 lines).
