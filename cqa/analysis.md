@@ -7942,3 +7942,168 @@ WCF axis is supposed to predict.
   no tests added (they consume brucon ensemble fixtures).
 * Next: proceed with Option 2 (analytical excursion-distribution
   machinery in ``cqa.live_regime_b``).
+
+## 12.21.21.29 Option 2: analytical post-WCF excursion distribution
+
+### Motivation
+
+Regime-B as wired in sec.12.21.21.22 returns only a *severity* scalar
+(p_sat -> IMCA traffic band). It does not tell the operator **how
+far** the vessel is expected to drift during the post-WCF transient,
+only **how likely** the residual envelope is to be touched. Option 2
+adds an analytical estimate of the post-WCF excursion distribution
+(P50 / P95 of |eta| over a chosen horizon) so the live panel can
+report a metric distance instead of only a probability.
+
+Design constraints (unchanged from the live-pipeline charter):
+
+* no QTF lookup, no Tp_obs_s, no sea-state knowledge at runtime;
+* inputs are only what live_decision already buffers
+  (``tau_buffer``, ``fs_hz``) plus the same operational polytope
+  used by Regime-B;
+* analytic, closed-form-ish (Rice / Vanmarcke), no MC inside the
+  panel call.
+
+### Machinery (``cqa/cqa/live_regime_b.py`` lines 477+)
+
+Six new primitives + one dataclass, all pure functions:
+
+* ``clipped_gaussian_moments(mu, sigma, cap)`` -- truncated Gaussian
+  moments of the spillover ``dtau = max(0, tau - cap)`` (and
+  symmetric negative tail). Returns ``(mu_dtau, sigma_dtau)``.
+* ``gauss_markov_psd(sigma, tau_corr, omega)`` -- AR(1) PSD using the
+  one-sided rad/s-native convention (``sigma^2 = int_0^inf S(omega)
+  domega`` with NO ``/pi`` factor; pinned convention).
+* ``eta_frequency_response(aug, omega)`` -- builds
+  ``H(jomega) = C (jomega I - A)^-1 B_lost`` for the post-WCF
+  augmented system (closed-loop residual dynamics, lost-thruster
+  input matrix).
+* ``eta_psd_from_dtau(H, S_dtau)`` -- propagates spillover PSD
+  through ``|H|^2``.
+* ``estimate_post_wcf_excursion_distribution(aug, mu, sigma,
+  cap_residual, t_horizon_s)`` -- composes the above, integrates
+  the eta PSD to recover ``sigma_eta`` per DOF, computes the
+  Vanmarcke spectral bandwidth ``q`` and the zero-up-crossing rate
+  ``nu_0+`` (reusing primitives from ``cqa/extreme_value.py`` --
+  ``zero_upcrossing_rate``, ``vanmarcke_bandwidth_q``,
+  ``inverse_rice``, ``inverse_rice_multiband``), then inverts the
+  Rice / Vanmarcke extreme-value distribution to get the P50 / P95
+  of ``|eta|`` over the horizon. Returns
+  ``PostWcfExcursionDistribution``.
+* dataclass ``PostWcfExcursionDistribution`` carries
+  ``mu_dtau``, ``sigma_dtau``, ``mu_eta``, ``sigma_eta``,
+  ``nu_0_plus``, ``q_vanmarcke``, ``eta_p50``, ``eta_p95``,
+  ``eta_xy_p95_with_offset``.
+
+16 unit tests in ``cqa/tests/test_live_regime_b_excursion.py``
+covering analytical limits, Parseval consistency, and 21-state
+RK4 time-domain MC cross-check (15% rtol on sigma_eta and the
+P95). All green. Committed in ``c2a9a8b``.
+
+### Wiring (``cqa/cqa/live_operator_view.py``)
+
+* Added ``wcf_excur_*`` fields to ``LiveOperatorSummary``
+  (mu_dtau, sigma_dtau, sigma_eta, nu_0_plus, q_vanmarcke,
+  eta_p50, eta_p95, R_xy_p95_with_offset). Defaults to ``None``
+  when Regime-B is not invoked or returns insufficient data.
+* Computed inside the existing Regime-B block; reuses the same
+  ``tau_buffer`` / ``fs_hz`` and the same residual cap; no new
+  inputs required from the caller.
+* Does **not** drive ``overall_traffic`` -- it is an
+  instrumentation field only, exactly as discussed before sealing
+  the design. The traffic light remains the IMCA p_sat severity.
+
+4 new integration tests in
+``cqa/tests/test_live_regime_b_integration.py``. Full suite
+411/411 green. Committed in ``cabcd99``.
+
+### Brucon validation: structurally-zero result, and what it means
+
+Extended ``scripts/p7_brucon_validation/roll_up_live_operator_panel.py``
+to capture and report ``wcf_excur_R_xy_p95_m`` alongside the
+existing legacy-axis WCF P95 (Option 2 vs Option 1 head-to-head,
+4th panel in the figure, second printed table). Ran 12 cells x 30
+seeds.
+
+Result: Option 2 returns **~0 m P95** in every cell, including
+0.07 m in the worst cell ``bf8_q10_w45`` where truth P95 is
+7.83 m. Legacy (Option 1) keeps its bias band of -38% to +16%.
+
+**Initial framing temptation: "Option 2 is broken."** The user
+pushed back with the right question: "Didn't we find in an earlier
+session that saturation in post-WCF was not the main driver of
+the large excursions?" Going back to the record:
+
+* sec.12.21.21.20 (pre-WCF -> post-WCF moments table for the
+  worst cell bf8_q10_w45): pre-WCF ``mu_Ty = 515 +- 8``,
+  ``sigma_Ty = 96 +- 14``; post-WCF ``mu_OrderY = 544 +- 69``,
+  ``sigma_OrderY = 101 +- 60``. **No sigma amplification.**
+  Only 3/30 seeds touch the residual cap, and only on rare
+  transient timesteps. Explicitly: "regime-A WCF reallocation
+  transients, not sustained regime-B saturation."
+* sec.12.21.21.21 cross-cell tail-shape: **"the brucon test
+  matrix does not exercise the amber/red regime. Minimum
+  operating headroom pre-WCF is 6.24 sigma."**
+* sec.12.21.21.28b (the prior session's commit): the -38%
+  bf8_q10_w45 gap in legacy WCF was attributed to a sub-grid
+  brucon dynamic (NPO LF tracking, velocity-dependent gain
+  scaling, sat-driven dive over t > 120 s), not sustained
+  saturation.
+
+### Diagnostic confirms inputs are sane
+
+``scripts/p7_brucon_validation/diagnose_option2_bf8_q10_w45_seed1012.py``
+probes the Regime-B and Option-2 internals on the outlier seed
+1012 of bf8_q10_w45:
+
+* mu sway = 491 kN, sigma sway = 80 kN
+* **yaw-priority operational cap sway = 801 kN** (NOT the
+  decoupled residual 1104 kN; conditional on yaw demand) ->
+  (801 - 491) / 80 = **3.9 sigma headroom**
+* p_sat sway = 5.1e-5 -> IMCA green, severity 5.1e-5
+* mu_dtau sway = 9.4e-4 kN (spillover essentially zero)
+* mu_eta sway = 1.5e-7 m, sigma_eta sway = 2.5e-3 m
+* T = 60 s P95 = 6.0 mm; T = 200 s P95 = 7.2 mm
+* xy P95 with offset = **0.006 m**
+
+Option 2 is correctly returning ~0 because, conditional on the
+yaw-priority operational cap (which is **tighter** than the
+decoupled residual), even the worst brucon cell sits at 3.9
+sigma headroom and spillover is negligible. The sub-cm headlines
+across all 12 cells are the **correct answer for that regime**.
+The 7.83 m truth excursion in bf8_q10_w45 is driven by reallocation
+transients + LF/WF noise -- the legacy WCF path's responsibility,
+not Option 2's.
+
+### Conclusion
+
+1. Option 2 works as designed -- 16 unit tests + Parseval / MC.
+2. The brucon test matrix cannot confirm or refute Option 2's
+   operational value because it does not reach the saturation
+   regime (extending sec.21.21's 6.24-sigma decoupled-cap caveat
+   to the yaw-priority conditional cap: 3.9 sigma in the worst
+   cell).
+3. Operational deployment: **surface Option 2 as a separate
+   instrumentation field**; do not gate ``overall_traffic`` on
+   it. Regime-B's p_sat severity already flags the regime where
+   Option 2 becomes informative (the metric distance only matters
+   once the IMCA band leaves green). The wiring chosen in
+   ``cabcd99`` is consistent with this.
+4. Optional follow-up (deferred): construct a synthetic test cell
+   with mu within ~2 sigma of the conditional cap (heavier sea
+   state and/or weaker post-WCF polytope), run Option 2 on it,
+   and demonstrate non-trivial P95 to close the loop on "Option 2
+   works in its named regime even though brucon cannot validate
+   it operationally."
+
+Artefacts:
+
+* ``scripts/p7_brucon_validation/roll_up_live_operator_panel.py``
+  -- extended with Option-2 capture (table 2 + plot panel 4);
+* ``scripts/p7_brucon_validation/diagnose_option2_bf8_q10_w45_seed1012.py``
+  -- new diagnostic, 87 lines.
+
+Next: deferred. The CQA live-panel pipeline now has both Regime-B
+severity (sec.21.22) and Option-2 excursion distribution
+(sec.21.29) wired. Outstanding planning-pipeline items in the
+parent G2 plan are unaffected.

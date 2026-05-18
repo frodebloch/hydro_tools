@@ -247,6 +247,13 @@ def _validate_cell(tag: str) -> dict | None:
             regb_p_sat_sway=(
                 s.regime_b_p_sat[1] if s.regime_b_p_sat is not None else 0.0
             ),
+            # Option-2 (sec.12.21.21.29) analytical post-WCF excursion
+            # P95. Surfaced when Regime-B is present (same gating). 0
+            # otherwise.
+            wcf_excur_p95=(
+                float(s.wcf_excur_R_xy_p95_m)
+                if s.wcf_excur_present else 0.0
+            ),
         ))
     if not rows:
         return None
@@ -260,6 +267,7 @@ def _validate_cell(tag: str) -> dict | None:
     wcf_truth = np.array([r["wcf_peak_truth"] for r in rows])
     regb_sev = np.array([r["regb_severity"] for r in rows])
     regb_psat = np.array([r["regb_p_sat_sway"] for r in rows])
+    excur_p95 = np.array([r["wcf_excur_p95"] for r in rows])
 
     # Apples-to-apples WCF truth: the panel pred is a *distribution*
     # (P50/P95 of the post-WCF radial peak under noise), so the truth
@@ -309,6 +317,25 @@ def _validate_cell(tag: str) -> dict | None:
         regb_n_green=sum(r["regb_traffic"] == "green" for r in rows),
         regb_n_amber=sum(r["regb_traffic"] == "amber" for r in rows),
         regb_n_red=sum(r["regb_traffic"] == "red" for r in rows),
+        # Option-2 (sec.12.21.21.29) ensemble metrics.
+        # NB: excur_p95 is an analytical *predicted* P95 of the post-WCF
+        # |eta_xy| running max; the truth comparator is the same
+        # wcf_truth_p95 (ensemble quantile of single-realisation peaks)
+        # the legacy wcf path uses. Coverage = fraction of seeds with
+        # realised peak <= predicted P95. The fraction of seeds where
+        # the analytical estimator is even *active* (Regime-B present)
+        # is regb_n_amber + regb_n_red; on green cells excur_p95=0 so
+        # we just track the bias on the active subset to avoid
+        # diluting with structurally-zero predictions.
+        wcf_excur_p95_pred_mean_all=float(excur_p95.mean()),
+        wcf_excur_p95_pred_mean_active=(
+            float(excur_p95[excur_p95 > 0].mean()) if np.any(excur_p95 > 0) else 0.0
+        ),
+        wcf_excur_n_active=int(np.sum(excur_p95 > 0)),
+        wcf_excur_p95_bias_pct=(
+            100 * (excur_p95.mean() - wcf_truth_p95) / wcf_truth_p95
+        ),
+        wcf_excur_p95_cov=float(np.mean(wcf_truth <= excur_p95)),
     )
 
 
@@ -352,8 +379,31 @@ def main() -> int:
               f"{m['regb_sev_max']:>8.2e} "
               f"{m['regb_n_green']}/{m['regb_n_amber']}/{m['regb_n_red']:<7}")
 
-    # ---- Plot: intact, WCF, and regime-B severity across cells ----
-    fig, axes = plt.subplots(1, 3, figsize=(20, 5))
+    # ---- Option-2 (sec.12.21.21.29) head-to-head vs legacy wcf P95 ----
+    print()
+    print("Option-2 post-WCF excursion-distribution P95 vs brucon LF peak P95")
+    print("(excur P95 is the analytical estimator from")
+    print(" estimate_post_wcf_excursion_distribution; 0 when Regime-B inactive.)")
+    print("(Comparator: same wcf_truth_p95 the legacy column uses.)\n")
+    hdr2 = (f"{'cell':<14} {'N':>3}   "
+            f"{'wTr.P95':>7} "
+            f"{'lgcy.pr':>7} {'lgcy.bs%':>8} {'lgcy.cov':>8}   "
+            f"{'opt2.pr':>7} {'opt2.bs%':>8} {'opt2.cov':>8}   "
+            f"{'opt2.act':>8} {'opt2.act.pr':>11}")
+    print(hdr2)
+    print("-" * len(hdr2))
+    for m in results:
+        print(f"{m['tag']:<14} {m['n_seeds']:>3}   "
+              f"{m['wcf_truth_p95']:>7.3f} "
+              f"{m['wcf_p95_pred_mean']:>7.3f} "
+              f"{m['wcf_p95_bias_pct']:>+7.0f}% {100*m['wcf_p95_cov']:>7.0f}%   "
+              f"{m['wcf_excur_p95_pred_mean_all']:>7.3f} "
+              f"{m['wcf_excur_p95_bias_pct']:>+7.0f}% {100*m['wcf_excur_p95_cov']:>7.0f}%   "
+              f"{m['wcf_excur_n_active']:>4}/{m['n_seeds']:<3} "
+              f"{m['wcf_excur_p95_pred_mean_active']:>11.3f}")
+
+    # ---- Plot: intact, WCF, regime-B severity, Option-2 head-to-head ----
+    fig, axes = plt.subplots(1, 4, figsize=(26, 5))
     tags = [m["tag"] for m in results]
     x = np.arange(len(tags))
 
@@ -405,6 +455,30 @@ def main() -> int:
     ax.set_title("REGIME-B  -  sustained mean-thrust saturation risk")
     ax.legend(fontsize=8, loc="upper left")
     ax.grid(True, axis="y", which="both", alpha=0.3)
+
+    # Panel 4: Option-2 head-to-head with legacy and truth.
+    ax = axes[3]
+    legacy = np.array([m["wcf_p95_pred_mean"] for m in results])
+    opt2 = np.array([m["wcf_excur_p95_pred_mean_all"] for m in results])
+    truth = np.array([m["wcf_truth_p95"] for m in results])
+    ax.bar(x - 0.25, legacy, width=0.25, color="#1f77b4", alpha=0.8,
+           label="legacy pred P95")
+    ax.bar(x + 0.00, opt2,   width=0.25, color="#9467bd", alpha=0.8,
+           label="Option-2 pred P95")
+    ax.bar(x + 0.25, truth,  width=0.25, color="#444444", alpha=0.8,
+           label="brucon LF peak P95")
+    # Mark cells where Option-2 was inactive across all seeds.
+    inactive_mask = opt2 == 0.0
+    for k in np.where(inactive_mask)[0]:
+        ax.text(x[k] + 0.0, max(legacy[k], truth[k]) * 1.05, "inact",
+                ha="center", fontsize=7, color="#9467bd", rotation=90)
+    ax.set_xticks(x); ax.set_xticklabels(tags, rotation=45, ha="right", fontsize=8)
+    ax.axhline(2.0, color="#ff9900", ls="--", lw=1, label="IMCA amber 2 m")
+    ax.axhline(4.0, color="#d62728", ls="--", lw=1, label="IMCA red 4 m")
+    ax.set_ylabel("post-WCF peak [m]")
+    ax.set_title("Option-2 (sec.21.29) vs legacy WCF P95 vs brucon truth")
+    ax.legend(fontsize=8, loc="upper left")
+    ax.grid(True, axis="y", alpha=0.3)
 
     fig.suptitle("Live operator panel  -  12-cell brucon roll-up", fontsize=12)
     fig.tight_layout()
