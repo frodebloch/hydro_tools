@@ -185,6 +185,8 @@ from .transient import WcfdiScenario
 from .decision_matrix import _imca_traffic, _worst
 from .live_regime_b import (
     estimate_regime_b_severity,
+    estimate_post_wcf_excursion_distribution,
+    PostWcfExcursionDistribution,
     RegimeBSeverity,
     OperationalCapGeometry,
     operational_cap_at,
@@ -403,6 +405,38 @@ class LiveOperatorSummary:
     regime_b_sigma_N_Nm: Optional[np.ndarray] = None   # (3,)
     regime_b_cap_residual_N_Nm: Optional[np.ndarray] = None  # (3,)
     regime_b_traffic: str = "green"
+
+    # ----- Option-2 post-WCF excursion distribution (optional) -----
+    # Present iff Regime-B is present (same gating). Surfaces the
+    # analytical extreme-value headline for the post-WCF |eta|
+    # excursion driven by the saturation-spillover distribution of
+    # the live LF demand process. Complements the deterministic
+    # wcf_R_offset_at_peak_m / wcf_R_p95 above; this is a
+    # statistically rigorous alternative that does NOT need a
+    # forecast weather model. See cqa.live_regime_b
+    # (estimate_post_wcf_excursion_distribution) and analysis.md
+    # sec.12.21.21.29.
+    #
+    # Fields (all per-DOF arrays are (3,) ordered surge/sway/yaw):
+    #
+    #   wcf_excur_mu_eta_m_rad    : deterministic mean offset
+    #                               -A^{-1} B_lost mu_dtau projected to eta.
+    #                               surge/sway in m, yaw in rad.
+    #   wcf_excur_sigma_eta_m_rad : std of the random eta process.
+    #   wcf_excur_eta_p95_m_rad   : 95th percentile of the bilateral
+    #                               running max of |eta - mu_eta|
+    #                               over t_horizon_s, per DOF.
+    #   wcf_excur_eta_p95_with_offset_m_rad : |mu_eta| + eta_p95 per DOF.
+    #   wcf_excur_R_xy_p95_m       : sqrt of quadrature sum of the
+    #                               (surge, sway) p95-with-offset.
+    #                               Operator-facing scalar headline,
+    #                               directly comparable to wcf_R_p95.
+    wcf_excur_present: bool = False
+    wcf_excur_mu_eta_m_rad: Optional[np.ndarray] = None
+    wcf_excur_sigma_eta_m_rad: Optional[np.ndarray] = None
+    wcf_excur_eta_p95_m_rad: Optional[np.ndarray] = None
+    wcf_excur_eta_p95_with_offset_m_rad: Optional[np.ndarray] = None
+    wcf_excur_R_xy_p95_m: float = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -1103,6 +1137,49 @@ def summarise_for_operator_live(
         regime_b_traffic = rb.traffic
         overall = _worst(overall, regime_b_traffic)
 
+        # ---- Option-2 post-WCF excursion distribution ----
+        # sec.12.21.21.29. Reuses (mu, sigma, cap_residual) from the
+        # Regime-B estimator above plus the same 21-state augmented
+        # system the deterministic WCF axis uses, to produce an
+        # analytical P95 of the post-WCF |eta| running maximum over
+        # the t_horizon_s window. Surfaced as the wcf_excur_* fields
+        # for side-by-side comparison with wcf_R_p95; does NOT yet
+        # drive overall_traffic, pending the 12-cell brucon roll-up
+        # validation.
+        try:
+            excur: PostWcfExcursionDistribution = (
+                estimate_post_wcf_excursion_distribution(
+                    aug=aug,
+                    mu=rb.mu,
+                    sigma=rb.sigma,
+                    cap_residual=rb.cap_residual,
+                    t_horizon_s=t_horizon_s,
+                )
+            )
+            wcf_excur_present = True
+            wcf_excur_mu_eta = excur.mu_eta
+            wcf_excur_sigma_eta = excur.sigma_eta
+            wcf_excur_eta_p95 = excur.eta_p95
+            wcf_excur_eta_p95_with_offset = excur.eta_p95_with_offset
+            wcf_excur_R_xy_p95 = excur.eta_xy_p95_with_offset
+        except Exception:
+            # Numerical failure (e.g. singular A on degenerate input)
+            # should not bring down the whole panel; surface zeros and
+            # let the caller diagnose.
+            wcf_excur_present = False
+            wcf_excur_mu_eta = None
+            wcf_excur_sigma_eta = None
+            wcf_excur_eta_p95 = None
+            wcf_excur_eta_p95_with_offset = None
+            wcf_excur_R_xy_p95 = 0.0
+    else:
+        wcf_excur_present = False
+        wcf_excur_mu_eta = None
+        wcf_excur_sigma_eta = None
+        wcf_excur_eta_p95 = None
+        wcf_excur_eta_p95_with_offset = None
+        wcf_excur_R_xy_p95 = 0.0
+
     return LiveOperatorSummary(
         intact_R_p50=intact_p50,
         intact_R_p95=intact_p95,
@@ -1138,6 +1215,12 @@ def summarise_for_operator_live(
         regime_b_sigma_N_Nm=regime_b_sigma,
         regime_b_cap_residual_N_Nm=regime_b_cap,
         regime_b_traffic=regime_b_traffic,
+        wcf_excur_present=wcf_excur_present,
+        wcf_excur_mu_eta_m_rad=wcf_excur_mu_eta,
+        wcf_excur_sigma_eta_m_rad=wcf_excur_sigma_eta,
+        wcf_excur_eta_p95_m_rad=wcf_excur_eta_p95,
+        wcf_excur_eta_p95_with_offset_m_rad=wcf_excur_eta_p95_with_offset,
+        wcf_excur_R_xy_p95_m=wcf_excur_R_xy_p95,
     )
 
 

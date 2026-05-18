@@ -214,3 +214,79 @@ def test_obs_state_invariant_rejects_bad_buffer_shape():
             tau_buffer=np.zeros((10, 2)),  # wrong DOF count
             tau_buffer_fs_hz=1.0,
         )
+
+
+# ---------------------------------------------------------------------------
+# Option-2 post-WCF excursion-distribution wiring (sec.12.21.21.29)
+# ---------------------------------------------------------------------------
+def test_wcf_excursion_absent_when_regime_b_absent():
+    """No tau_buffer / cap -> Option-2 fields are absent / zero."""
+    cfg = _config_with_K(0.0)
+    obs = _make_obs_state(b_hat_kN=(0.0, 0.0, 0.0))
+    sigma = _make_sigma_post()
+    s = summarise_for_operator_live(cfg, obs, sigma)
+    assert s.regime_b_present is False
+    assert s.wcf_excur_present is False
+    assert s.wcf_excur_R_xy_p95_m == 0.0
+    assert s.wcf_excur_mu_eta_m_rad is None
+
+
+def test_wcf_excursion_present_when_regime_b_present():
+    """tau_buffer + cap -> Option-2 fields populated, finite, sane shape."""
+    cfg = _config_with_K(0.0)
+    obs = _obs_with_tau_buffer(mu_Ty_kN=775.0, sigma_Ty_kN=200.0, seed=3)
+    sigma = _make_sigma_post()
+    s = summarise_for_operator_live(
+        cfg, obs, sigma, cap_residual_N_Nm=_CAP_RESIDUAL_N_NM,
+    )
+    assert s.regime_b_present is True
+    assert s.wcf_excur_present is True
+    for arr in (s.wcf_excur_mu_eta_m_rad,
+                s.wcf_excur_sigma_eta_m_rad,
+                s.wcf_excur_eta_p95_m_rad,
+                s.wcf_excur_eta_p95_with_offset_m_rad):
+        assert arr.shape == (3,)
+        assert np.all(np.isfinite(arr))
+    # Magnitudes make sense for an amber-saturated cell.
+    assert s.wcf_excur_sigma_eta_m_rad[1] > 0.0       # sway has variance
+    assert s.wcf_excur_R_xy_p95_m > 0.0               # nontrivial headline
+    assert np.all(s.wcf_excur_eta_p95_with_offset_m_rad
+                  >= s.wcf_excur_eta_p95_m_rad - 1e-12)
+
+
+def test_wcf_excursion_grows_with_saturation_severity():
+    """Worse Regime-B cell -> larger xy-radial P95 excursion headline."""
+    cfg = _config_with_K(0.0)
+    sigma = _make_sigma_post()
+    obs_green = _obs_with_tau_buffer(mu_Ty_kN=400.0, sigma_Ty_kN=80.0, seed=21)
+    obs_red = _obs_with_tau_buffer(mu_Ty_kN=1100.0, sigma_Ty_kN=200.0, seed=21)
+    s_green = summarise_for_operator_live(
+        cfg, obs_green, sigma, cap_residual_N_Nm=_CAP_RESIDUAL_N_NM,
+    )
+    s_red = summarise_for_operator_live(
+        cfg, obs_red, sigma, cap_residual_N_Nm=_CAP_RESIDUAL_N_NM,
+    )
+    # Severity ordering invariant.
+    assert s_red.regime_b_severity > s_green.regime_b_severity
+    # Headline xy excursion P95 should follow.
+    assert s_red.wcf_excur_R_xy_p95_m > s_green.wcf_excur_R_xy_p95_m
+
+
+def test_wcf_excursion_does_not_alter_overall_traffic():
+    """Option-2 outputs are surfaced for validation but must NOT yet
+    drive overall_traffic (gating decision deferred pending 12-cell
+    brucon roll-up)."""
+    cfg = _config_with_K(0.0)
+    obs = _obs_with_tau_buffer(mu_Ty_kN=1100.0, sigma_Ty_kN=200.0, seed=5)
+    sigma = _make_sigma_post()
+    s = summarise_for_operator_live(
+        cfg, obs, sigma, cap_residual_N_Nm=_CAP_RESIDUAL_N_NM,
+    )
+    # Overall must equal worst of intact / wcf / regime_b alone (the
+    # current panel rule pre-Option-2).
+    order = {"green": 0, "amber": 1, "red": 2}
+    expected = max(
+        (s.intact_traffic, s.wcf_traffic, s.regime_b_traffic),
+        key=lambda t: order[t],
+    )
+    assert s.overall_traffic == expected
