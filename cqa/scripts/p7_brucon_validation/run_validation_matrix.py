@@ -74,6 +74,15 @@ BF8 = dict(Vw=20.7, Hs=5.7, Tp=10.0, Vc=0.75)
 # Bf 4 benign sea state for low-variability current-dominated check
 # (DNV-ish standard values, current overridden per-cell):
 BF4 = dict(Vw=7.0, Hs=1.5, Tp=6.0, Vc=0.75)
+# Half-step BF interpolation (sec.12.21.21.30b): linear in Beaufort
+# index between BF6 and BF8 anchors. Per-Bf step is (+3.45 m/s Vw,
+# +1.3 m Hs, +0.75 s Tp). BF7.5 sits halfway between BF7 and BF8;
+# BF8.5 extrapolates the same slope halfway to BF9. Designed to
+# probe the sigma-headroom gradient at the operational boundary --
+# BF8.5 is the most likely cell to land in the Regime-B amber band
+# and give the first real brucon validation point for Option 2.
+BF7P5 = dict(Vw=18.975, Hs=5.05, Tp=9.625,  Vc=0.75)
+BF8P5 = dict(Vw=22.425, Hs=6.35, Tp=10.375, Vc=0.75)
 
 
 def _make_spec(env: dict, theta_rel_deg: float,
@@ -127,6 +136,11 @@ CELLS: dict[str, tuple[float, dict, float, float | None, float | None]] = {
     "bf6_q10_w45": (10.0, BF6, 45.0, None, None),
     "bf8_h0_w45":  (0.0,  BF8, 45.0, None, None),
     "bf8_q10_w45": (10.0, BF8, 45.0, None, None),
+    # Half-step BF (sec.12.21.21.30b): probe the headroom gradient
+    # at the operational boundary. Both cells inherit the worst-
+    # direction-combo geometry (q10_w45) from bf8_q10_w45.
+    "bf7p5_q10_w45": (10.0, BF7P5, 45.0, None, None),
+    "bf8p5_q10_w45": (10.0, BF8P5, 45.0, None, None),
     # Bf 4 + heavy current from vessel+45 deg (low-variability check).
     "bf4_c1_h0":   (0.0,  BF4, 0.0,  _BF4_CURR_COMPASS, _BF4_CURR_SPEED),
     "bf4_c1_q10":  (10.0, BF4, 0.0,  _BF4_CURR_COMPASS, _BF4_CURR_SPEED),

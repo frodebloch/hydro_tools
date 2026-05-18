@@ -144,6 +144,7 @@ CELLS = [
     "bf4_c1_h0", "bf4_c1_q10",
     "bf6_h0",    "bf6_q10",    "bf6_h0_w45", "bf6_q10_w45",
     "bf8_h0",    "bf8_q10",    "bf8_h0_w45", "bf8_q10_w45",
+    "bf7p5_q10_w45", "bf8p5_q10_w45",   # sec.12.21.21.30b half-BF probes
     "pwo",       "pwq30",
 ]
 from _constants import T_WCF_S as T_WCF  # noqa: E402  # active script: refresh sec.12.21.16

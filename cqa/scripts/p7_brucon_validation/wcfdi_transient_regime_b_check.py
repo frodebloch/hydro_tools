@@ -81,6 +81,9 @@ VESSEL_HEADING_COMPASS = 180.0
 BF6 = dict(Vw=13.8, Hs=3.1, Tp=8.5,  Vc=0.75)
 BF8 = dict(Vw=20.7, Hs=5.7, Tp=10.0, Vc=0.75)
 BF4 = dict(Vw=7.0,  Hs=1.5, Tp=6.0,  Vc=0.75)
+# Half-step BF (sec.12.21.21.30b): see run_validation_matrix.py for rationale.
+BF7P5 = dict(Vw=18.975, Hs=5.05, Tp=9.625,  Vc=0.75)
+BF8P5 = dict(Vw=22.425, Hs=6.35, Tp=10.375, Vc=0.75)
 _BF4_CURR_COMPASS = (VESSEL_HEADING_COMPASS + 45.0) % 360.0  # 225
 _BF4_CURR_SPEED = 1.0
 
@@ -96,6 +99,8 @@ CELLS: dict[str, tuple[float, dict, float, float | None, float | None]] = {
     "bf8_h0_w45":  (0.0,  BF8, 45.0, None, None),
     "bf8_q10":     (10.0, BF8, 0.0,  None, None),
     "bf8_q10_w45": (10.0, BF8, 45.0, None, None),
+    "bf7p5_q10_w45": (10.0, BF7P5, 45.0, None, None),
+    "bf8p5_q10_w45": (10.0, BF8P5, 45.0, None, None),
     "pwq30":       (30.0, BF8, 0.0,  None, None),  # waves-only, theta=quartering
 }
 
