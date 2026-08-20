@@ -88,22 +88,34 @@ def main() -> None:
         "constants overlay not active -- got PROP_DIAMETER="
         f"{_c.PROP_DIAMETER}")
 
-    # -- Placeholder ----------------------------------------------------
-    # Once simulation.orchestrator.run_annual_comparison is called here,
-    # it will pick up the Link Galaxy constants transparently because
-    # every ``from models.constants import ...`` in the codebase now
-    # resolves to models.vessel_link_galaxy.
+    # -- Annual sweep ---------------------------------------------------
+    # Delayed imports: everything below transitively depends on
+    # models.constants, which we swapped for the LG overlay above.
     #
-    # from simulation.orchestrator import run_annual_comparison
-    # from reporting.summary import print_summary
-    # results = run_annual_comparison(
-    #     route=ROUTE_LINK_GALAXY_ROUNDTRIP,
-    #     year=args.year,
-    #     speed_kn=args.speed,
-    # )
-    # print_summary(results)
-    #
-    print("\n[skeleton] Overlay active; annual sweep not yet invoked.")
+    # CAVEAT: simulation.orchestrator currently hardcodes the engine via
+    # ``make_man_l27_38()`` (MAN L27/38, the Aas206 engine).  For LG the
+    # right engine is the Wartsila Vasa 32D 16V (4000 kW derated @ 720
+    # RPM).  Until we add an engine factory for it, absolute fuel
+    # numbers will be biased by the SFOC/MCR difference; the
+    # factory-vs-optimiser *ratio* (savings %) is much less sensitive.
+    from simulation.orchestrator import run_annual_comparison  # noqa: E402
+    from reporting.summary import print_summary                # noqa: E402
+
+    results = run_annual_comparison(
+        year=args.year,
+        speed_kn=args.speed,
+        waypoints=ROUTE_LINK_GALAXY_ROUNDTRIP,
+        data_dir=_c.NORA3_DATA_DIR,
+        pdstrip_path=_c.PDSTRIP_DAT,
+        flettner_enabled=False,     # no rotor fitted on LG
+        verbose=not args.quiet,
+        round_trip=False,           # LG route already returns to origin
+    )
+    print_summary(results, args.speed, round_trip=False)
+
+    if args.plot:
+        from plotting.comparison import plot_results        # noqa: E402
+        plot_results(results)
 
 
 if __name__ == "__main__":
