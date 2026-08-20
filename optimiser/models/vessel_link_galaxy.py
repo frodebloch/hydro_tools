@@ -78,9 +78,15 @@ HULL_SPEEDS_KN = np.array([
     10.0, 11.0, 12.0, 12.5, 13.0, 13.5, 14.0, 14.5, 15.0, 15.5,
     16.0, 16.5, 17.0, 17.5, 18.0, 18.5, 19.0, 19.5,
 ])
-# Placeholder: quadratic to the V2597 endpoints (0..608.5 kN).
-# Replace with the tabulated V2597 curve when it lands.
-HULL_RESISTANCE_KN = 608.5 * (HULL_SPEEDS_KN / 19.5) ** 2
+# Holtrop-Mennen (ITTC 1957 viscous + wave-making) evaluated from the
+# real R-section geometry.  See link_galaxy/holtrop_mennen.py; the port
+# reproduces brucon's ``VesselResistance::HoltropCalmWaterResistance``
+# so the Python voyage-optimiser sees the same calm-water curve that
+# the C++ propulsion optimiser would compute internally.  Endpoint
+# 570 kN @ 19.5 kn is ~94% of the V2597 towing-tank value (608.5 kN);
+# replace with the tabulated V2597 curve once it lands.
+from link_galaxy.holtrop_mennen import resistance_table as _hm_table
+HULL_RESISTANCE_KN = _hm_table(HULL_SPEEDS_KN, 137.2, 19.0, 5.0)
 
 HULL_WAKE = np.full_like(HULL_SPEEDS_KN, 0.262)
 HULL_T_DEDUCTION = np.full_like(HULL_SPEEDS_KN, 0.172)
