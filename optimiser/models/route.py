@@ -165,3 +165,87 @@ ROUTE_ROTTERDAM_GOTHENBURG = [
 
 # Return route: Gothenburg -> Rotterdam (reversed waypoints)
 ROUTE_GOTHENBURG_ROTTERDAM = list(reversed(ROUTE_ROTTERDAM_GOTHENBURG))
+
+
+# ============================================================
+# MV Link Galaxy nominal 2-week roundtrip
+# ============================================================
+#
+# Source: modules/config_link_galaxy/operational_profile_4.txt.in
+#   (Marine Traffic verified roundtrip 01-14 Feb 2025).
+# Port coordinates confirmed with operator (2026-08-20):
+#   Husoy   -> Husoy, Karmoy    (59.377 N, 5.264 E)
+#   Lardal  -> Laerdalsoyri     (61.101 N, 7.484 E)
+# Intermediate open-sea waypoints keep the great-circle segments
+# clear of the Norwegian skerries, the Jutland/Skagen peninsula,
+# and the Danish straits. Distances match the schedule's 188 h at
+# 10.0 - 12.5 kn (approx. 2200 nm sailing).
+#
+# NOTE: The Baltic leg (Kobenhavn - Swinoujscie - Lysekil, ~13-14 E)
+# sits at the eastern edge of NORA3 coverage. Verify NORA3 availability
+# for that box before running the annual comparison, or switch to
+# BALTIC-HINDCAST for those legs.
+
+ROUTE_LINK_GALAXY_ROUNDTRIP = [
+    Waypoint(62.673,  8.549, "Sunndalsora"),
+    Waypoint(62.860,  8.560, "Tingvollfjord N"),
+    Waypoint(63.020,  8.100, "Kristiansund E"),
+    Waypoint(63.050,  7.850, "Freifjorden (mouth)"),
+    Waypoint(63.100,  7.500, "Griphavet"),
+    Waypoint(62.600,  6.100, "Off Molde"),
+    Waypoint(62.400,  5.100, "Off Stad (Stadhavet)"),
+    Waypoint(61.900,  4.500, "Off Maloy"),
+    Waypoint(60.900,  4.300, "Off Fedje"),
+    Waypoint(60.200,  4.500, "Off Bergen (Marsteinen)"),
+    Waypoint(59.377,  5.264, "Husoy, Karmoy"),
+
+    Waypoint(58.500,  5.200, "Off Egersund"),
+    Waypoint(57.900,  7.000, "Lindesnes SE"),
+    Waypoint(58.100,  9.500, "Skagerrak central"),
+    Waypoint(58.600, 10.500, "Off Faerder"),
+    Waypoint(59.208, 10.945, "Fredrikstad"),
+
+    Waypoint(58.700, 10.800, "Oslofjord exit"),
+    Waypoint(57.800, 11.500, "Off Vinga"),
+    Waypoint(56.700, 12.500, "Kattegat central"),
+    Waypoint(56.100, 12.700, "Oresund north"),
+    Waypoint(55.700, 12.596, "Kobenhavn"),
+
+    Waypoint(54.800, 13.000, "Off Rugen"),
+    Waypoint(53.911, 14.242, "Swinoujscie"),
+
+    Waypoint(54.800, 13.000, "Off Rugen"),
+    Waypoint(55.700, 12.596, "Kobenhavn (transit)"),
+    Waypoint(56.100, 12.700, "Oresund north"),
+    Waypoint(57.500, 11.500, "Kattegat / Skagen approach"),
+    Waypoint(58.276, 11.435, "Lysekil"),
+
+    Waypoint(58.400, 10.800, "Off Skagerrak central"),
+    Waypoint(58.000,  8.000, "Lindesnes SW"),
+    Waypoint(58.500,  5.500, "Off Egersund"),
+    Waypoint(59.377,  5.264, "Husoy, Karmoy"),
+
+    Waypoint(60.200,  4.500, "Off Bergen"),
+    Waypoint(60.900,  4.300, "Off Fedje"),
+    Waypoint(61.050,  4.700, "Sognesjoen (fjord mouth)"),
+    Waypoint(61.080,  5.400, "Sognefjord W (Lavik)"),
+    Waypoint(61.070,  6.100, "Sognefjord mid (Balestrand)"),
+    Waypoint(61.070,  6.900, "Sognefjord E (Kaupanger)"),
+    Waypoint(61.101,  7.484, "Laerdal"),
+    Waypoint(61.200,  7.500, "Aardalsfjord mouth"),
+    Waypoint(61.238,  7.700, "Ardalstangen"),
+
+    Waypoint(61.200,  7.500, "Aardalsfjord mouth (return)"),
+    Waypoint(61.070,  6.900, "Sognefjord E"),
+    Waypoint(61.070,  6.100, "Sognefjord mid"),
+    Waypoint(61.080,  5.400, "Sognefjord W"),
+    Waypoint(61.050,  4.700, "Sognesjoen (out)"),
+    Waypoint(61.500,  4.500, "Off Sognesjoen N"),
+    Waypoint(62.400,  5.100, "Off Stad"),
+    Waypoint(62.600,  6.100, "Off Molde"),
+    Waypoint(63.100,  7.500, "Griphavet"),
+    Waypoint(63.050,  7.850, "Freifjorden (mouth)"),
+    Waypoint(63.020,  8.100, "Kristiansund E"),
+    Waypoint(62.860,  8.560, "Tingvollfjord N"),
+    Waypoint(62.673,  8.549, "Sunndalsora"),
+]
