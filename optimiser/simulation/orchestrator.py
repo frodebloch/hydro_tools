@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
-from optimiser import make_man_l27_38
+from optimiser import make_man_l27_38  # default; overridden via ENGINE_FACTORY
 from propeller_model import CSeriesPropeller, load_c_series_data
 
 from models.combinator import FactoryCombinator, FixedPitchCombinator
@@ -30,6 +30,13 @@ from models.constants import (
     PROP_DIAMETER,
     RHO_WATER,
 )
+
+# Engine factory is picked from the vessel constants overlay if defined;
+# otherwise fall back to the historical Aas206 default (MAN L27/38).
+try:
+    from models.constants import ENGINE_FACTORY as _ENGINE_FACTORY  # type: ignore[attr-defined]
+except ImportError:
+    _ENGINE_FACTORY = make_man_l27_38
 from models.route import ROUTE_ROTTERDAM_GOTHENBURG
 from models.drift_force import DriftTransferFunction
 from models.flettner import FlettnerRotor
@@ -60,6 +67,8 @@ def run_annual_comparison(
     hull_ks_m: float = 0.0,
     blade_ks_m: float = 0.0,
     fpp_baseline: bool = False,
+    propulsive_efficiency_factor: float = 1.0,
+    engine_margin: float = 0.0,
 ) -> list[VoyageResult]:
     """Run the full annual comparison: one voyage per day.
 
@@ -92,7 +101,7 @@ def run_annual_comparison(
     if sg_freq_min > 0 and sg_freq_max > 0:
         # PTO gear ratio sized so sg_freq_max = engine max RPM
         # Engine RPM band = [max_rpm * freq_min/freq_max, max_rpm]
-        _engine_max = make_man_l27_38().max_rpm()
+        _engine_max = _ENGINE_FACTORY().max_rpm()
         engine_rpm_min_sg = _engine_max * sg_freq_min / sg_freq_max
         engine_rpm_max_sg = float(_engine_max)
 
@@ -123,7 +132,7 @@ def run_annual_comparison(
                             rho=RHO_WATER)
     print(f"  Propeller: D={PROP_DIAMETER}m, P/D={PROP_DESIGN_PITCH}, BAR={PROP_BAR}")
 
-    engine = make_man_l27_38()
+    engine = _ENGINE_FACTORY()
     print(f"  Engine: {engine.name}")
 
     print("\nLoading PdStrip drift transfer function ...")
@@ -161,24 +170,33 @@ def run_annual_comparison(
     # Interpolate relative rotative efficiency for this speed
     eta_R = float(np.interp(speed_kn, HULL_SPEEDS_KN, HULL_ETA_R))
     print(f"\n  Relative rotative efficiency: eta_R = {eta_R:.3f}")
+    if propulsive_efficiency_factor != 1.0:
+        print(f"  Propulsive efficiency factor: {propulsive_efficiency_factor:.3f}")
 
     factory = FactoryCombinator(engine, prop,
                                 sg_allowance_kw=sg_factory_allowance_kw,
                                 sg_load_kw=sg_load_kw,
                                 engine_rpm_min=engine_rpm_min_sg,
                                 engine_rpm_max=engine_rpm_max_sg,
-                                eta_R=eta_R)
+                                eta_R=eta_R,
+                                propulsive_efficiency_factor=propulsive_efficiency_factor)
     if fpp_baseline:
         # Replace the CPP factory combinator with a fixed-pitch propeller
         factory = FixedPitchCombinator(engine, prop,
                                        sg_load_kw=sg_load_kw,
                                        engine_rpm_min=engine_rpm_min_sg,
                                        engine_rpm_max=engine_rpm_max_sg,
-                                       eta_R=eta_R)
+                                       eta_R=eta_R,
+                                       propulsive_efficiency_factor=propulsive_efficiency_factor,
+                                       engine_margin=engine_margin)
         print(f"  FPP baseline: design P/D = {factory.design_pitch:.3f}, "
               f"design speed = {factory.design_speed_kn:.1f} kn")
         print(f"    Design thrust: {factory._design_thrust_kN:.1f} kN, "
               f"shaft power: {factory._design_power_kw:.0f} kW")
+        if engine_margin > 0:
+            mcr_kw = engine.max_power(engine.max_rpm())
+            print(f"    Engine design margin: {engine_margin:.0%} of MCR "
+                  f"({engine_margin * mcr_kw:.0f} kW reserve)")
     else:
         print(f"  Factory combinator: {len(factory._combo_lever)} schedule points")
         if sg_factory_allowance_kw > 0:
@@ -202,7 +220,8 @@ def run_annual_comparison(
                                        auxiliary_power_kw=sg_load_kw,
                                        engine_rpm_min=engine_rpm_min_sg,
                                        engine_rpm_max=engine_rpm_max_sg,
-                                       eta_R=eta_R)
+                                       eta_R=eta_R,
+                                       propulsive_efficiency_factor=propulsive_efficiency_factor)
     factory_cache = build_factory_cache(factory, Va)
 
     # --- Run voyages ---
@@ -224,7 +243,7 @@ def run_annual_comparison(
         batches.append((
             batch_deps, route, data_dir, drift_tf, flettner,
             factory, prop, engine, speed_kn, opt_cache, factory_cache,
-            return_route, hull_ks_m, blade_ks_m,
+            return_route, hull_ks_m, blade_ks_m, propulsive_efficiency_factor,
         ))
 
     results = []
@@ -346,6 +365,8 @@ def run_speed_sweep(
     hull_ks_m: float = 0.0,
     blade_ks_m: float = 0.0,
     fpp_baseline: bool = False,
+    propulsive_efficiency_factor: float = 1.0,
+    engine_margin: float = 0.0,
 ) -> list[SpeedSweepResult]:
     """Run annual comparisons at multiple speeds and return summary per speed.
 
@@ -386,6 +407,8 @@ def run_speed_sweep(
             hull_ks_m=hull_ks_m,
             blade_ks_m=blade_ks_m,
             fpp_baseline=fpp_baseline,
+            propulsive_efficiency_factor=propulsive_efficiency_factor,
+            engine_margin=engine_margin,
         )
 
         if not results:
@@ -419,6 +442,8 @@ def run_scheduling_analysis(
     sg_freq_min: float = 0.0,
     sg_freq_max: float = 0.0,
     fpp_baseline: bool = False,
+    propulsive_efficiency_factor: float = 1.0,
+    engine_margin: float = 0.0,
 ) -> dict[float, list[VoyageResult]]:
     """Run annual comparisons at multiple speeds, return per-speed results.
 
@@ -443,6 +468,8 @@ def run_scheduling_analysis(
             sg_factory_allowance_kw=sg_factory_allowance_kw,
             sg_freq_min=sg_freq_min, sg_freq_max=sg_freq_max,
             fpp_baseline=fpp_baseline,
+            propulsive_efficiency_factor=propulsive_efficiency_factor,
+            engine_margin=engine_margin,
         )
         if results:
             all_results[spd] = results

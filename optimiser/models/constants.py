@@ -146,3 +146,11 @@ BLEND_CY = np.array([
     0.00, 0.12, 0.25, 0.40, 0.54, 0.65, 0.72, 0.74, 0.72, 0.66,
     0.58, 0.48, 0.37, 0.26, 0.16, 0.08, 0.03, 0.00, 0.00
 ])
+
+
+# ============================================================
+# Engine factory (default: Aas206 MAN L27/38)
+# ============================================================
+# The vessel-parameter overlay (e.g. models.vessel_link_galaxy) may
+# override ENGINE_FACTORY with a different factory function.
+from optimiser import make_man_l27_38 as ENGINE_FACTORY  # noqa: E402

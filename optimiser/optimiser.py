@@ -341,6 +341,67 @@ def make_man_l27_38() -> MuzzleDiagramEngine:
     )
 
 
+def make_wartsila_vasa32_16v() -> MuzzleDiagramEngine:
+    """Create engine model for Wartsila Vasa 32D 16V, MV Link Galaxy.
+
+    Port of brucon/modules/config_link_galaxy/
+    propulsion_optimiser_engine_4.prototxt.in.
+
+    Nameplate: 370 kW/cyl x 16 = 5920 kW @ 720 RPM.
+    Derated  : 4000 kW usable (per operator; matches
+               gear_control_parameters_4.max_propeller_load = 4000).
+    Single CP-propeller via ACG1080PF gear (~6.26:1).
+
+    SFOC anchored to Wartsila Vasa 32 Marine Project Guide 2/1997, sec.3.6,
+    "Wartsila Vasa 16V32 D" @ 720 RPM three-point data:
+        100 % load (5920 kW) : 184 g/kWh
+         75 % load (4440 kW) : 188 g/kWh
+         50 % load (2960 kW) : 194 g/kWh
+    (Basis: ISO 3046/l, LCV 42 700 kJ/kg, constant speed, engine-driven
+    pumps, without margins. Tolerance +5 %.)
+
+    Off-design RPM extension uses a mild low-RPM penalty (+1..+3 g/kWh),
+    typical for medium-speed engines with fixed-geometry TC.
+
+    Power limit envelope: constant-torque P(n) = P_MCR * n / n_nom below
+    nominal, matching the Vasa 32 Project Guide sec.1.4 fuel-rack limit.
+    """
+    # Power limit envelope (constant torque, capped at derated 4000 kW).
+    power_limit_rpm = [475, 510, 550, 600, 650, 680, 700, 710, 720]
+    power_limit_kw = [2639, 2833, 3056, 3333, 3611, 3778, 3889, 3944, 4000]
+
+    # Suggested propeller layout curve (through 85 % MCR @ 720 RPM).
+    prop_curve_rpm = [475, 520, 575, 620, 660, 690, 710, 720]
+    prop_curve_kw = [400, 650, 1050, 1550, 2100, 2650, 3100, 3400]
+
+    # SFOC grid [g/kWh], rows = RPM (480..720), cols = power (400..4000).
+    sfoc_rpm = [480, 520, 560, 600, 640, 680, 720]
+    sfoc_power = [400, 800, 1200, 1600, 2000, 2400, 2800, 3200, 3600, 4000]
+    sfoc_table = [
+        [215, 208, 203, 199, 196, 194, 193, 192, 191, 191],   # 480 RPM +3
+        [214, 207, 202, 198, 195, 193, 192, 191, 190, 190],   # 520 RPM +2
+        [214, 207, 202, 198, 195, 193, 192, 191, 190, 190],   # 560 RPM +2
+        [213, 206, 201, 197, 194, 192, 191, 190, 189, 189],   # 600 RPM +1
+        [213, 206, 201, 197, 194, 192, 191, 190, 189, 189],   # 640 RPM +1
+        [212, 205, 200, 196, 193, 191, 190, 189, 188, 188],   # 680 RPM baseline
+        [212, 205, 200, 196, 193, 191, 190, 189, 188, 188],   # 720 RPM baseline
+    ]
+
+    return MuzzleDiagramEngine(
+        name="Wartsila Vasa 32D 16V - Link Galaxy (derated 4000 kW)",
+        max_power_kw=4000.0,
+        max_engine_rpm=720.0,
+        min_engine_rpm=475.0,
+        power_limit_rpm=power_limit_rpm,
+        power_limit_kw=power_limit_kw,
+        prop_curve_rpm=prop_curve_rpm,
+        prop_curve_kw=prop_curve_kw,
+        sfoc_rpm=sfoc_rpm,
+        sfoc_power_kw=sfoc_power,
+        sfoc_table=sfoc_table,
+    )
+
+
 # ============================================================
 # Operating point result
 # ============================================================
@@ -453,6 +514,7 @@ def find_optimal_operating_point(
     pitch_range: Optional[tuple[float, float]] = None,
     pitch_step: float = 0.005,
     eta_R: float = 1.0,
+    propulsive_efficiency_factor: float = 1.0,
 ) -> OperatingPoint:
     """Find the pitch/rpm combination that minimises shaft power.
 
@@ -486,6 +548,8 @@ def find_optimal_operating_point(
     eta_R : float
         Relative rotative efficiency (behind condition), default 1.0.
         Q_behind = Q_open / eta_R, so P_shaft is reduced when eta_R > 1.
+    propulsive_efficiency_factor : float
+        Additional propulsive efficiency multiplier, default 1.0.
 
     Returns
     -------
@@ -508,7 +572,7 @@ def find_optimal_operating_point(
             return None
 
         Q = prop.torque(pitch, n, Va)
-        P = Q * 2.0 * math.pi * n / eta_R  # behind condition
+        P = Q * 2.0 * math.pi * n / eta_R / propulsive_efficiency_factor  # behind condition
 
         if abs(Q) > max_torque:
             return None
@@ -585,6 +649,7 @@ def find_min_fuel_operating_point(
     engine_rpm_min: Optional[float] = None,
     engine_rpm_max: Optional[float] = None,
     eta_R: float = 1.0,
+    propulsive_efficiency_factor: float = 1.0,
 ) -> OperatingPoint:
     """Find the pitch/rpm combination that minimises fuel consumption.
 
@@ -626,6 +691,10 @@ def find_min_fuel_operating_point(
     eta_R : float
         Relative rotative efficiency (behind condition), default 1.0.
         Q_behind = Q_open / eta_R, so P_shaft is reduced when eta_R > 1.
+    propulsive_efficiency_factor : float
+        Additional propulsive efficiency multiplier, default 1.0.
+        P_shaft = Q * 2*pi*n / eta_R / propulsive_efficiency_factor.
+        Use e.g. 1.095 for a contra-rotating propeller (CRP).
 
     Returns
     -------
@@ -655,7 +724,7 @@ def find_min_fuel_operating_point(
         if abs(Q) > max_torque:
             return None
 
-        P_shaft = Q * 2.0 * math.pi * n / eta_R  # W (behind condition)
+        P_shaft = Q * 2.0 * math.pi * n / eta_R / propulsive_efficiency_factor  # W (behind condition)
         P_shaft_kw = P_shaft / 1000.0
 
         P_engine_kw = P_shaft_kw / shaft_efficiency + auxiliary_power_kw

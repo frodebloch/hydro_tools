@@ -115,3 +115,12 @@ HULL_S_WET = 3900.0             # TODO: integrate from geomet.out
 WIND_AREA_FRONTAL_M2 = 460.0
 WIND_AREA_LATERAL_M2 = 2100.0
 VESSEL_LOA_M = HULL_LOA
+
+
+# ============================================================
+# Engine factory override
+# ============================================================
+# simulation.orchestrator uses ENGINE_FACTORY to instantiate the engine.
+# For Link Galaxy this is the Wartsila Vasa 32D 16V (derated 4000 kW),
+# anchored to the Marine Project Guide 2/1997 three-point SFOC data.
+from optimiser import make_wartsila_vasa32_16v as ENGINE_FACTORY  # noqa: E402
