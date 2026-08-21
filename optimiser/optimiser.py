@@ -360,8 +360,10 @@ def make_wartsila_vasa32_16v() -> MuzzleDiagramEngine:
     (Basis: ISO 3046/l, LCV 42 700 kJ/kg, constant speed, engine-driven
     pumps, without margins. Tolerance +5 %.)
 
-    Off-design RPM extension uses a mild low-RPM penalty (+1..+3 g/kWh),
-    typical for medium-speed engines with fixed-geometry TC.
+    Off-rated RPM shape derived from the MAN L27/38 published muzzle
+    (Vessel 206), axes normalised & re-dimensionalised onto the Vasa
+    envelope; Wartsila 3-point anchors preserved exactly at 720 rpm.
+    See hydro_tools/optimiser/link_galaxy/plot_muzzle_scaled.py.
 
     Power limit envelope: constant-torque P(n) = P_MCR * n / n_nom below
     nominal, matching the Vasa 32 Project Guide sec.1.4 fuel-rack limit.
@@ -375,16 +377,17 @@ def make_wartsila_vasa32_16v() -> MuzzleDiagramEngine:
     prop_curve_kw = [400, 650, 1050, 1550, 2100, 2650, 3100, 3400]
 
     # SFOC grid [g/kWh], rows = RPM (480..720), cols = power (400..4000).
+    # Hybrid: Wartsila 720-row quadratic + MAN L27/38 off-rated delta.
     sfoc_rpm = [480, 520, 560, 600, 640, 680, 720]
     sfoc_power = [400, 800, 1200, 1600, 2000, 2400, 2800, 3200, 3600, 4000]
     sfoc_table = [
-        [215, 208, 203, 199, 196, 194, 193, 192, 191, 191],   # 480 RPM +3
-        [214, 207, 202, 198, 195, 193, 192, 191, 190, 190],   # 520 RPM +2
-        [214, 207, 202, 198, 195, 193, 192, 191, 190, 190],   # 560 RPM +2
-        [213, 206, 201, 197, 194, 192, 191, 190, 189, 189],   # 600 RPM +1
-        [213, 206, 201, 197, 194, 192, 191, 190, 189, 189],   # 640 RPM +1
-        [212, 205, 200, 196, 193, 191, 190, 189, 188, 188],   # 680 RPM baseline
-        [212, 205, 200, 196, 193, 191, 190, 189, 188, 188],   # 720 RPM baseline
+        [207.1, 205.3, 202.7, 200.3, 198.9, 196.8, 194.8, 192.9, 192.0, 190.6],  # 480 RPM
+        [205.8, 204.0, 201.4, 198.9, 197.5, 195.4, 193.4, 191.5, 189.8, 188.2],  # 520 RPM
+        [205.1, 202.7, 200.7, 197.6, 196.2, 194.1, 192.1, 190.2, 188.5, 186.9],  # 560 RPM
+        [205.1, 202.3, 200.7, 197.3, 195.9, 193.8, 191.8, 189.9, 188.1, 186.6],  # 600 RPM
+        [206.4, 203.7, 201.1, 198.6, 196.3, 194.1, 192.7, 190.3, 189.1, 187.0],  # 640 RPM
+        [207.8, 205.0, 202.4, 199.9, 197.6, 195.4, 193.4, 191.5, 189.8, 188.2],  # 680 RPM
+        [209.1, 206.3, 203.7, 201.3, 198.9, 196.8, 194.8, 192.9, 191.1, 189.6],  # 720 RPM (Wartsila quad)
     ]
 
     return MuzzleDiagramEngine(

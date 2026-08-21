@@ -70,6 +70,12 @@ def main() -> None:
                    help="Nominal transit speed [kn] (default: 12.5).")
     p.add_argument("--plot", action="store_true")
     p.add_argument("--quiet", action="store_true")
+    p.add_argument("--as-commissioned", metavar="PATH", default=None,
+                   help="Use operator combinator table from a brucon "
+                        "gear_control_tables_4.prototxt.in as baseline "
+                        "(instead of synthesised design combinator).")
+    p.add_argument("--as-commissioned-block", default="harbor",
+                   help="Block name inside the prototxt (default: harbor).")
     args = p.parse_args()
 
     print("Link Galaxy annual voyage comparison")
@@ -110,6 +116,8 @@ def main() -> None:
         flettner_enabled=False,     # no rotor fitted on LG
         verbose=not args.quiet,
         round_trip=False,           # LG route already returns to origin
+        as_commissioned_prototxt=args.as_commissioned,
+        as_commissioned_block=args.as_commissioned_block,
     )
     print_summary(results, args.speed, round_trip=False)
 

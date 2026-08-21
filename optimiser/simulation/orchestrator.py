@@ -67,6 +67,8 @@ def run_annual_comparison(
     hull_ks_m: float = 0.0,
     blade_ks_m: float = 0.0,
     fpp_baseline: bool = False,
+    as_commissioned_prototxt: str | None = None,
+    as_commissioned_block: str = "harbor",
     propulsive_efficiency_factor: float = 1.0,
     engine_margin: float = 0.0,
 ) -> list[VoyageResult]:
@@ -180,6 +182,24 @@ def run_annual_comparison(
                                 engine_rpm_max=engine_rpm_max_sg,
                                 eta_R=eta_R,
                                 propulsive_efficiency_factor=propulsive_efficiency_factor)
+    if as_commissioned_prototxt:
+        # Replace the synthesised factory schedule with the as-commissioned
+        # operator combinator loaded from a brucon prototxt table.
+        from models.combinator_ascommissioned import AsCommissionedCombinator
+        factory = AsCommissionedCombinator(
+            engine, prop,
+            prototxt_path=as_commissioned_prototxt,
+            block=as_commissioned_block,
+            sg_allowance_kw=sg_factory_allowance_kw,
+            sg_load_kw=sg_load_kw,
+            engine_rpm_min=engine_rpm_min_sg,
+            engine_rpm_max=engine_rpm_max_sg,
+            eta_R=eta_R,
+            propulsive_efficiency_factor=propulsive_efficiency_factor)
+        print(f"  As-commissioned combinator: {as_commissioned_prototxt}")
+        print(f"    Block: '{as_commissioned_block}', {len(factory._combo_lever)} lever points")
+        print(f"    RPM range: {factory._combo_rpm[0]:.1f} - {factory._combo_rpm[-1]:.1f} shaft")
+        print(f"    Pitch range: {factory._combo_pitch[0]:.3f} - {factory._combo_pitch[-1]:.3f}")
     if fpp_baseline:
         # Replace the CPP factory combinator with a fixed-pitch propeller
         factory = FixedPitchCombinator(engine, prop,
