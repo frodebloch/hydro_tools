@@ -1,0 +1,44 @@
+* Introduction
+- Limitations of current CQA. Static, no motion, transients at WCF
+- Describe rules. IMO, DNV, ABS
+
+* Goal
+- Motion based
+- Both before operation and during operation
+- Want to use readily available measurements. Don't want to bring in
+  advanced vessel models in the live CQA
+
+* Motion based capability analysis
+- Discuss the need in certain operations to know the motion of the
+  vessel. Both the LF DP motion and the full motion of industrial
+  mission equipment such as walk to work gangways
+- Describe short the improvement and availability of high quality
+  weather forecasts
+- Describe how the motion envelope for selected exceedence thresholds
+  are calculated. Assumptions and method
+- Show examples
+
+* CQA
+- Not replacing the standard CQA but extending by taking motion and
+  transients into account
+- Describe the extreme value method for establishing the exceedence
+  envelopes.
+- Motion after WCF
+- Transient right after WCF
+- Results and discussions. Especially about the case where the long
+  term motions after WCF are larger than the short term transient.
+
+* Simulation studies
+- Take it from capability analysis through motion in intact and to
+  transient and post WCF motion
+- A few examples
+
+* Real world case
+- I will get logs for a PSV
+- Only for the capability part. Do a motion capability based on
+  weather forecasts (assume we can download old forecasts?). Then
+  verify against motion capability (intact only).
+- Compare forecasts against hindcast data. Compare model results.
+
+* Wrap-up / Conclusion  
+  

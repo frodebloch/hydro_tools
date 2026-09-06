@@ -1,0 +1,157 @@
+% Package loading
+% ---------------
+\ProvidesPackage{mts}%
+
+% geometry: control margins
+\usepackage{geometry}
+% graphicx: graphic inclusion and manipulation capabilities, extended 
+\usepackage{graphicx}
+% array: extra tabular features
+\usepackage{array}
+% multirow: span rows in tabular
+\usepackage{multirow}
+% lastpage: access to final page value for 'n of m' page numbering
+%           - MUST COMPILE TWICE (at least) -
+\usepackage{lastpage}
+% booktabs: clean tables with minimal rules
+\usepackage{booktabs}
+% float: functionality to tether floats 
+\usepackage{float}
+% xcolor: extended color capability
+% \usepackage{xcolor}
+% hyperref: enhancements for the power of linking
+\usepackage{hyperref}
+
+% create symbols
+\usepackage{gensymb}
+% Space between sections instead of indent.
+\usepackage[parfill]{parskip}
+
+\usepackage[table,dvipsnames]{xcolor}
+\usepackage{tabularx}
+
+% Box for warnings
+\usepackage{tcolorbox}
+
+\usepackage{glossaries}
+
+\usepackage{txfonts}
+% Fonts to Helvetica (the better Arial)
+\renewcommand{\familydefault}{\sfdefault}
+\renewcommand{\sfdefault}{phv}
+\usepackage{newtxtext,newtxmath}
+
+%\usepackage{fontspec}
+\usepackage{titlesec}
+\titleformat{\chapter}[display]{\normalfont\sffamily\huge\color{black}}{\chaptertitlename\thechapter}{12pt}{\Huge}
+\titleformat{\section} {\normalfont\sffamily\Large\color{black}}{\thesection}{1em}{}
+\titleformat{\subsection} {\normalfont\sffamily\large\color{black}}{\thesection}{1em}{}
+\definecolor{bvblue}{RGB}{0,73,144}
+
+% * Page layout
+% ** Allow for 3 lines in the header (must come *before* \geometry{})
+\setlength{\headheight}{3\baselineskip}
+% ** Margins
+\geometry{left=25.4mm, textwidth=165.1mm, top=25.4mm, bottom=25.4mm}
+% ** Header and footer setup
+% *** Define new page styles with boxed header and footer
+\newcommand{\ps@mtsBanners}{%
+  % New heading style
+  \renewcommand{\@oddhead}{%
+    \begin{minipage}[c]{\textwidth}
+      \setlength{\extrarowheight}{1.5pt}
+      \begin{tabular}{%
+          m{60mm}@{}%
+          @{}>{\centering}p{45.1mm}@{}%
+          @{}>{\centering}p{60mm}%
+        }
+        \sffamily\small\mtsAuthor{}
+        & \sffamily\small\mtsType{}
+        & \sffamily\small\mtsTitle{}
+        \tabularnewline
+          \hline
+      \end{tabular}
+    \end{minipage}
+  }% End \@oddhead
+  % New footer style
+  \renewcommand{\@oddfoot}{%
+    \begin{minipage}{\textwidth}
+      \vspace{0.2cm}
+      \setlength{\extrarowheight}{0.5pt}
+     \begin{tabular}{  p{6.0cm}  p{8.1cm}  p{1.0cm}}%
+        \hline%
+        \sffamily\small{MTS DP Conference - Houston} & \sffamily\small{October 13-14, 2026} & \sffamily\small{Page \thepage\ } \\
+        % of \pageref{LastPage} \\
+      \end{tabular}
+    \end{minipage}
+  }% End \@oddfoot
+  \renewcommand{\@evenhead}{\@oddhead}
+  \renewcommand{\@evenfoot}{\@oddfoot} } \pagestyle{mtsBanners}
+
+% Logo insertion command
+\newcommand*{\mtsLogo}[1][]{%
+  \includegraphics[#1]{images/mts}
+}
+
+% Title page
+\newenvironment{mtsTitlepage}{\mbox{}\hfill
+}{}
+\newcommand{\mtsMainTitlePage}[1][]{%
+\thispagestyle{empty}
+\begin{mtsTitlepage}
+  \begin{center}
+    \mtsLogo[width=120mm]%
+    \medskip
+    \\\sffamily\small\textbf{DYNAMIC POSITIONING CONFERENCE}
+    \\\sffamily\small\textbf{October 13-14, 2026}
+  \end{center}
+  \begin{minipage}{150mm}
+    \medskip
+    \medskip
+    \medskip
+    \medskip
+      \begin{center}
+        {\color{Blue}\sffamily\large\bfseries\mtsType}%
+        \\[\baselineskip]%
+        \rule{90mm}{0.3mm}%
+        \medskip
+        \\{\sffamily\textbf{\color{Blue}\Large\bfseries\mtsTitle}}%
+        \\[\baselineskip]%
+        \\\color{Blue}{ \sffamily\large\bfseries{By \mtsAuthor}}%
+        \\[\baselineskip]%
+        \\\color{Blue}{\sffamily\large\bfseries{\mtsCompany}}%
+        \\\color{Black}\rule{90mm}{0.3mm}%
+        \\%
+        \vfill%
+        \mbox{}%    
+      \end{center}%
+    \end{minipage}
+    \cleardoublepage
+  \end{mtsTitlepage}
+  %\setcounter{page}{1}
+}
+
+% Figure and table references
+% \renewcommand{\thefigure}{\thesection-\arabic{figure}}
+% \renewcommand{\thetable}{\thesection-\arabic{table}}
+% \@addtoreset{figure}{section}
+% \@addtoreset{table}{section}
+
+% hyperref setup
+\definecolor{mtsLinkColor}{rgb}{0, 0, 0} % black
+\hypersetup{%
+  extension   = pdf,
+  pagebackref = true,
+  linktocpage = false,
+  raiselinks  = true,
+  breaklinks  = true,
+  colorlinks  = true,
+  linkcolor   = blue,
+  citecolor   = blue,
+  pagecolor   = mtsLinkColor,
+  filecolor   = mtsLinkColor,
+  urlcolor    = mtsLinkColor,
+  anchorcolor = mtsLinkColor,
+  pdftitle    = {\mtsTitle{}},
+  pdfauthor   = {\mtsAuthor{}}
+}

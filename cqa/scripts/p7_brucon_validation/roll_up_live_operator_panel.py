@@ -403,40 +403,53 @@ def main() -> int:
               f"{m['wcf_excur_n_active']:>4}/{m['n_seeds']:<3} "
               f"{m['wcf_excur_p95_pred_mean_active']:>11.3f}")
 
-    # ---- Plot: intact, WCF, regime-B severity, Option-2 head-to-head ----
-    fig, axes = plt.subplots(1, 4, figsize=(26, 5))
+    # ---- Plot 1: motion accuracy (intact + WCF axes) ----
     tags = [m["tag"] for m in results]
     x = np.arange(len(tags))
 
-    ax = axes[0]
+    fig1, axes1 = plt.subplots(1, 2, figsize=(14, 5))
+
+    ax = axes1[0]
     ax.bar(x - 0.20, [m["intact_p95_pred_mean"] for m in results],
            width=0.4, color="#1f77b4", alpha=0.8, label="pred P95")
     ax.bar(x + 0.20, [m["intact_p95_truth_mean"] for m in results],
-           width=0.4, color="#444444", alpha=0.8, label="brucon P95")
+           width=0.4, color="#444444", alpha=0.8, label="simulator P95")
     ax.set_xticks(x); ax.set_xticklabels(tags, rotation=45, ha="right", fontsize=8)
     ax.axhline(2.0, color="#ff9900", ls="--", lw=1, label="IMCA amber 2 m")
     ax.axhline(4.0, color="#d62728", ls="--", lw=1, label="IMCA red 4 m")
     ax.set_ylabel("intact P95 of |R_LF| [m]")
-    ax.set_title("INTACT axis  -  pred vs brucon LF P95 across cells")
+    ax.set_title("INTACT axis  -  pred vs simulator LF P95 across cells")
     ax.legend(fontsize=8, loc="upper left")
     ax.grid(True, axis="y", alpha=0.3)
 
-    ax = axes[1]
+    ax = axes1[1]
     ax.bar(x - 0.20, [m["wcf_p95_pred_mean"] for m in results],
            width=0.4, color="#1f77b4", alpha=0.8, label="pred P95 (mean)")
     ax.bar(x + 0.20, [m["wcf_truth_p95"] for m in results],
-           width=0.4, color="#444444", alpha=0.8, label="brucon LF peak P95")
+           width=0.4, color="#444444", alpha=0.8, label="simulator LF peak P95")
     ax.plot(x, [m["wcf_truth_mean"] for m in results], "o",
-            color="#888888", label="brucon LF peak mean")
+            color="#888888", label="simulator LF peak mean")
     ax.set_xticks(x); ax.set_xticklabels(tags, rotation=45, ha="right", fontsize=8)
     ax.axhline(2.0, color="#ff9900", ls="--", lw=1, label="IMCA amber 2 m")
     ax.axhline(4.0, color="#d62728", ls="--", lw=1, label="IMCA red 4 m")
     ax.set_ylabel("WCF post-fault peak [m]")
-    ax.set_title("WCF axis  -  pred vs brucon LF peak across cells")
+    ax.set_title("WCF axis  -  pred vs simulator LF peak across cells")
     ax.legend(fontsize=8, loc="upper left")
     ax.grid(True, axis="y", alpha=0.3)
 
-    ax = axes[2]
+    fig1.suptitle(
+        f"Live operator panel  -  motion accuracy, {len(CELLS)}-cell "
+        "simulator roll-up", fontsize=12)
+    fig1.tight_layout()
+    out1 = THIS / "roll_up_live_operator_panel_motion.png"
+    fig1.savefig(out1, dpi=140)
+    plt.close(fig1)
+    print(f"\nSaved: {out1}")
+
+    # ---- Plot 2: saturation channel + analytical refinement ----
+    fig2, axes2 = plt.subplots(1, 2, figsize=(14, 5))
+
+    ax = axes2[0]
     sev_mean = np.array([m["regb_sev_mean"] for m in results])
     sev_p90 = np.array([m["regb_sev_p90"] for m in results])
     sev_max = np.array([m["regb_sev_max"] for m in results])
@@ -452,23 +465,22 @@ def main() -> int:
     ax.set_xticks(x); ax.set_xticklabels(tags, rotation=45, ha="right", fontsize=8)
     ax.axhline(0.01, color="#ff9900", ls="--", lw=1, label="IMCA amber 0.01")
     ax.axhline(0.10, color="#d62728", ls="--", lw=1, label="IMCA red 0.10")
-    ax.set_ylabel("regime-B severity = max p_sat (residual polytope)")
-    ax.set_title("REGIME-B  -  sustained mean-thrust saturation risk")
+    ax.set_ylabel("saturation probability  p_sat (residual capability)")
+    ax.set_title("SATURATION  -  sustained mean-thrust saturation risk")
     ax.legend(fontsize=8, loc="upper left")
     ax.grid(True, axis="y", which="both", alpha=0.3)
 
-    # Panel 4: Option-2 head-to-head with legacy and truth.
-    ax = axes[3]
+    ax = axes2[1]
     legacy = np.array([m["wcf_p95_pred_mean"] for m in results])
     opt2 = np.array([m["wcf_excur_p95_pred_mean_all"] for m in results])
     truth = np.array([m["wcf_truth_p95"] for m in results])
     ax.bar(x - 0.25, legacy, width=0.25, color="#1f77b4", alpha=0.8,
-           label="legacy pred P95")
+           label="ensemble pred P95")
     ax.bar(x + 0.00, opt2,   width=0.25, color="#9467bd", alpha=0.8,
-           label="Option-2 pred P95")
+           label="with saturation-excursion term")
     ax.bar(x + 0.25, truth,  width=0.25, color="#444444", alpha=0.8,
-           label="brucon LF peak P95")
-    # Mark cells where Option-2 was inactive across all seeds.
+           label="simulator LF peak P95")
+    # Mark cells where the refinement was inactive across all seeds.
     inactive_mask = opt2 == 0.0
     for k in np.where(inactive_mask)[0]:
         ax.text(x[k] + 0.0, max(legacy[k], truth[k]) * 1.05, "inact",
@@ -477,16 +489,18 @@ def main() -> int:
     ax.axhline(2.0, color="#ff9900", ls="--", lw=1, label="IMCA amber 2 m")
     ax.axhline(4.0, color="#d62728", ls="--", lw=1, label="IMCA red 4 m")
     ax.set_ylabel("post-WCF peak [m]")
-    ax.set_title("Option-2 (sec.21.29) vs legacy WCF P95 vs brucon truth")
+    ax.set_title("Analytical saturation-excursion refinement vs simulator truth")
     ax.legend(fontsize=8, loc="upper left")
     ax.grid(True, axis="y", alpha=0.3)
 
-    fig.suptitle("Live operator panel  -  12-cell brucon roll-up", fontsize=12)
-    fig.tight_layout()
-    out = THIS / "roll_up_live_operator_panel.png"
-    fig.savefig(out, dpi=140)
-    plt.close(fig)
-    print(f"\nSaved: {out}")
+    fig2.suptitle(
+        f"Live operator panel  -  saturation channel, {len(CELLS)}-cell "
+        "simulator roll-up", fontsize=12)
+    fig2.tight_layout()
+    out2 = THIS / "roll_up_live_operator_panel_saturation.png"
+    fig2.savefig(out2, dpi=140)
+    plt.close(fig2)
+    print(f"Saved: {out2}")
     return 0
 
 

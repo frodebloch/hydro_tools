@@ -1,0 +1,1228 @@
+#+OPTIONS: toc:nil
+#+OPTIONS: num:nil
+#+CITE_EXPORT: natbib
+#+BIBLIOGRAPHY: references.bib
+
+#+LATEX_HEADER: \usepackage{csvsimple}
+#+LATEX_HEADER: \usepackage[numbers,sort&compress]{natbib}
+#+LATEX_HEADER: \newcommand*{\mtsDate}{\today}
+#+LATEX_HEADER: \newcommand*{\mts}{\today}
+#+LATEX_HEADER: \newcommand*{\mtsType}{Predictability through Technology}
+#+LATEX_HEADER: \newcommand*{\mtsTitle}{Motion-Based Consequence Analysis: From Pre-Operation Risk Assessment to Live Operational Monitoring}
+#+LATEX_HEADER: \newcommand*{\mtsAuthor}{Frode Bloch}
+#+LATEX_HEADER: \newcommand*{\mtsCompany}{Brunvoll AS}
+#+LATEX_HEADER: \usepackage{mts}
+#+LATEX_HEADER: \interfootnotelinepenalty=10000
+#+LATEX_HEADER: \title{Motion-Based Consequence Analysis}
+#+LATEX_CLASS: article
+#+LaTeX_CLASS_OPTIONS: [letterpaper,11pt]
+#+LATEX_HEADER: \usepackage[T1]{fontenc}
+#+LATEX_HEADER: \usepackage{mathptmx}
+#+LATEX: \mtsMainTitlePage
+
+* Abstract
+
+Current DP rules and guidance specify capability analysis in detail
+but treat consequence analysis (CQA) as little more than a periodic
+alarm. The prevailing requirement — recompute every five minutes,
+raise a flag only once a limit is breached — leaves the operator with
+no continuous indication of the probability of exceeding operational
+limits, in the intact condition or following a worst-case failure
+(WCF), and no view of the motion consequences of such a failure
+before it happens. The risk that CQA is meant to manage is inherently
+dynamic; the rules treat it as static.
+
+This work develops a motion-based CQA framework that closes that gap
+end-to-end. A pre-operation risk assessment extends the conventional
+capability analysis with an estimate of vessel response and post-WCF
+excursion from the planned sea state, allowing the worst-case failure
+design intent (WCFDI) to be evaluated in motion terms. The same model
+is reformulated for online execution, producing a continuously
+updated CQA panel that estimates intact and post-WCF station-keeping
+footprint directly from live measurements and the DP model, without a
+runtime sea-state input. The panel is further extended to
+motion-sensitive mission equipment such as walk-to-work gangways.
+
+Validation against a nonlinear DP simulator is complete; validation
+against logged operations is in progress.
+
+* Abbreviations and Definitions
+
+- *CA* :: Consequence Analysis: the DP-rules-mandated periodic
+  computation that flags whether the vessel can maintain position
+  after a worst-case failure.
+- *CQA* :: Consequence Quality Analysis: the extension of CA that
+  quantifies the *probability of exceeding operational limits*, in
+  both intact and post-WCF conditions, continuously and in motion
+  terms.
+- *WCF* :: Worst-Case Failure: the failure event (typically loss of a
+  thruster group or bus section) against which CA is evaluated.
+- *WCFDI* :: Worst-Case Failure Design Intent: the specific failure
+  configuration the capability and consequence analyses are evaluated
+  against; the vessel is designed to survive this.
+- *DP model* :: Industry term for the observer/Kalman estimator
+  carried by the DP controller (position, velocity, bias states).
+- *Capability analysis* :: The classical pre-operation deliverable
+  computing the achievable envelope of environmental force the vessel
+  can hold against.
+- *WCFDI decision matrix* :: A traffic-light forecast of intact and
+  post-WCFDI operability as a function of (vessel heading, forecast
+  time), delivered before the operation starts.
+- *IMCA M254* :: The IMCA guidance on DP operations that specifies
+  station-keeping footprint alarm limits.
+- *DP-2 / DP-3* :: IMO equipment classes for DP redundancy: DP-2
+  requires WCF survival, DP-3 requires physical separation between
+  redundant systems.
+
+* Introduction
+
+Consequence analysis (CA) has been part of the DP requirements
+since the IMO issued MSC/Circ.645 in 1994 [cite:@imo_msc645] and
+has since been carried into the class rules
+[cite:@dnv_ru_ship;@abs_dps] as a mandatory software function on
+DP-2 and DP-3 vessels. Its purpose is straightforward: given the
+worst-case failure (WCF) the vessel is designed against, verify
+continuously that the DP system as a whole — sensors, thrusters,
+power, and control — can withstand the average prevailing
+environmental forces after the failure. If it cannot, an alarm is
+raised.
+
+That obligation is met today by a periodic force-and-moment reserve
+check with alarm-on-breach. The check is defensible: applied with a
+percentage capacity margin it keeps the operator comfortably inside
+a safe envelope for the majority of operations. What it does not
+report is *motion*. The CA does not indicate how the vessel will
+move in the intact condition, how it will move during and after a
+WCF, or how mission-sensitive equipment such as walk-to-work
+gangways, heave-compensated cranes, and ROV LARS will move with it.
+It does not quantify the probability of exceeding operational limits
+before those limits are breached. Modern DP operations increasingly
+run at sea states where the motion of the vessel or its mission
+equipment sits close to operational limits well inside the
+capacity-safe envelope, and the operator has no continuous, graded
+indication of proximity to those limits.
+
+This paper proposes a *motion-based consequence quality analysis*
+(CQA) framework that closes that gap by adding a layer on top of
+the current CA implementation, in two coupled deliverables: a
+*pre-operation risk assessment*, evaluating the worst-case failure
+design intent (WCFDI) in motion terms from the forecast sea state;
+and a *live CQA panel*, producing continuously updated \(P_{50}\) /
+\(P_{95}\) motion-footprint envelopes for intact and post-WCF
+conditions from measurements every DP-2/DP-3 vessel already
+publishes. The framework is additive: the current CA continues to
+run and continues to raise its Drift Off / Force Off alarms; the
+motion layer adds one new operator alert, *Large Transient*, that
+fires when the motion prediction itself should be read as a lower
+bound rather than an upper bound. With the motion layer in place
+the operator can work closer to the operational limit in a
+controlled way, seeing proximity to the limit rather than waiting
+for a breach.
+
+The remainder of the paper is organised as follows. Section 2
+states the design goals of the framework. Section 3 develops the
+pre-operation motion capability analysis. Section 4 develops the
+live CQA panel and the two-channel design. Section 5 presents
+simulator-based validation on a CSOV benchmark vessel. Section 6
+reports the in-progress validation against real operational logs.
+Section 7 concludes.
+
+* Goal
+
+The motion-based CQA framework is designed to two operational goals.
+Both are stated from the perspective of the operator planning and
+running an offshore operation — for example a walk-to-work personnel
+transfer or a heave-compensated construction lift — where the
+station-keeping capacity is comfortable but the *motion* of vessel
+and mission equipment may sit close to the operational limits.
+
+1. *Verify motion limits before the operation.* Before committing to
+   the operation, the operator can evaluate whether the planned
+   vessel and mission-equipment motion — both in the intact condition
+   and following the worst-case failure (WCF) — will stay inside the
+   operational limits at the planned sea state, heading, and
+   operating window. The classical capability analysis already
+   verifies that the DP system has the capacity to hold; the
+   motion-based pre-operation risk assessment answers the next
+   question, whether the resulting motion is inside the limits that
+   actually constrain the operation.
+
+2. *Maintain continuous awareness of the safety margin towards those
+   motion limits during the operation.* Once the operation is in
+   progress, the operator continuously sees how close the vessel and
+   mission-equipment motion sits to the operational limits, both in
+   the intact condition and in the post-WCF condition. Rather than
+   the binary alarm-on-breach of the classical CA, the operator reads
+   a continuously updated margin: comfortable, closer, at the limit.
+   The awareness covers the post-WCF condition explicitly, so the
+   operator sees whether the operation is inside the survivable
+   motion envelope, not only inside the capacity envelope.
+
+Four design principles support these two goals and are worth stating
+briefly up front so the methodology sections that follow can be read
+against them. First, *motion-based throughout*: pre-operation and
+live outputs are stated in vessel and mission-equipment motion, in
+the same units and thresholds the operator already reads on the DP
+console. Second, *one model in two regimes*: the same underlying
+motion model serves the pre-operation stage (fed by the forecast sea
+state) and the live stage (fed by live measurements and the DP
+model), so that the operator sees the same numbers before and during
+the operation. Third, *readily available measurements only, online*:
+the live layer consumes only signals every DP-2/DP-3 vessel already
+publishes, plus vessel-constant parameters — no runtime seakeeping
+model, no runtime spectral partition, no runtime wave forecast — so
+that the design stays defensible under mixed wind-sea and swell,
+cross-current forcing, and near-installation shielding. Fourth,
+*additive to the classical framework*: the motion layer sits on top
+of the classical capability + CA computation and consumes its
+outputs, without replacing or contesting any rule-mandated
+behaviour; the classical Drift Off and Force Off alarms remain the
+primary hard-failure signals.
+
+* Motion-Based Capability Analysis
+
+** Why motion matters in modern DP operations
+
+Consider a walk-to-work operation transferring personnel to a wind
+turbine. The gangway operator has a firm limit on tip motion — a few
+tenths of a metre — beyond which the transfer is stopped. In many
+sea states the vessel itself is comfortable: the DP capacity margin
+against wind, wave, and current is generous, and the classical CA
+reports green. Yet the transfer stops, because the *motion* projected
+through the gangway lever arms exceeds the tip limit long before the
+vessel exceeds its station-keeping limits. The same picture recurs
+in heave-compensated construction, ROV LARS operations, and offshore
+crane work: the operational limit is a motion limit on
+mission-sensitive equipment, and it sits inside the capacity-safe
+envelope reported by the classical CA. Even for the vessel itself,
+the IMCA M254 [cite:@imca_m254] station-keeping alarm concept is
+inherently a motion concept: the yellow (P90) and red (P95) footprint
+bands are quantiles of the LF motion process, not a percentage of
+capacity reserve. A motion-based pre-operation risk assessment
+produces exactly these quantiles for the vessel and, through the
+same shared kinematic model, for any point on the mission equipment
+that the operator cares about.
+
+** High-quality weather forecasts as an enabler
+
+The motion-based pre-operation risk assessment is only defensible
+because the meteorological input is now good enough. Modern global
+ensemble products such as the ECMWF Integrated Forecasting System
+[cite:@ecmwf_ifs] deliver directional wave spectra with useful skill at
+24 to 72 hours horizon for the wind-sea component, together with a
+probabilistic view from the ensemble spread. Regional hindcast
+reanalyses such as NORA3 [cite:@nora3] provide a directional spectrum
+climatology at 3 km resolution for the North Sea and Norwegian Sea
+that has been extensively validated against buoy measurements and is
+a useful cross-check against archived forecasts. Skill on the swell
+component and on rapidly evolving weather systems remains the harder
+part of the problem, and cross-basin swell propagation and mixed
+multi-modal sea states are known weak points; but the forecast
+directional spectrum is credible enough that using it as the input to
+a motion-response model produces an operationally meaningful envelope
+rather than a numerical artefact. The pre-op layer of the framework
+treats the forecast directional spectrum as its primary input and
+propagates it through the vessel response model described in the
+next subsection.
+
+** Method: from forecast sea state to motion envelope
+
+The pre-operation method takes the forecast sea state as input and
+produces a motion-footprint envelope — a probability distribution of
+peak excursion over the operating window — for both the vessel and
+any user-defined point on mission-sensitive equipment. It comprises
+five steps.
+
+*a. Vessel-response model.* A 3-DOF linearised model of the DP
+station-keeping regime,
+
+\begin{equation}
+M \ddot{\eta} + D \dot{\eta} = \tau_{env} + \tau_{c},
+\label{eq:vessel-response}
+\end{equation}
+
+with \(\eta = (x, y, \psi)^{\top}\) the position and heading deviation
+from setpoint, \(M\) the mass and added-mass matrix, \(D\) the linear
+damping, \(\tau_{c}\) the DP thrust command from the vessel's own PID
++ integrator controller closed around \(\eta\), and \(\tau_{env}\) the
+environmental forcing. Only vessel mass, damping, and controller
+tuning are required; a full 6-DOF seakeeping representation is not
+used because the pre-op deliverable is a horizontal-plane
+station-keeping footprint.
+
+*b. Environmental forcing.* From the forecast directional wave
+spectrum, mean wind, and mean current, \(\tau_{env}\) is composed of
+three standard components: the second-order wave-drift force per DOF,
+obtained by applying the vessel's quadratic transfer functions
+(QTFs) [cite:@pinkster_qtf] to the directional spectrum; the wind force
+per Isherwood coefficients [cite:@isherwood_wind]; and the current force
+per OCIMF coefficients [cite:@ocimf_current]. The wave-drift term
+dominates the LF driving spectrum; wind and current appear primarily
+as bias offsets absorbed by the DP model's integrator.
+
+*c. From \(\tau_{env}\) to motion envelope.* Under Eq.
+(\ref{eq:vessel-response}), the intact response has an LF component
+driven by the wave-drift and wind spectral peaks and a wave-frequency
+component driven by first-order wave excitation; both are
+approximately stationary Gaussian on the 30-min operating-window
+timescale. The station-keeping footprint reported by the framework
+is the running maximum \(R\) of \(|\eta_{xy}(t)|\) over that window,
+whose distribution is given by the Rice [cite:@rice_running_max] /
+Vanmarcke [cite:@vanmarcke_bandwidth] running-max formula in terms of
+the process variance \(\sigma^{2}\), the zero-upcrossing rate, and a
+spectral bandwidth parameter. The operator display reports the median
+\(P_{50}\) and tail \(P_{95}\) of \(R\); the traffic-light band that
+decides operable / caution / no-go is driven by \(P_{90}\) against
+the vessel- and mission-specific warning and alarm radii, matching
+the IMCA M254 station-keeping alarm concept [cite:@imca_m254]. The
+wave-frequency component is added in quadrature.
+
+*d. Extension to mission equipment.* The same excursion process,
+projected through mission-equipment lever arms and coupling
+kinematics, gives the motion at any point of interest — a gangway
+tip, LARS boom head, or crane hook — as a linear combination of
+vessel translations and rotations. No new random inputs are
+introduced; vessel and mission-equipment footprints appear together
+in the [[Example: pre-op operator summary][pre-op operator summary]].
+
+*e. Note on conservatism.* The Rice / Vanmarcke running-max formula
+assumes independence of successive up-crossings. Under feedback-
+controlled DP the controller compresses the LF tail, so the assumption
+is mildly conservative — typically about 1.5× on the P95 excursion.
+The framework treats this as safety margin; under-promising motion
+performance is preferred to over-promising it.
+
+** Assumptions
+
+The pre-operation motion model rests on the following explicit
+assumptions.
+
+- The sea state is stationary over the operating window, so that
+  process statistics (variance, spectral moments) are constant.
+- The forecast directional spectrum is representative of the actual
+  sea state during the window, within the skill of the forecast
+  product used.
+- The vessel QTFs, wind coefficients, and current coefficients are
+  the design-intent values for the vessel and heading; drift and
+  loading variation are absorbed into the framework's conservatism
+  margin.
+- Forward-speed effects are absent (station-keeping regime): the
+  vessel is dynamically holding a setpoint, not transiting.
+- Low-frequency and wave-frequency responses combine additively in
+  quadrature into the running-maximum excursion.
+- The classical capability analysis provides the outer envelope of
+  operability. The motion-based envelope produced here is the inner
+  envelope: within the capacity-safe outer envelope, the motion
+  envelope identifies where operational limits — vessel or mission
+  equipment — are first exceeded. The two envelopes are used
+  together, not one instead of the other.
+
+** Example: intact operability polar
+
+Figure [[fig:intact_polar]] illustrates the intact-condition
+operability polar produced by the framework for the CSOV benchmark
+vessel introduced in Section 5. At any given vessel heading and mean
+wind speed the polar answers whether the operation is operable
+(green), in a caution band (yellow), or no-go (red) in terms of the
+intact motion footprint. The colour band is driven by the P90 of the
+running-maximum excursion against a warning and alarm radius: for
+the vessel base position the warn / alarm thresholds are the IMCA M254
+station-keeping levels (here 2.0 m / 4.0 m); for the gangway
+telescope they are the mission-equipment stroke limits (4.20 m / 5.60
+m). The sea state at each polar radius is generated from the wind
+speed via a Pierson-Moskowitz relation with a fixed current
+component, and the operating window is 20 minutes.
+
+Two features are worth calling out. First, the operable envelopes
+are visibly anisotropic: both panels show larger operable radii in
+head and following seas than in the beam sector, as expected from
+the projection of environmental force through the vessel geometry.
+Second, the gangway telescope panel has a larger operable envelope
+than the vessel base position, because the gangway threshold levels
+are set from the mechanical stroke of the telescope, not from a
+station-keeping alarm limit; the vessel and mission-equipment
+footprints are treated in the same motion-based framework but each
+against its own operational limits. The framework can produce the
+same polar for any additional mission-equipment point that the
+operator provides thresholds for.
+
+#+CAPTION: Intact-condition operability polar for the CSOV benchmark
+#+CAPTION: vessel and forward walk-to-work gangway. Polar radius is
+#+CAPTION: mean wind speed [m/s]; heading is vessel-relative wave
+#+CAPTION: direction. Colour band is driven by the P90 of the
+#+CAPTION: running-maximum motion excursion against the vessel /
+#+CAPTION: mission-equipment warning and alarm radii.
+#+NAME: fig:intact_polar
+#+ATTR_LATEX: :width 1.0\linewidth
+[[./images/csov_operability_polar.png]]
+
+** Example: post-WCFDI operability polar
+
+Figure [[fig:wcfdi_polar]] overlays the post-WCFDI no-go boundary
+(black dashed) on the same intact-prior polar of the previous
+subsection. The WCFDI scenario for this illustrative figure is a
+loss of one of three symmetric thruster groups, which for the
+standalone prototype used to generate the figure is parameterised as
+a per-DOF surviving-fleet capacity of two-thirds of intact and an
+allocator reallocation time \(T_{\text{realloc}} = 10\) s; the
+P90 Gaussian factor is \(k_{\sigma} = 0.674\). In a real deployment
+the per-DOF residual capacity is not a scalar of intact — the motion
+layer consumes whichever \(\tau_{\text{residual, cap}}\) the classical
+CA already publishes over the survivor set. The dashed boundary is
+the wind-speed contour at which the P90 of the running-maximum
+excursion, evaluated on the post-WCFDI closed-loop dynamics with
+this residual capacity, reaches the alarm radius per DOF.
+
+The important operational message is that the post-WCFDI boundary
+sits well inside the intact alarm ring — the vessel panel shows the
+WCFDI no-go contour at roughly 15-20 m/s wind speed in the beam
+sector, compared to the intact alarm at around 25 m/s. This is the
+motion equivalent of the tighter capacity envelope the classical CA
+already screens against, but expressed in the operator's motion
+units rather than in a capacity-reserve percentage. Two features of
+the plot deserve comment. First, the WCFDI restriction is materially
+asymmetric across headings: the boundary is tightest in the beam
+sector (heading 90 / 270°) where the DOF that lost the most capacity
+is loaded worst, and closest to the intact envelope in head and
+following seas. Second, the WCFDI restriction bites less hard on the
+gangway telescope panel than on the vessel base position panel: the
+mission-equipment threshold is a mechanical stroke limit that is
+generous relative to the post-WCFDI excursion at the same sea state.
+For this vessel and gangway configuration the vessel-station-keeping
+metric is the binding constraint after the WCFDI, not the gangway
+telescope.
+
+#+CAPTION: Post-WCFDI operability polar for the CSOV benchmark
+#+CAPTION: vessel and forward walk-to-work gangway. The coloured
+#+CAPTION: bands are the intact-condition operability of Figure
+#+CAPTION: [[fig:intact_polar]]; the black dashed contour is the
+#+CAPTION: wind-speed limit at which the post-WCFDI running-maximum
+#+CAPTION: P90 reaches the alarm radius. Scenario: loss of one of
+#+CAPTION: three thruster groups (per-DOF surviving-fleet capacity
+#+CAPTION: two-thirds of intact for this illustrative figure), allocator
+#+CAPTION: reallocation time 10 s.
+#+NAME: fig:wcfdi_polar
+#+ATTR_LATEX: :width 1.0\linewidth
+[[./images/csov_wcfdi_operability_polar.png]]
+
+** Example: WCFDI decision matrix
+
+The operability polar of the previous subsection gives a static
+picture: for a given sea state, which headings are operable? The
+WCFDI decision matrix (Figure [[fig:decision_matrix]]) puts that
+picture on a forecast timeline. Each cell of the matrix is one
+(heading, forecast slot) combination; the cell colour is the
+utilisation ratio evaluated on the forecast sea state at that time,
+using the same green→yellow→red gradient across all three panels so
+that different views of operability can be read directly against
+each other. The example is driven by a synthetic 24-hour storm.
+
+The three panels correspond to three different consequence-analysis
+questions asked at the same (time, heading) cell:
+
+- *Classical CA utilisation* (top panel): the ratio of mean
+  environmental force to residual (post-WCFDI) thrust capability,
+  per DOF, taken maximum across DOFs. This is what the current
+  force-and-moment reserve check that runs on any DP-2/DP-3 vessel
+  reports. The operational bands used by the reference DP system are caution at 80%
+  utilisation and warning at 90%.
+- *Motion-based intact utilisation* (middle panel): the ratio of the
+  intact-condition P90 running-maximum footprint to the IMCA M254
+  alarm radius. Reaches 1.0 when the intact motion of the vessel
+  itself would cross the M254 alarm threshold.
+- *Motion-based post-WCFDI utilisation* (bottom panel): the same
+  ratio computed on the post-WCFDI motion envelope, i.e. what the
+  motion would be if the worst-case failure occurred at that
+  (time, heading) cell.
+
+The operator's task is to plan a safe operation through the forecast
+window. The three panels answer that task in three different ways.
+The classical CA panel identifies the operational constraint the
+current rules already enforce: a narrow yellow-orange caution band
+and a small red spot at the storm peak (12:00) in the two beam
+sectors, driven by the environmental force approaching the residual
+capability. An operator running only the classical CA would read
+this as "the storm peak is borderline in beam headings; work around
+it and the operation is fine". The motion-based intact panel adds
+essentially nothing new here — the vessel motion itself never comes
+close to the alarm radius, so the classical CA plus intact motion
+confirms the same operational verdict.
+
+The motion-based post-WCFDI panel changes the picture. Even though
+the classical CA reports at most yellow-caution across the storm
+peak, the motion-based post-WCFDI utilisation reaches saturation
+(dark red, well past the alarm radius) in a narrow ~2-hour window
+around 12:00 in the beam headings. Physically, this is the regime
+where the storm energy is still comfortably below the vessel's
+survivable capacity but the *motion* consequence of a WCF at that
+instant would take the vessel outside the operational motion
+envelope. Two heading windows around head and following seas
+(roughly 150-210° and 330-030°) stay green even at the storm peak.
+
+The operator's plan therefore depends on which panel is authoritative.
+On classical CA alone the plan is "operate through the storm, easing
+off around 12:00"; on the motion-based post-WCFDI panel the plan
+becomes "avoid the beam sector 11:00-13:00 window entirely, or use
+one of the two green heading windows through it". The 2-hour narrow
+red band is the added operational content the motion-based framework
+delivers: the *when* and the *which heading* at the resolution the
+motion actually constrains, not just the *whether* at the resolution
+the residual capacity constrains.
+
+#+CAPTION: WCFDI forecast decision matrix over a synthetic 24-hour
+#+CAPTION: storm for the CSOV benchmark vessel, shown as three
+#+CAPTION: side-by-side utilisation heatmaps. Rows: vessel heading
+#+CAPTION: (deg, true). Columns: forecast slot (hour of day). All
+#+CAPTION: three panels use the same green→yellow→red gradient
+#+CAPTION: colour map on a common utilisation ratio scale 0 to 1.2
+#+CAPTION: (colour bar right). Reference thresholds: for the
+#+CAPTION: classical CA panel, caution at 0.80 and warning at 0.90
+#+CAPTION: (reference DP system convention); for the two motion panels, caution
+#+CAPTION: at 0.50 (IMCA M254 warn / alarm ratio) and warning at
+#+CAPTION: 1.00 (P90 equals the M254 alarm radius). Top: classical
+#+CAPTION: CA utilisation (environmental forces / residual
+#+CAPTION: capability, max across DOFs). Middle: motion-based intact
+#+CAPTION: utilisation (P90 footprint / IMCA M254 alarm radius).
+#+CAPTION: Bottom: motion-based post-WCFDI utilisation (post-WCFDI
+#+CAPTION: peak / IMCA M254 alarm radius).
+#+NAME: fig:decision_matrix
+#+ATTR_LATEX: :width 1.0\linewidth
+[[./images/csov_wcfdi_decision_matrix_utilisation.png]]
+
+** Example: pre-op operator summary
+
+The polar plots and the decision matrix are planning views over sea
+state and time. The pre-operation operator summary
+(Figure [[fig:operator_summary]]) collapses a single operating point
+— the state selected for the operation — into a single-page display
+that the operator reads before committing to the operation. Two bars
+stack vertically: the top bar is vessel base-position capability, the
+bottom bar is gangway telescope capability, both against their
+own IMCA M254 warn / alarm bands. Each bar shows the median (open
+circle, \(P_{50}\)) and the tail (filled diamond, \(P_{95}\)) of the
+post-WCF running-maximum motion excursion evaluated on the current
+operating state, with the traffic-light background driven by the
+same P90-based threshold used in the polars.
+
+The important content on the display is not the traffic light itself
+— the operator already reads that on the polar — but the two headline
+probability numbers on each bar: "P(footprint > amber)" and
+"P(footprint > red)". In the example shown, the vessel bar reports
+"if WCF now: P(footprint > 2 m) = 5.0 %, P(footprint > 4 m) = 0.0 %".
+This is the concrete delivery of the abstract's *probability of
+exceeding operational limits*: not "the vessel can hold" (yes), not
+"the footprint is 2 m" (a single point estimate), but a probabilistic
+statement that the operator can weigh against the operational
+acceptance criterion for the specific mission. The gangway bar
+reports the analogous "P(end-stop hit)". Both are direct products of
+the same motion-based framework used to build the polars and the
+decision matrix; the operator sees one coherent set of numbers before
+and during the operation.
+
+#+CAPTION: Pre-operation operator summary for the CSOV benchmark at
+#+CAPTION: a single operating point (Vw=14 m/s, Hs=2.8 m, Tp=9.0 s,
+#+CAPTION: bow-quartering seas, WCFDI scenario per Fig.
+#+CAPTION: [[fig:wcfdi_polar]]). Top bar:
+#+CAPTION: vessel base-position capability. Bottom bar: gangway
+#+CAPTION: telescope capability. Open circle: \(P_{50}\). Filled
+#+CAPTION: diamond: \(P_{95}\). Vertical dashed lines: IMCA M254
+#+CAPTION: warn / alarm thresholds per system. Headline probabilities
+#+CAPTION: quantify the risk of exceeding each threshold under the
+#+CAPTION: post-WCF motion excursion.
+#+NAME: fig:operator_summary
+#+ATTR_LATEX: :width 1.0\linewidth
+[[./images/csov_operator_summary.png]]
+
+* Consequence Analysis (Live)
+
+** Positioning: additive to the classical CA
+
+The live CQA panel runs alongside — not in place of — the classical
+CA required by IMO MSC/Circ.645 [cite:@imo_msc645]. The classical CA
+continues to compute and publish four quantities that the motion
+layer subscribes to: the per-WCF-candidate capacity reserve, a
+drift-off flag per DOF (the survivor set has zero capability against
+the prevailing environmental force in that DOF), a force-off flag
+per DOF (the survivor set is available but the prevailing demand
+exceeds its cap), and \(\tau_{\text{lost}}\), the vector of thrust
+that would be lost in the WCF at each candidate failure. The motion
+layer treats these as its inputs, along with the DP model observer
+state (position and velocity deviation \(\eta, \dot{\eta}\); bias
+observer \(\hat{b}\)) and a rolling buffer of the allocator feedback
+\(\tau_{\text{fb}}\); it does not duplicate the capacity-reserve
+computation and it does not consume any sea-state input at runtime.
+
+\(\tau_{\text{lost}}\) is not an instantaneous loss that stays at
+zero: the survivor set is reallocated back toward the pre-failure
+demand as fast as the thruster inertia and the allocator update rate
+allow. Figure [[fig:tau_recovery]] sketches the profile the motion
+layer assumes. At the WCF event, the available thrust capability
+magnitude drops instantaneously by \(\tau_{\text{lost}}\), of which
+an immediately recovered fraction \(\gamma_{\text{imm}}\) is picked
+up straight away by the survivor set. From that step the survivor
+allocator then recovers the remaining shortfall exponentially with
+characteristic time \(T_{\text{realloc}}\), asymptoting to one of
+two targets. In the *healthy* case, when the pre-failure demand
+\(\tau_{\text{pre}}\) is inside the residual capacity cap
+\(\tau_{\text{residual, cap}}\) — the per-DOF thrust envelope of
+the surviving fleet, published by the classical CA — the curve
+recovers back to \(\tau_{\text{pre}}\) and the classical CA reports
+green. In the *saturated* case, when \(\tau_{\text{pre}}\) exceeds
+\(\tau_{\text{residual, cap}}\), the same exponential recovery
+saturates at the cap instead of at \(\tau_{\text{pre}}\); the
+classical CA raises Force Off on that DOF, and the motion layer's
+[[Transient right after WCF: saturation probability channel][saturation-probability channel]] raises the *Large
+Transient* alert on the transient itself. The motion layer consumes
+\(\tau_{\text{lost}}\) and \(\tau_{\text{residual, cap}}\) as-is from
+whatever classical CA is running in the vessel — no vessel-specific
+capacity scalar is introduced. The one modelling parameter internal
+to the motion layer is the reallocation characteristic time
+\(T_{\text{realloc}}\); for the CSOV benchmark used throughout this
+paper we take \(T_{\text{realloc}} = 10\) s, consistent with modern
+DP allocators. This time profile is what drives both the
+[[Motion after WCF: ensemble evaluator][ensemble evaluator]] and the
+[[Transient right after WCF: saturation probability channel][transient channel]].
+
+An important reading of Figure [[fig:tau_recovery]] is that it plots
+the *available* thrust capability per DOF, not the thrust the DP
+controller commands. The DP controller can and does command
+transient forces above \(\tau_{\text{pre}}\) to arrest the motion
+picked up during the drop, provided the survivor set has the
+capability to deliver them; that commanded-thrust overshoot is
+captured inside the closed-loop vessel model of the [[Method: from forecast sea state to motion envelope][method section]] (the
+controller term \(\tau_{\text{ctrl}}(t)\) in Eq.
+\ref{eq:vessel-response}), not in the recovery curve here. The
+first-order form of the recovery envelope is a compact
+approximation of the survivor-allocator dynamics: the immediately
+recovered fraction \(\gamma_{\text{imm}}\) and the characteristic
+time \(T_{\text{realloc}}\) are calibrated against reference DP
+simulator runs, and the approximation is confirmed to be operationally
+sufficient by the [[Simulation Studies][simulation validation]].
+
+#+CAPTION: Post-WCF thrust recovery profile assumed by the motion
+#+CAPTION: layer, per DOF. At the WCF event the total commanded
+#+CAPTION: thrust capability drops instantaneously; the survivor set
+#+CAPTION: then recovers exponentially with characteristic time
+#+CAPTION: \(T_{\text{realloc}}\), asymptoting either to the
+#+CAPTION: pre-failure demand \(\tau_{\text{pre}}\) (healthy case,
+#+CAPTION: blue) or to the residual capacity cap \(\tau_{\text{residual,
+#+CAPTION: cap}}\) when \(\tau_{\text{pre}}\)
+#+CAPTION: exceeds the cap (saturated case, red-dashed). The
+#+CAPTION: saturated case is the operational territory of the
+#+CAPTION: classical Force Off alarm and of the motion layer's
+#+CAPTION: saturation-probability channel.
+#+NAME: fig:tau_recovery
+#+ATTR_LATEX: :width 0.85\textwidth :placement [tbp]
+[[file:images/tau_recovery_schematic.png]]
+
+The rule-mandated Drift Off and Force Off alarms remain the primary
+hard-failure signals in the operator UX; nothing in the motion layer
+suppresses or replaces them. The motion layer adds one new
+operator-visible alert, *Large Transient*, that fires when the live
+allocator feedback approaches the survivor's cap and the linear
+motion prediction should be read as a lower bound rather than as a
+tight upper bound. The alert is designed to sit between the classical
+green state and the classical Force Off warning: it draws attention to
+the *approach* to a limit rather than to its breach. The mechanism is
+developed in the [[Transient right after WCF: saturation probability channel][saturation-probability channel]].
+
+** Extreme-value method for exceedance envelopes
+
+The intact-side extreme-value machinery on the live panel reuses the
+Rice / Vanmarcke running-maximum formula introduced in the [[Method: from forecast sea state to motion envelope][method section]]
+[cite:@rice_running_max], [cite:@vanmarcke_bandwidth]; what is new here is
+the online source of the process moments \((\mu, \sigma)\) per DOF
+that the formula consumes.
+
+The panel runs an online Bayesian estimator of the position-deviation
+standard deviation \(\sigma\) on a sliding 10-minute window of the
+DP model's position-deviation channel \(\eta(t)\). The estimator is
+recursive and produces a posterior distribution over \(\sigma\)
+rather than a point estimate; the running-max evaluation is done at
+the posterior mean and cross-checked against the posterior 95th
+percentile so that early-warm-up transients on the estimator are
+visible to the operator as a widened envelope. Because the DP
+position-deviation samples are autocorrelated at the sample rate, the
+naive sample count over the sliding window would overstate the
+information available and produce an over-tight posterior. The
+estimator applies a Bartlett-style effective-sample-count correction
+that decouples the posterior variance from the sample rate and pins
+it to the process autocorrelation time.
+
+The moments produced by the estimator feed the same running-maximum
+formula used offline: the panel reports \(P_{50}\) and \(P_{95}\) of
+the running maximum of \(|\eta_{xy}(t)|\) over the next 30 minutes,
+against the same vessel and mission-equipment warn / alarm radii used
+in the pre-op operator summary. The sub-Rayleigh conservatism noted in
+the [[Method: from forecast sea state to motion envelope][method section]] applies unchanged: the running-max formula assumes independence
+of up-crossings and is mildly conservative under feedback control,
+which is retained here as safety margin. The intact-side output of
+the live panel is therefore directly comparable to the
+[[Example: pre-op operator summary][pre-op operator summary]], but continuously updated on live data and with no
+sea-state input at runtime.
+
+** Motion after WCF: ensemble evaluator
+
+The live panel needs a post-WCF motion prediction that is
+continuously updated on the vessel's actual state and can be trusted
+under the range of pre-failure conditions the WCF could catch it in.
+A single deterministic run of the vessel model from a point estimate
+of its steady state would collapse that range to a single number;
+the ensemble evaluator instead samples it. The idea is illustrated
+in Figure [[fig:ensemble_concept]]: rather than one trajectory, the
+panel propagates many, each starting from a recent snapshot of the
+actual vessel state, and reads its output from the spread across
+that ensemble.
+
+#+CAPTION: Conceptual illustration of the ensemble post-WCF motion
+#+CAPTION: prediction. At each panel update, snapshots of the recent
+#+CAPTION: vessel state are used as initial conditions for the vessel
+#+CAPTION: model, and each is propagated forward through the post-WCF
+#+CAPTION: window. The spread across the resulting trajectories is
+#+CAPTION: summarised by the ensemble \(P_{50}\) and \(P_{95}\) of
+#+CAPTION: \(|\eta_{xy}(t)|\); the panel reports the \(P_{50}\) and
+#+CAPTION: \(P_{95}\) of the per-trajectory peaks (dotted lines).
+#+CAPTION: Numeric scales are omitted deliberately — the figure is
+#+CAPTION: illustrative of the mechanism, not of a specific vessel or
+#+CAPTION: sea state.
+#+NAME: fig:ensemble_concept
+#+ATTR_LATEX: :width 0.85\textwidth :placement [tbp]
+[[file:images/ensemble_concept.png]]
+
+Concretely, the evaluator maintains a rolling 300-second buffer of
+vessel-state snapshots \(\left(\eta, \dot{\eta}, \hat{b},
+\tau_{\text{pre}}\right)\) drawn from the DP model observer and the
+allocator feedback. At each panel update, every snapshot in the
+buffer is used as the initial condition of the same closed-loop
+3-DOF vessel model developed for the pre-op prediction in the [[Method: from forecast sea state to motion envelope][method section]]
+(Eq. \ref{eq:vessel-response}), propagated forward through the
+post-WCF window with \(\tau_{\text{lost}}\) taken from the classical
+CA output. Each propagation produces a peak-\(|\eta_{xy}|\)
+trajectory; across the buffer this gives an empirical distribution
+of post-WCF peak excursions covering the actual pre-failure state
+variability the vessel is experiencing right now. The panel reports
+the median \(P_{50}\) and the tail \(P_{95}\) of that distribution,
+directly comparable to the [[Example: pre-op operator summary][pre-op operator summary]].
+
+Using the same vessel model the pre-op layer uses is deliberate: it
+enforces the "one model, two operating regimes" design goal of the [[Goal][Goal section]].
+The two sides differ only in what feeds them — the pre-op side takes
+a forecast sea state through a vessel-response model to build the
+\(\tau_{\text{env}}\) history; the live side takes the live
+\(\hat{b}\) and \(\tau_{\text{pre}}\) samples directly, without ever
+inferring a sea state. The classical CA outputs
+\(\tau_{\text{lost}}\) and the residual capacity feed both sides in
+the same way.
+
+The ensemble evaluator handles the *long-term* post-WCF regime well
+because the closed-loop vessel model is quantitatively accurate for
+the non-saturated portion of the response. When the post-WCF
+residual allocator saturates, the linear model is no longer
+sufficient, and the motion prediction becomes a lower bound. That
+case is handled by the saturation-probability channel developed
+next.
+
+** Transient right after WCF: saturation probability channel
+
+The linear closed-loop vessel model that drives the ensemble evaluator is
+quantitatively accurate as long as the post-WCF residual allocator
+does not saturate. Once the survivor set is forced onto its capacity
+cap, the linear model breaks down and the ensemble output becomes a
+lower bound on the true motion — no longer a tight prediction, and
+therefore no longer safe to display as the operator's motion number.
+The saturation-probability channel is an independent live gate that
+tells the operator when this happens.
+
+The mechanism is direct. The panel buffers the live allocator
+feedback \(\tau_{\text{fb}}(t)\) on a rolling 300-second window and
+low-pass-filters out the wave-frequency component to isolate the LF
+part that the residual allocator would have to absorb after a WCF.
+For each DOF a mean \(\mu\) and standard deviation \(\sigma\) are
+computed, and a saturation probability
+
+\begin{equation}
+p_{\text{sat}} =
+\max_{\text{DOF}}
+\Pr\!\left(\left|\mathcal{N}(\mu,\sigma)\right|
+> \tau_{\text{residual, cap}}\right)
+\label{eq:psat}
+\end{equation}
+
+is evaluated against the per-DOF residual cap \(\tau_{\text{residual,
+cap}}\) computed from the classical CA output. The panel raises the
+Large Transient alert at operator-configured amber and red thresholds
+on \(p_{\text{sat}}\), matching the IMCA M254 Fig.8 caution / warning
+band pattern used elsewhere in the operator UX.
+
+The semantics of the alert are precise. \(p_{\text{sat}}\) does not
+answer *what is the vessel's excursion after a WCF*; it answers *how
+likely is it that the linear motion prediction can be trusted*. When
+\(p_{\text{sat}}\) is in the green range, the output of the
+[[Motion after WCF: ensemble evaluator][ensemble evaluator]] is a tight upper bound on the post-WCF excursion and is what
+the operator should act on. When \(p_{\text{sat}}\) crosses into
+amber or red, the ensemble output should be read as a lower bound and
+the operator should treat the actual excursion as materially larger
+than the number on the screen. The channel therefore behaves as a
+*trust indicator on the motion prediction*, not as a duplicate of
+the classical CA capacity check.
+
+The channel closes the "readily available measurements only" design
+goal of the [[Goal][Goal section]]: it consumes only the live allocator feedback and the
+per-DOF residual cap constant computed from the classical CA output.
+It does not consume a sea state, a wave forecast, or a spectral
+partition. This makes it defensible under the operationally common
+conditions — mixed wind-sea and swell, cross-current forcing,
+shielding — that would break a QTF-based online estimator of the
+post-WCF forcing.
+
+** Two-channel operator decision surface
+
+The [[Motion after WCF: ensemble evaluator][ensemble evaluator]] and the
+[[Transient right after WCF: saturation probability channel][saturation-probability channel]]
+are combined with the classical CA output into the
+operator decision surface of Table [[tab:decision_surface]]. The
+table is the operator's mental model of the live panel in one view:
+for any combination of the three channels the operator has an
+unambiguous reading of what to trust and what to act on. The
+*Post-WCF motion* column reads the output of the [[Motion after WCF: ensemble evaluator][ensemble evaluator]] relative
+to the intact P95: *similar* means the post-WCF prediction is close
+to the present intact footprint; *elevated* means it is materially
+larger. The *Saturation* column is the
+[[Transient right after WCF: saturation probability channel][saturation-probability channel]], which qualifies how far the motion number in the
+previous column can be trusted.
+
+#+CAPTION: Live operator decision surface. Rows correspond to
+#+CAPTION: increasing operational concern.
+#+NAME: tab:decision_surface
+| Classical CA        | Post-WCF motion | Saturation | Interpretation                                             |
+|---------------------+-----------------+------------+------------------------------------------------------------|
+| OK                  | similar         | green      | Vessel operating in a comfortable state; no action needed  |
+| OK                  | elevated        | green      | Elevated post-WCF motion, but the prediction is trustworthy|
+| OK                  | elevated        | amber      | Motion prediction is a lower bound; treat with caution     |
+| OK                  | elevated        | red        | Motion prediction unreliable; treat as worst-case          |
+| Drift Off/Force Off | (any)           | (any)      | Classical alarm dominates; motion-layer output is context  |
+
+The decision surface preserves the classical alarm ordering: when
+the classical CA fires Drift Off or Force Off, the classical alarm
+takes precedence and the motion-layer output is displayed as
+supporting context rather than as the operator's primary action
+cue. Within the classical-CA-OK state, the two-channel readout gives
+the operator four distinct positions on the way toward saturation.
+The three operator-visible alerts of the framework are therefore:
+
+- *Drift Off* (classical CA warning) — unchanged from current DP-2/DP-3 practice.
+- *Force Off* (classical CA warning) — unchanged from current DP-2/DP-3 practice.
+- *Large Transient* (motion CQA caution / warning) — new; fires when \(p_{\text{sat}}\) crosses its amber or red threshold, indicating that the ensemble output should be read as a lower bound.
+
+No other alerts are added or removed; existing DP UX conventions,
+including audible / visual behaviour of Drift Off and Force Off,
+are preserved.
+
+** Long-term post-WCF motion larger than the short-term transient
+
+The post-WCF response has two distinct phases with independent
+risk profiles. The *transient phase* — the first 30-60 s after the
+failure — is dominated by the survivor allocator absorbing the step
+in \(\tau_{\text{lost}}\); its peak excursion is what the classical
+CA implicitly verifies against by requiring the survivor set to
+generate the pre-failure force and moment. The *long-term phase* is
+a new steady state under reduced capacity: with the surviving peak
+\(\tau\) closer to the mean environmental forcing than in the intact
+condition, the LF headroom against wave-drift variability is
+compressed and the running-maximum footprint grows.
+
+In some sea states the long-term P95 footprint exceeds the transient
+peak. The classical CA sees the transient pass and reports green, but
+the operator is nonetheless outside the motion envelope. The
+[[Motion after WCF: ensemble evaluator][ensemble evaluator]] captures this correctly: it propagates
+the closed-loop vessel model over a window long enough (~5 min) to cover both
+phases, so the reported P95 is the true post-WCF peak, transient or
+long-term whichever is larger. This is the regime where the motion
+layer is materially different from a transient-focused CQA
+extension, and it is one of the cases exercised in the
+[[Long-term post-WCF envelope][long-term post-WCF validation]].
+
+** Estimator convergence
+
+The intact-side envelope and the transient channel both consume
+sliding-window estimates of process moments from live data, so the
+numbers on the operator screen are only as trustworthy as those
+estimates. Figure [[fig:estimator_convergence]] shows the
+estimator settling behaviour on a stationary synthetic
+position-deviation channel with known true \(\sigma\) = 0.60 m. Three
+independent realisations are run through the same online estimator
+used on the live panel, with a prior deliberately biased high at
+\(\sigma\) = 0.90 m to make the warm-up visible. The 5-95% posterior
+credible band collapses onto the true value as data accumulates in
+the 10-minute window, and by the time the window is full the run-to-
+run spread is well inside the band width the operator sees on
+screen. The band width is the operator's cue: while it is wide the
+live panel numbers should be read with the extra margin the band
+implies; once it has tightened the numbers can be acted on as if
+they were the offline pre-op prediction.
+
+#+CAPTION: Online estimator convergence on a stationary synthetic
+#+CAPTION: position-deviation channel. Three independent realisations
+#+CAPTION: with true \(\sigma\) = 0.60 m are fed into the sliding
+#+CAPTION: 10-minute Bayesian estimator with a prior deliberately biased
+#+CAPTION: high at \(\sigma\) = 0.90 m to make warm-up visible. The
+#+CAPTION: posterior median (solid) and 5-95% credible band (shaded)
+#+CAPTION: converge onto the true value as the window fills; the band
+#+CAPTION: width itself is what the operator reads as trust in the
+#+CAPTION: live number.
+#+NAME: fig:estimator_convergence
+#+ATTR_LATEX: :width 0.85\textwidth :placement [tbp]
+[[file:images/estimator_convergence.png]]
+
+The 10-minute window and the accompanying implicit assumption that
+the process is stationary over that window are the price of running
+the estimator online without a sea-state input. Both assumptions are
+comfortable against how sea states actually evolve in the North Sea
+and comparable basins: significant wave height, peak period, and
+mean wind speed on a typical forecast grid change on timescales of
+hours, not minutes, so a rolling window an order of magnitude shorter
+than the forcing decorrelation time captures a locally stationary
+process to good approximation. Frontal passages and squall lines are
+the practical exceptions and are already handled outside the CQA
+loop by conventional weather routing.
+
+* Simulation Studies
+
+** Test vessel and simulator
+
+The framework is validated against a benchmark CSOV (\(L_{pp}\) =
+101.1 m, \(B\) = 22.4 m, \(T\) = 6.5 m) configured with a five-thruster
+layout typical of the class: two bow tunnel thrusters, a bow
+azimuth, and two stern main-propeller / rudder units. The reference
+truth is a high-fidelity nonlinear DP simulator with seakeeping-
+derived hydrodynamics, per-thruster force and moment allocation
+including allocator dynamics, and a nonlinear passive observer of
+the same class used in fielded DP-2/DP-3 systems. The simulator
+produces vessel motion at the level required to verify a live CQA
+panel: the position deviation \(\eta(t)\), velocity \(\dot{\eta}(t)\),
+allocator feedback \(\tau_{\text{fb}}(t)\), and observer states
+\(\hat{b}(t)\), \(\hat{\eta}_w(t)\) that the panel would read on a
+real vessel are all available for direct comparison against the
+panel's own predictions. The panel is exercised on the same input
+streams the field system would see, with the simulator supplying
+the reference truth.
+
+** Capability to intact motion
+
+The left-hand panel of the motion roll-up (Figure [[fig:rollup_motion]])
+compares the framework's predicted \(P_{95}\) of the intact-condition
+running-maximum footprint \(|R_{LF}|\) against the corresponding
+simulator truth on each cell. The cells span Beaufort 4 to Beaufort
+8.5 across head, quartering, and beam headings, plus two
+waves-only variants. Across all 14 cells the framework's \(P_{95}\)
+is within +7% to +28% of the simulator truth, with a median error of
++17%. All 14 cells are on the positive side of zero — the framework
+systematically overpredicts.
+
+The systematic conservatism is not a modelling error; it is the
+sub-Rayleigh margin discussed in the
+[[Method: from forecast sea state to motion envelope][method]] and
+[[Extreme-value method for exceedance envelopes][extreme-value]] sections. The running-max
+formula assumes statistical independence of successive up-crossings,
+which is a mild overstatement under feedback-controlled DP because
+the controller compresses the LF tail. The magnitude of the observed
+bias (roughly a factor 1.15-1.20 in \(P_{95}\)) is consistent with
+the theoretical bound, and the sign is what the framework's design
+choice intended: the operator receives a mild upper bound rather
+than a mean or a lower bound.
+
+The 14-cell agreement therefore validates the vessel-response model
+(3-DOF closed-loop dynamics with the observed DP integrator) and the
+extreme-value envelope (Rice / Vanmarcke running-max applied to the
+LF + WF process moments) on the intact side. The framework's
+intact-side output is the same object used in the
+[[Example: pre-op operator summary][pre-op operator summary]] and in the live intact bar of
+the [[Extreme-value method for exceedance envelopes][extreme-value section]]; the roll-up
+confirms both.
+
+** Transient at WCF
+
+The right-hand panel of Figure [[fig:rollup_motion]] shows the framework's
+predicted post-WCF \(P_{95}\) alongside the simulator truth on the
+same 14 cells. On the eleven cells where the survivor allocator does
+not saturate (the [[Transient right after WCF: saturation probability channel][p_sat channel]] remains green throughout),
+the framework's \(P_{95}\) is within -23% to +16% of the simulator
+truth, with a median error of -10%. On these cells the linear
+closed-loop ODE that drives the [[Motion after WCF: ensemble evaluator][ensemble evaluator]] is
+quantitatively accurate: the transient step in
+\(\tau_{\text{lost}}\), the allocator absorbing that step, and the
+LF re-equilibration are all captured within the intrinsic scatter of
+the sea-state statistics.
+
+The mild negative bias on the transient axis has a different origin
+than the positive bias on the intact axis. Where the intact axis
+sits on the sub-Rayleigh conservatism of the running-max formula,
+the WCF axis reflects the sea-state moment averaging over the
+5-minute post-WCF window used by the ensemble evaluator. The
+integrated bias is small enough — comparable to the seed-to-seed
+scatter within each cell — that the framework's WCF number is a
+tight prediction rather than an upper or lower bound. Where the
+prediction should be treated as a lower bound is the regime the
+[[Transient right after WCF: saturation probability channel][saturation-probability channel]] is designed to flag, and
+which the roll-up covers in the [[Long-term post-WCF envelope][long-term post-WCF validation]].
+
+** Long-term post-WCF envelope
+
+The rightmost columns of Figures [[fig:rollup_motion]] and [[fig:rollup_saturation]] are the cells where
+the survivor allocator saturates in the post-WCF steady state — the
+regime the case-study of the [[Long-term post-WCF motion larger than the short-term transient][long-term post-WCF discussion]] identifies as the operationally
+interesting one. On these cells the linear closed-loop ODE that
+drives the ensemble evaluator is no longer sufficient, and the
+framework's motion \(P_{95}\) drifts from the simulator truth. The
+worst case in the roll-up is bf8p5_q10_w45: the simulator reports an LF
+peak \(P_{95}\) of 29.9 m, driven by seeds where the vessel loses
+station outright in the post-WCF long-term regime; the framework's
+predicted \(P_{95}\) is 5.4 m, an 82% underprediction.
+
+The 5.4 m motion prediction is nonetheless not what the operator
+sees on that cell. The framework raises a red alarm on
+bf8p5_q10_w45 through two independent channels. First, the predicted
+motion \(P_{95}\) of 5.4 m already exceeds the alarm radius of 4 m
+used for the CSOV, so the classical CA motion bar fires red on 28 of
+30 simulator seeds. Second, the
+[[Transient right after WCF: saturation probability channel][saturation-probability channel]]
+evaluates \(p_{\text{sat}}\) with a mean of 0.14 and a maximum
+of 0.26 on the same cell — well above the red threshold of 0.10 —
+and fires the Large Transient alert on 21 of 30 seeds and the amber
+threshold on the remaining 9. The operator therefore sees red on
+this cell through two independent gates before the simulator ever
+runs the WCF that would produce the catastrophic excursion.
+
+This is the design intent of the two-channel layout of the [[Two-channel operator decision surface][operator decision surface]]:
+where the linear ODE breaks, the trust indicator triggers so that
+the operator is not misled by an artificially small \(P_{95}\).
+The [[Rejected extensions][rejected-extensions]] section discusses three plausible refinements to the linear
+ODE that would in principle produce a tighter \(P_{95}\) on the
+saturated cells, and were investigated and rejected.
+
+** Sea-state and heading sweep summary
+
+Figures [[fig:rollup_motion]] and [[fig:rollup_saturation]] give the
+whole 14-cell scoreboard for the live CQA panel against the simulator
+truth. The cells cover Beaufort 4 through Beaufort 8.5 in head,
+quartering, and beam headings, plus two waves-only variants
+representative of purely-wave-driven station-keeping. Figure
+[[fig:rollup_motion]] covers the two motion axes the operator reads
+directly; Figure [[fig:rollup_saturation]] covers the saturation
+channel that qualifies them.
+
+The two operational messages of the roll-up are already stated in the
+[[Capability to intact motion][intact-motion]], [[Transient at WCF][transient]], and
+[[Long-term post-WCF envelope][long-term post-WCF]] validation sections, and are
+summarised here. First, on the 11 non-
+saturated cells the intact and post-WCF motion \(P_{95}\) are
+accurate to within a factor of about 1.2 in either direction, with
+systematic biases (positive on the intact axis, negative on the WCF
+axis) that reflect the intended design conservatism and the finite-
+window averaging respectively. Second, on the three cells where the
+survivor allocator approaches or crosses saturation
+(bf7p5_q10_w45, bf8_q10_w45, bf8p5_q10_w45), the WCF motion \(P_{95}\)
+underpredicts the simulator truth by up to 82% — but the two
+independent gates of the [[Two-channel operator decision surface][operator decision surface]] both
+fire red, giving the operator the correct actionable outcome
+despite the imprecise motion number.
+
+#+CAPTION: Motion accuracy across the 14-cell simulator roll-up.
+#+CAPTION: Left: intact axis \(P_{95}\) of \(|R_{LF}|\), predicted
+#+CAPTION: (blue) vs simulator (grey), against the IMCA amber (2 m)
+#+CAPTION: and red (4 m) alarm radii. Right: post-WCF \(P_{95}\),
+#+CAPTION: predicted (blue) vs simulator LF peak (grey), with the
+#+CAPTION: simulator LF peak mean marked (dots).
+#+NAME: fig:rollup_motion
+#+ATTR_LATEX: :width 1.0\linewidth
+[[./images/roll_up_live_operator_panel_motion.png]]
+
+The right-hand panel of Figure [[fig:rollup_saturation]] shows the
+additional analytical saturation-excursion contribution developed as
+a refinement to the ensemble-evaluator output on saturated cells. On
+the 13 non-saturated cells the contribution is at most a few
+centimetres and does not materially change the operator display; on
+bf8p5_q10_w45 it adds 0.85 m to the reported \(P_{95}\), keeping the
+red flag but not closing the underprediction. The refinement is
+therefore a marginal improvement in this regime, and the [[Rejected extensions][rejected-extensions]]
+section discusses why we did not extend it further.
+
+#+CAPTION: Saturation channel across the 14-cell simulator roll-up.
+#+CAPTION: Left: sustained mean-thrust saturation probability
+#+CAPTION: \(p_{\text{sat}}\) per cell, ensemble mean / P90 / max
+#+CAPTION: shown against the amber (0.01) and red (0.10) thresholds.
+#+CAPTION: Right: the analytical saturation-excursion contribution on
+#+CAPTION: top of the ensemble-evaluator output, alongside simulator
+#+CAPTION: truth for reference.
+#+NAME: fig:rollup_saturation
+#+ATTR_LATEX: :width 1.0\linewidth
+[[./images/roll_up_live_operator_panel_saturation.png]]
+
+** Rejected extensions
+
+Three plausible refinements to the two-channel design were
+investigated and set aside.
+
+*QTF-gradient estimation online.* Estimating the vessel's wave-drift
+QTF gradient at the operational sea state, then using it inside the
+ensemble evaluator to tighten the post-WCF envelope. Rejected on
+theoretical grounds: online QTF gradient estimation requires
+wave-field assumptions that break in operationally common conditions
+— mixed wind-sea and swell, cross-current, near-installation
+shielding — and the framework's measurement-only design goal (see [[Goal]])
+does not accommodate a runtime wave-field model.
+
+*Pre-trip variance as within-cell predictor.* Using the observed
+variance of the pre-WCF LF motion as a predictor of the seed-to-seed
+scatter in the post-WCF peak, within a fixed sea state. Empirically
+falsified: per-cell Pearson correlations between pre-trip variance
+and post-WCF peak range from -0.7 to +0.7 across the 14 cells of the
+roll-up, with no consistent sign.
+
+*Pre-trip PSD-shape as within-cell predictor.* Same idea, but using
+the pre-WCF Vanmarcke spectral bandwidth. Empirically falsified on
+the same evidence, with the same range of correlations.
+
+The two-channel design is therefore the *tight* envelope on this
+class of vessel and instrumentation: adding observables from past
+history to characterise the future wave-phase-at-trip alignment does
+not add predictive power.
+
+* Real-World Case
+
+** Data source and scope
+
+The framework is being validated against logged operations from an
+in-service DP vessel of opportunity. The vessel is a
+[TODO: vessel class, e.g. platform supply vessel] operating in
+[TODO: geographical area, e.g. North Sea], instrumented with the
+standard DP telemetry channels used by the live layer of the
+framework: position deviation, controller thrust command, allocator
+feedback, and DP model observer state (see
+[[Positioning: additive to the classical CA][the positioning section]]). The logs cover
+[TODO: N] operational periods totalling [TODO: N] hours across
+[TODO: sea-state / heading range summary].
+
+The scope of the real-world validation is deliberately narrow:
+intact motion only. The framework's post-WCF prediction cannot be
+validated against real logs because no operator will intentionally
+trigger the worst-case failure for a paper. Post-WCF validation
+therefore stays with the simulator-truth roll-up of the [[Simulation Studies][simulation studies]]; the
+real-world case adds evidence that the intact-side machinery works
+when its input is the real world rather than a simulator.
+
+** Method: forecast-based motion capability vs realised motion
+
+The comparison is done in three steps.
+
+1. For each logged operating window, the archived weather forecast
+   in force at the start of the window is obtained from
+   [TODO: forecast provider — ECMWF operational archive, MET Norway,
+   NOAA, or a commercial subscription]. The forecast directional
+   wave spectrum, mean wind, and mean current are fed through the
+   pre-operation motion capability model of the [[Method: from forecast sea state to motion envelope][method section]] to produce the
+   predicted \(P_{95}\) intact motion envelope for the vessel and,
+   where applicable, for mission-equipment points.
+
+2. The realised motion is computed from the vessel logs as the
+   running maximum of \(|\eta_{xy}(t)|\) over the 30-minute operating
+   window, using the same definition the framework uses internally.
+   Predicted vs realised \(P_{95}\) is the primary comparison
+   metric; the intact \(P_{50}\) is reported as a secondary metric.
+
+3. The archived forecast is cross-checked against the ERA5
+   [cite:@era5] (or NORA3 [cite:@nora3] in the North Sea and Norwegian Sea)
+   hindcast reanalysis. If the archived forecast was materially
+   different from the hindcast for the same window, the comparison
+   in step 2 is not a fair test of the framework and the window is
+   flagged; the aggregate result is reported both including and
+   excluding flagged windows.
+
+** Status
+
+Data acquisition and processing are in progress at the time of
+writing. The full set of predicted-vs-realised \(P_{95}\)
+residuals across the [TODO: N] operational periods will be reported
+in the final version of the paper. If the comparison is not complete
+by the paper deadline, this section will present the methodology and
+initial results; the full outcome will be presented at the
+conference.
+
+* Conclusion
+
+This paper has developed a motion-based consequence quality analysis
+(CQA) framework that closes the motion gap in the classical DP
+capability and CA machinery. The contribution is two-part. The
+pre-operation risk assessment ([[Motion-Based Capability Analysis]]) extends the classical capability
+analysis with an estimate of vessel and mission-equipment motion
+from the forecast sea state, delivered as the operability polar, the
+WCFDI decision matrix, and the pre-op operator summary. The live CQA
+panel ([[Consequence Analysis (Live)]]) reformulates the same underlying model for online
+execution, delivering intact and post-WCF motion \(P_{95}\)
+continuously from real-time measurements and the DP model, with a
+saturation-probability trust indicator that fires when the linear
+motion prediction is no longer reliable.
+
+The empirical basis is a 14-cell simulator validation across
+Beaufort 4 to Beaufort 8.5 ([[Simulation Studies]]): the intact-side \(P_{95}\) is
+accurate to within +7% to +28% (systematically conservative by
+design), the post-WCF \(P_{95}\) is within -23% to +16% on the eleven
+non-saturated cells, and the two-channel operator decision surface
+correctly red-flags the three saturated cells through two independent
+gates even where the motion prediction itself is understated.
+Real-vessel validation of the intact side against archived forecasts
+and hindcast is in progress ([[Real-World Case]]).
+
+The framework preserves the operator's mental model — motion,
+footprint, proximity to limits — rather than translating the DP
+system's actions into force reserves that the operator then has to
+map back to expected motion. The classical Drift Off and Force Off
+alarms remain the primary hard-failure signals; the framework adds
+one motion-based alert (Large Transient) that tells the operator
+whether the motion forecast can be trusted as a tight upper bound or
+should be read as a lower bound.
+
+The framework is deliberately additive to the classical rules. The
+capability + CA computation mandated by IMO MSC/Circ.645, DNV-ST-0111
+and IMCA M254 is not superseded or contested; applying a percentage
+capacity margin on top of the classical CA continues to land the
+operator comfortably inside a safe operating envelope for the
+majority of operations. What the motion layer adds is the ability to
+work closer to the operational limit in a controlled way — the
+operator sees continuous, graded, motion-based proximity to the
+limit rather than waiting for a breach. This directly enables the
+walk-to-work and heave-compensated operational regimes that have
+expanded the DP envelope beyond simple hold-vs-drift.
+
+The measurement-only online scope set out in [[Goal][the Goal section]]
+is honoured throughout:
+the live layer consumes only signals every DP-2/DP-3 vessel already
+publishes, plus vessel-constant parameters. No online seakeeping
+model, no runtime spectral partition, no runtime wave-field
+assumption. This is a deliberate scope limit that keeps the design
+defensible under operationally common mixed sea states,
+cross-current forcing, and near-installation shielding effects that
+would break wave-field-based online refinements (see
+[[Rejected extensions]]).
+
+Future work has three lines. First, extension of the mission-
+equipment coverage to further motion-sensitive systems (LARS,
+heave-compensated cranes, ROV winch handling). Second, completion
+of the real-vessel validation across a broader vessel population
+and operational area, building the field evidence needed to support
+rules-alignment discussions. Third, presentation of the motion-based
+CQA deliverables to the rulemaking bodies as candidates for
+inclusion in the next revision of IMCA M254 and the DNV-ST-0111
+transient analysis guidance — a natural next step given that the
+current guidance already gestures in this direction (see
+[[Introduction]]) but
+stops short of requiring the delivery.
+
+* Acknowledgements
+
+*(TODO: whoever helped)*
+
+* References
+
+#+LATEX: \bibliographystyle{unsrt}
+#+PRINT_BIBLIOGRAPHY:

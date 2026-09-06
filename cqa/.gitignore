@@ -17,3 +17,19 @@ scripts/p7_brucon_validation/*.log
 .coverage
 htmlcov/
 __pycache__/
+
+# MTS_26 conference paper: LaTeX build intermediates. paper.org is the
+# source; paper.pdf is tracked as the deliverable. Rebuild with:
+#   emacs --batch --eval "(progn (require 'org) (require 'ox-latex) \
+#     (find-file \"paper.org\") (org-latex-export-to-latex))" \
+#   && pdflatex paper && bibtex paper && pdflatex paper && pdflatex paper
+MTS_26/paper.tex
+MTS_26/*.aux
+MTS_26/*.log
+MTS_26/*.bbl
+MTS_26/*.blg
+MTS_26/*.fls
+MTS_26/*.fdb_latexmk
+MTS_26/*.out
+MTS_26/*.org.bak
+MTS_26/*.org.pre_*
