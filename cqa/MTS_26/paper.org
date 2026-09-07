@@ -74,11 +74,6 @@ against logged operations is in progress.
 - *WCFDI decision matrix* :: A traffic-light forecast of intact and
   post-WCFDI operability as a function of (vessel heading, forecast
   time), delivered before the operation starts.
-- *IMCA M254* :: The IMCA guidance on DP operations that specifies
-  station-keeping footprint alarm limits.
-- *DP-2 / DP-3* :: IMO equipment classes for DP redundancy: DP-2
-  requires WCF survival, DP-3 requires physical separation between
-  redundant systems.
 
 * Introduction
 
