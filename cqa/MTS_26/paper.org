@@ -77,10 +77,11 @@ against logged operations is in progress.
 
 * Introduction
 
-Consequence analysis (CQA) has been part of the DP requirements
-since the IMO issued MSC/Circ.645 in 1994 [cite:@imo_msc645] and
-has since been carried into the class rules
-[cite:@dnv_ru_ship;@abs_dps] as a mandatory software function on
+Consequence analysis (CQA) has been a requirement for redundant DP
+classes for several decades. The IMO consolidated the requirement at
+international level in MSC/Circ.645 in 1994 [cite:@imo_msc645], and it
+is carried into the class rules [cite:@dnv_ru_ship;@abs_dps] as a
+mandatory software function on
 DP-2 and DP-3 vessels. Its purpose is straightforward: given the
 worst-case failure (WCF) the vessel is designed against, verify
 continuously that the DP system as a whole — sensors, thrusters,
