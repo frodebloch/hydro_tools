@@ -295,19 +295,28 @@ model.
 (\ref{eq:vessel-response}), the intact response has a low-frequency
 component driven by wave-drift and wind and a wave-frequency
 component driven by first-order wave excitation, both approximately
-stationary over a 30-minute operating window. What matters
-operationally is not the instantaneous position but the largest
-excursion likely to occur during the operation. The framework
-therefore reports the distribution of the running maximum \(R\) of
-\(|\eta_{xy}(t)|\) over the window, obtained using standard
-extreme-value results for stationary processes; see Rice
+stationary over the operating window.
+
+What the operator needs from this is the answer to a simple
+question: how far is the vessel likely to move, at worst, during the
+operation? The framework therefore reports the *maximum position
+excursion over a selected operating window* — the largest distance
+the vessel wanders from its setpoint during, typically, the next 30
+minutes. Because that maximum is itself uncertain, it is reported not
+as a single figure but as a distribution, so the operator sees both a
+typical and a conservative outcome: the display gives the median
+\(P_{50}\) and the tail \(P_{95}\) of the maximum excursion \(R\).
+Obtaining that distribution from the response statistics is standard
+extreme-value practice for stationary processes; see Rice
 [cite:@rice_running_max] and Vanmarcke [cite:@vanmarcke_bandwidth]
-for the derivations. The display reports the median \(P_{50}\) and
-the tail \(P_{95}\) of \(R\), with the traffic-light band driven by
-\(P_{90}\) against the vessel- and mission-specific warning and
-alarm radii established per the IMCA M254 station-keeping alarm
-concept [cite:@imca_m254]. The wave-frequency component is added in
-quadrature.
+for the derivations.
+
+The traffic-light band that decides operable / caution / no-go is
+driven by \(P_{90}\) against the vessel- and mission-specific
+warning and alarm radii established per the IMCA M254
+station-keeping alarm concept [cite:@imca_m254]. The vessel's
+wave-frequency motion is combined with the slower drifting motion to
+give the total excursion.
 
 *d. Extension to mission equipment.* The same excursion process,
 projected through mission-equipment lever arms and coupling
@@ -344,8 +353,8 @@ assumptions.
   margin.
 - Forward-speed effects are absent (station-keeping regime): the
   vessel is dynamically holding a setpoint, not transiting.
-- Low-frequency and wave-frequency responses combine additively in
-  quadrature into the running-maximum excursion.
+- The low-frequency and wave-frequency responses are treated as
+  independent and combined by root-sum-square.
 - The classical capability analysis provides the outer envelope of
   operability. The motion-based envelope produced here is the inner
   envelope: within the capacity-safe outer envelope, the motion
