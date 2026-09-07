@@ -932,18 +932,18 @@ wind or current — the condition under which the wave-drift term
 alone sets the low-frequency motion. Cell names are used directly as
 labels in the roll-up figures later in this section.
 
-#+CAPTION: The 14-cell simulator validation grid. "Wave heading" is
-#+CAPTION: the wave direction relative to the vessel (0\deg{} = head
-#+CAPTION: seas, positive = off the port bow); the vessel heading
-#+CAPTION: itself is held fixed across all cells. "Wind offset" is
-#+CAPTION: the wind direction relative to the waves; 0\deg{} means
-#+CAPTION: wind, waves and current are co-linear, and 45\deg{} splits
-#+CAPTION: the wind off the wave direction. Current runs with the
-#+CAPTION: waves except on the Beaufort 4 cells, where it is set
-#+CAPTION: 45\deg{} off the vessel heading at 1.0 m/s to load the
-#+CAPTION: vessel asymmetrically. The Beaufort 6 and Beaufort 8
-#+CAPTION: environments are taken from DNV-ST-0111
-#+CAPTION: [cite:@dnv_st_0111].
+Two conventions in the table are worth stating. *Wave heading* is
+the wave direction relative to the vessel, 0\deg{} being head seas
+and positive values off the port bow; the vessel heading itself is
+held fixed across all cells. *Wind offset* is the wind direction
+relative to the waves, so 0\deg{} means wind, waves and current are
+co-linear and 45\deg{} splits the wind off the wave direction.
+Current runs with the waves except on the Beaufort 4 cells, where it
+is set 45\deg{} off the vessel heading at 1.0 m/s to load the vessel
+asymmetrically. Each cell is run for 30 seeds, giving 420
+realisations in total.
+
+#+CAPTION: The 14-cell simulator validation grid.
 #+NAME: tab:cells
 #+ATTR_LATEX: :align lrrrrrrl
 | Cell            |  Bf |   Vw |  Hs |    Tp |   Vc | Wave heading | Wind offset |
@@ -964,8 +964,7 @@ labels in the roll-up figures later in this section.
 | pwq30           | --  |  0.0 | 4.2 | 10.22 | 0.0  | +30        | waves only  |
 
 Units: \(V_w\) and \(V_c\) in m/s, \(H_s\) in m, \(T_p\) in s,
-wave heading and wind offset in degrees. Each cell is run for 30 seeds,
-giving 420 realisations in total.
+wave heading and wind offset in degrees.
 
 ** Capability to intact motion
 
