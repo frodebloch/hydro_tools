@@ -283,17 +283,13 @@ station-keeping footprint.
 
 *b. Environmental forcing.* From the forecast directional wave
 spectrum, mean wind, and mean current, \(\tau_{env}\) is composed of
-three standard components: the second-order wave-drift force per DOF,
-obtained by applying the vessel's quadratic transfer functions
-(QTFs) [cite:@pinkster_qtf] to the directional spectrum; the wind
-force from the vessel's directional wind coefficients; and the
-current force from the vessel's hull force model. The framework does
-not prescribe a particular coefficient set for the wind and current
-terms — whichever the vessel's own DP system already uses is the
-right one, since the point is to reproduce the forces that system
-will act against. The wave-drift term dominates the LF driving
-spectrum; wind and current appear primarily as bias offsets absorbed
-by the DP model.
+three components: the second-order wave-drift force per DOF, obtained
+by applying the vessel's quadratic transfer functions (QTFs)
+[cite:@pinkster_qtf] to the directional spectrum, and the wind and
+current forces, computed with the same models the vessel's DP control
+system uses. The wave-drift term dominates the LF driving spectrum;
+wind and current appear primarily as bias offsets absorbed by the DP
+model.
 
 *c. From \(\tau_{env}\) to motion envelope.* Under Eq.
 (\ref{eq:vessel-response}), the intact response has an LF component
