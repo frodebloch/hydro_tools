@@ -218,13 +218,14 @@ vessel's motion footprint has consumed the gangway's mechanical
 travel. The same picture recurs in heave-compensated construction,
 ROV LARS operations, and offshore crane work: the operational limit
 is a motion limit on mission-sensitive equipment, not a capacity
-limit. The IMCA M254 bands are themselves a motion concept — the
-yellow (P90) and red (P95) footprint bands are quantiles of the LF
-motion process, not a percentage of capacity reserve. A motion-based
-pre-operation risk assessment produces exactly these quantiles for
-the vessel and, through the same shared kinematic model, for the
-mission-equipment quantities the operator actually cares about, such
-as telescope stroke.
+limit. The IMCA M254 bands are themselves a motion concept: the
+yellow and red station-keeping footprint limits are distances the
+vessel must stay within, not percentages of capacity reserve. What a
+motion-based pre-operation risk assessment adds is the *probability
+of exceeding* them — quantiles of the motion process evaluated
+against those limits — for the vessel and, through the same shared
+kinematic model, for the mission-equipment quantities the operator
+actually cares about, such as telescope stroke.
 
 ** High-quality weather forecasts as an enabler
 
@@ -297,8 +298,9 @@ the process variance \(\sigma^{2}\), the zero-upcrossing rate, and a
 spectral bandwidth parameter. The operator display reports the median
 \(P_{50}\) and tail \(P_{95}\) of \(R\); the traffic-light band that
 decides operable / caution / no-go is driven by \(P_{90}\) against
-the vessel- and mission-specific warning and alarm radii, matching
-the IMCA M254 station-keeping alarm concept [cite:@imca_m254]. The
+the vessel- and mission-specific warning and alarm radii taken from
+the IMCA M254 station-keeping alarm concept [cite:@imca_m254]; the
+choice of \(P_{90}\) as the band-driving quantile is ours. The
 wave-frequency component is added in quadrature.
 
 *d. Extension to mission equipment.* The same excursion process,
@@ -779,8 +781,8 @@ p_{\text{sat}} =
 is evaluated against the per-DOF residual cap \(\tau_{\text{residual,
 cap}}\) computed from the classical CQA output. The panel raises the
 Large Transient alert at operator-configured amber and red thresholds
-on \(p_{\text{sat}}\), matching the IMCA M254 Fig.8 caution / warning
-band pattern used elsewhere in the operator UX.
+on \(p_{\text{sat}}\), following the same two-level caution / warning
+pattern used elsewhere in the operator UX.
 
 The semantics of the alert are precise. \(p_{\text{sat}}\) does not
 answer *what is the vessel's excursion after a WCF*; it answers *how
