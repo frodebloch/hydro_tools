@@ -299,17 +299,21 @@ stationary over the operating window.
 
 What the operator needs from this is the answer to a simple
 question: how far is the vessel likely to move, at worst, during the
-operation? The framework therefore reports the *maximum position
-excursion over a selected operating window* — the largest distance
-the vessel wanders from its setpoint during, typically, the next 30
-minutes. Because that maximum is itself uncertain, it is reported not
-as a single figure but as a distribution, so the operator sees both a
-typical and a conservative outcome: the display gives the median
-\(P_{50}\) and the tail \(P_{95}\) of the maximum excursion \(R\).
-Obtaining that distribution from the response statistics is standard
-extreme-value practice for stationary processes; see Rice
-[cite:@rice_running_max] and Vanmarcke [cite:@vanmarcke_bandwidth]
-for the derivations.
+operation? The quantity of interest is therefore the *maximum
+position excursion over a selected operating window* \(R\) — the
+largest distance the vessel wanders from its setpoint during,
+typically, the next 30 minutes. That maximum is not a fixed number:
+it varies from one realisation of the sea state to the next, so the
+framework treats it as a random quantity. Characterising it from the
+response statistics is standard extreme-value practice for stationary
+processes; see Rice [cite:@rice_running_max] and Vanmarcke
+[cite:@vanmarcke_bandwidth] for the derivations.
+
+What is then reported is not the distribution itself but the number
+the operator can act on: the probability that the excursion exceeds
+the warning and alarm limits set for the operation. Representative
+values — the median \(P_{50}\) and the tail \(P_{95}\) of \(R\) —
+are shown alongside it to give a sense of scale.
 
 The traffic-light band that decides operable / caution / no-go is
 driven by \(P_{90}\) against the vessel- and mission-specific
