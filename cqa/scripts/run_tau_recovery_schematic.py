@@ -7,11 +7,11 @@ after the WCF; two different residual-capacity caps illustrate the
 two operational regimes:
 
   (1) Healthy: tau_residual_cap sits above tau_pre. The exponential
-      recovery curve reaches tau_pre without clipping. Classical CA
+      recovery curve reaches tau_pre without clipping. Classical CQA
       reports green.
   (2) Saturated: tau_residual_cap sits below tau_pre. The same
       recovery envelope is clipped at the cap, asymptoting there
-      instead of at tau_pre. Classical CA raises Force Off; the
+      instead of at tau_pre. Classical CQA raises Force Off; the
       motion layer's saturation-probability (p_sat) channel of
       Sec. 4.4 raises the Large Transient alert.
 
@@ -57,7 +57,7 @@ def main() -> None:
 
     # Healthy recovery: uncapped exponential to tau_pre.
     ax.plot(t_post, curve_uncapped, color='C0', lw=2.2,
-            label='healthy: $\\tau_{\\mathrm{residual,cap}} \\geq \\tau_{\\mathrm{pre}}$ (classical CA green)')
+            label='healthy: $\\tau_{\\mathrm{residual,cap}} \\geq \\tau_{\\mathrm{pre}}$ (classical CQA green)')
 
     # Saturated recovery: same envelope clipped at cap_sat.
     ax.plot(t_post, curve_clipped_sat, color='C3', lw=2.2, ls=(0, (6, 3)),

@@ -48,15 +48,17 @@ against logged operations is in progress.
 
 * Abbreviations and Definitions
 
-- *CA* :: Consequence Analysis: the DP-rules-mandated periodic
+- *CQA* :: Consequence Analysis: the DP-rules-mandated periodic
   computation that flags whether the vessel can maintain position
-  after a worst-case failure.
-- *CQA* :: Consequence Quality Analysis: the extension of CA that
-  quantifies the *probability of exceeding operational limits*, in
-  both intact and post-WCF conditions, continuously and in motion
-  terms.
+  after a worst-case failure. Referred to throughout as the
+  *classical CQA* where it needs to be distinguished from the
+  extension proposed here.
+- *Motion-based CQA* :: The extension of the classical CQA proposed
+  in this paper, which quantifies the *probability of exceeding
+  operational limits*, in both intact and post-WCF conditions,
+  continuously and in motion terms.
 - *WCF* :: Worst-Case Failure: the failure event (typically loss of a
-  thruster group or bus section) against which CA is evaluated.
+  thruster group or bus section) against which CQA is evaluated.
 - *WCFDI* :: Worst-Case Failure Design Intent: the specific failure
   configuration the capability and consequence analyses are evaluated
   against; the vessel is designed to survive this.
@@ -76,7 +78,7 @@ against logged operations is in progress.
 
 * Introduction
 
-Consequence analysis (CA) has been part of the DP requirements
+Consequence analysis (CQA) has been part of the DP requirements
 since the IMO issued MSC/Circ.645 in 1994 [cite:@imo_msc645] and
 has since been carried into the class rules
 [cite:@dnv_ru_ship;@abs_dps] as a mandatory software function on
@@ -91,7 +93,7 @@ That obligation is met today by a periodic force-and-moment reserve
 check with alarm-on-breach. The check is defensible: applied with a
 percentage capacity margin it keeps the operator comfortably inside
 a safe envelope for the majority of operations. What it does not
-report is *motion*. The CA does not indicate how the vessel will
+report is *motion*. The CQA does not indicate how the vessel will
 move in the intact condition, how it will move during and after a
 WCF, or how mission-sensitive equipment such as walk-to-work
 gangways, heave-compensated cranes, and ROV LARS will move with it.
@@ -104,13 +106,13 @@ indication of proximity to those limits.
 
 This paper proposes a *motion-based consequence quality analysis*
 (CQA) framework that closes that gap by adding a layer on top of
-the current CA implementation, in two coupled deliverables: a
+the current CQA implementation, in two coupled deliverables: a
 *pre-operation risk assessment*, evaluating the worst-case failure
 design intent (WCFDI) in motion terms from the forecast sea state;
 and a *live CQA panel*, producing continuously updated \(P_{50}\) /
 \(P_{95}\) motion-footprint envelopes for intact and post-WCF
 conditions from measurements every DP-2/DP-3 vessel already
-publishes. The framework is additive: the current CA continues to
+publishes. The framework is additive: the current CQA continues to
 run and continues to raise its Drift Off / Force Off alarms; the
 motion layer adds one new operator alert, *Large Transient*, that
 fires when the motion prediction itself should be read as a lower
@@ -152,7 +154,7 @@ and mission equipment may sit close to the operational limits.
    progress, the operator continuously sees how close the vessel and
    mission-equipment motion sits to the operational limits, both in
    the intact condition and in the post-WCF condition. Rather than
-   the binary alarm-on-breach of the classical CA, the operator reads
+   the binary alarm-on-breach of the classical CQA, the operator reads
    a continuously updated margin: comfortable, closer, at the limit.
    The awareness covers the post-WCF condition explicitly, so the
    operator sees whether the operation is inside the survivable
@@ -174,7 +176,7 @@ model, no runtime spectral partition, no runtime wave forecast — so
 that the design stays defensible under mixed wind-sea and swell,
 cross-current forcing, and near-installation shielding. Fourth,
 *additive to the classical framework*: the motion layer sits on top
-of the classical capability + CA computation and consumes its
+of the classical capability + CQA computation and consumes its
 outputs, without replacing or contesting any rule-mandated
 behaviour; the classical Drift Off and Force Off alarms remain the
 primary hard-failure signals.
@@ -187,14 +189,14 @@ Consider a walk-to-work operation transferring personnel to a wind
 turbine. The gangway operator has a firm limit on tip motion — a few
 tenths of a metre — beyond which the transfer is stopped. In many
 sea states the vessel itself is comfortable: the DP capacity margin
-against wind, wave, and current is generous, and the classical CA
+against wind, wave, and current is generous, and the classical CQA
 reports green. Yet the transfer stops, because the *motion* projected
 through the gangway lever arms exceeds the tip limit long before the
 vessel exceeds its station-keeping limits. The same picture recurs
 in heave-compensated construction, ROV LARS operations, and offshore
 crane work: the operational limit is a motion limit on
 mission-sensitive equipment, and it sits inside the capacity-safe
-envelope reported by the classical CA. Even for the vessel itself,
+envelope reported by the classical CQA. Even for the vessel itself,
 the IMCA M254 [cite:@imca_m254] station-keeping alarm concept is
 inherently a motion concept: the yellow (P90) and red (P95) footprint
 bands are quantiles of the LF motion process, not a percentage of
@@ -368,7 +370,7 @@ allocator reallocation time \(T_{\text{realloc}} = 10\) s; the
 P90 Gaussian factor is \(k_{\sigma} = 0.674\). In a real deployment
 the per-DOF residual capacity is not a scalar of intact — the motion
 layer consumes whichever \(\tau_{\text{residual, cap}}\) the classical
-CA already publishes over the survivor set. The dashed boundary is
+CQA already publishes over the survivor set. The dashed boundary is
 the wind-speed contour at which the P90 of the running-maximum
 excursion, evaluated on the post-WCFDI closed-loop dynamics with
 this residual capacity, reaches the alarm radius per DOF.
@@ -377,7 +379,7 @@ The important operational message is that the post-WCFDI boundary
 sits well inside the intact alarm ring — the vessel panel shows the
 WCFDI no-go contour at roughly 15-20 m/s wind speed in the beam
 sector, compared to the intact alarm at around 25 m/s. This is the
-motion equivalent of the tighter capacity envelope the classical CA
+motion equivalent of the tighter capacity envelope the classical CQA
 already screens against, but expressed in the operator's motion
 units rather than in a capacity-reserve percentage. Two features of
 the plot deserve comment. First, the WCFDI restriction is materially
@@ -420,7 +422,7 @@ each other. The example is driven by a synthetic 24-hour storm.
 The three panels correspond to three different consequence-analysis
 questions asked at the same (time, heading) cell:
 
-- *Classical CA utilisation* (top panel): the ratio of mean
+- *Classical CQA utilisation* (top panel): the ratio of mean
   environmental force to residual (post-WCFDI) thrust capability,
   per DOF, taken maximum across DOFs. This is what the current
   force-and-moment reserve check that runs on any DP-2/DP-3 vessel
@@ -437,19 +439,19 @@ questions asked at the same (time, heading) cell:
 
 The operator's task is to plan a safe operation through the forecast
 window. The three panels answer that task in three different ways.
-The classical CA panel identifies the operational constraint the
+The classical CQA panel identifies the operational constraint the
 current rules already enforce: a narrow yellow-orange caution band
 and a small red spot at the storm peak (12:00) in the two beam
 sectors, driven by the environmental force approaching the residual
-capability. An operator running only the classical CA would read
+capability. An operator running only the classical CQA would read
 this as "the storm peak is borderline in beam headings; work around
 it and the operation is fine". The motion-based intact panel adds
 essentially nothing new here — the vessel motion itself never comes
-close to the alarm radius, so the classical CA plus intact motion
+close to the alarm radius, so the classical CQA plus intact motion
 confirms the same operational verdict.
 
 The motion-based post-WCFDI panel changes the picture. Even though
-the classical CA reports at most yellow-caution across the storm
+the classical CQA reports at most yellow-caution across the storm
 peak, the motion-based post-WCFDI utilisation reaches saturation
 (dark red, well past the alarm radius) in a narrow ~2-hour window
 around 12:00 in the beam headings. Physically, this is the regime
@@ -460,7 +462,7 @@ envelope. Two heading windows around head and following seas
 (roughly 150-210° and 330-030°) stay green even at the storm peak.
 
 The operator's plan therefore depends on which panel is authoritative.
-On classical CA alone the plan is "operate through the storm, easing
+On classical CQA alone the plan is "operate through the storm, easing
 off around 12:00"; on the motion-based post-WCFDI panel the plan
 becomes "avoid the beam sector 11:00-13:00 window entirely, or use
 one of the two green heading windows through it". The 2-hour narrow
@@ -476,11 +478,11 @@ the residual capacity constrains.
 #+CAPTION: three panels use the same green→yellow→red gradient
 #+CAPTION: colour map on a common utilisation ratio scale 0 to 1.2
 #+CAPTION: (colour bar right). Reference thresholds: for the
-#+CAPTION: classical CA panel, caution at 0.80 and warning at 0.90
+#+CAPTION: classical CQA panel, caution at 0.80 and warning at 0.90
 #+CAPTION: (reference DP system convention); for the two motion panels, caution
 #+CAPTION: at 0.50 (IMCA M254 warn / alarm ratio) and warning at
 #+CAPTION: 1.00 (P90 equals the M254 alarm radius). Top: classical
-#+CAPTION: CA utilisation (environmental forces / residual
+#+CAPTION: CQA utilisation (environmental forces / residual
 #+CAPTION: capability, max across DOFs). Middle: motion-based intact
 #+CAPTION: utilisation (P90 footprint / IMCA M254 alarm radius).
 #+CAPTION: Bottom: motion-based post-WCFDI utilisation (post-WCFDI
@@ -535,10 +537,10 @@ and during the operation.
 
 * Consequence Analysis (Live)
 
-** Positioning: additive to the classical CA
+** Positioning: additive to the classical CQA
 
 The live CQA panel runs alongside — not in place of — the classical
-CA required by IMO MSC/Circ.645 [cite:@imo_msc645]. The classical CA
+CQA required by IMO MSC/Circ.645 [cite:@imo_msc645]. The classical CQA
 continues to compute and publish four quantities that the motion
 layer subscribes to: the per-WCF-candidate capacity reserve, a
 drift-off flag per DOF (the survivor set has zero capability against
@@ -565,16 +567,16 @@ characteristic time \(T_{\text{realloc}}\), asymptoting to one of
 two targets. In the *healthy* case, when the pre-failure demand
 \(\tau_{\text{pre}}\) is inside the residual capacity cap
 \(\tau_{\text{residual, cap}}\) — the per-DOF thrust envelope of
-the surviving fleet, published by the classical CA — the curve
-recovers back to \(\tau_{\text{pre}}\) and the classical CA reports
+the surviving fleet, published by the classical CQA — the curve
+recovers back to \(\tau_{\text{pre}}\) and the classical CQA reports
 green. In the *saturated* case, when \(\tau_{\text{pre}}\) exceeds
 \(\tau_{\text{residual, cap}}\), the same exponential recovery
 saturates at the cap instead of at \(\tau_{\text{pre}}\); the
-classical CA raises Force Off on that DOF, and the motion layer's
+classical CQA raises Force Off on that DOF, and the motion layer's
 [[Transient right after WCF: saturation probability channel][saturation-probability channel]] raises the *Large
 Transient* alert on the transient itself. The motion layer consumes
 \(\tau_{\text{lost}}\) and \(\tau_{\text{residual, cap}}\) as-is from
-whatever classical CA is running in the vessel — no vessel-specific
+whatever classical CQA is running in the vessel — no vessel-specific
 capacity scalar is introduced. The one modelling parameter internal
 to the motion layer is the reallocation characteristic time
 \(T_{\text{realloc}}\); for the CSOV benchmark used throughout this
@@ -697,7 +699,7 @@ buffer is used as the initial condition of the same closed-loop
 3-DOF vessel model developed for the pre-op prediction in the [[Method: from forecast sea state to motion envelope][method section]]
 (Eq. \ref{eq:vessel-response}), propagated forward through the
 post-WCF window with \(\tau_{\text{lost}}\) taken from the classical
-CA output. Each propagation produces a peak-\(|\eta_{xy}|\)
+CQA output. Each propagation produces a peak-\(|\eta_{xy}|\)
 trajectory; across the buffer this gives an empirical distribution
 of post-WCF peak excursions covering the actual pre-failure state
 variability the vessel is experiencing right now. The panel reports
@@ -710,7 +712,7 @@ The two sides differ only in what feeds them — the pre-op side takes
 a forecast sea state through a vessel-response model to build the
 \(\tau_{\text{env}}\) history; the live side takes the live
 \(\hat{b}\) and \(\tau_{\text{pre}}\) samples directly, without ever
-inferring a sea state. The classical CA outputs
+inferring a sea state. The classical CQA outputs
 \(\tau_{\text{lost}}\) and the residual capacity feed both sides in
 the same way.
 
@@ -749,7 +751,7 @@ p_{\text{sat}} =
 \end{equation}
 
 is evaluated against the per-DOF residual cap \(\tau_{\text{residual,
-cap}}\) computed from the classical CA output. The panel raises the
+cap}}\) computed from the classical CQA output. The panel raises the
 Large Transient alert at operator-configured amber and red thresholds
 on \(p_{\text{sat}}\), matching the IMCA M254 Fig.8 caution / warning
 band pattern used elsewhere in the operator UX.
@@ -764,11 +766,11 @@ amber or red, the ensemble output should be read as a lower bound and
 the operator should treat the actual excursion as materially larger
 than the number on the screen. The channel therefore behaves as a
 *trust indicator on the motion prediction*, not as a duplicate of
-the classical CA capacity check.
+the classical CQA capacity check.
 
 The channel closes the "readily available measurements only" design
 goal of the [[Goal][Goal section]]: it consumes only the live allocator feedback and the
-per-DOF residual cap constant computed from the classical CA output.
+per-DOF residual cap constant computed from the classical CQA output.
 It does not consume a sea state, a wave forecast, or a spectral
 partition. This makes it defensible under the operationally common
 conditions — mixed wind-sea and swell, cross-current forcing,
@@ -779,7 +781,7 @@ post-WCF forcing.
 
 The [[Motion after WCF: ensemble evaluator][ensemble evaluator]] and the
 [[Transient right after WCF: saturation probability channel][saturation-probability channel]]
-are combined with the classical CA output into the
+are combined with the classical CQA output into the
 operator decision surface of Table [[tab:decision_surface]]. The
 table is the operator's mental model of the live panel in one view:
 for any combination of the three channels the operator has an
@@ -794,7 +796,7 @@ previous column can be trusted.
 #+CAPTION: Live operator decision surface. Rows correspond to
 #+CAPTION: increasing operational concern.
 #+NAME: tab:decision_surface
-| Classical CA        | Post-WCF motion | Saturation | Interpretation                                             |
+| Classical CQA        | Post-WCF motion | Saturation | Interpretation                                             |
 |---------------------+-----------------+------------+------------------------------------------------------------|
 | OK                  | similar         | green      | Vessel operating in a comfortable state; no action needed  |
 | OK                  | elevated        | green      | Elevated post-WCF motion, but the prediction is trustworthy|
@@ -803,15 +805,15 @@ previous column can be trusted.
 | Drift Off/Force Off | (any)           | (any)      | Classical alarm dominates; motion-layer output is context  |
 
 The decision surface preserves the classical alarm ordering: when
-the classical CA fires Drift Off or Force Off, the classical alarm
+the classical CQA fires Drift Off or Force Off, the classical alarm
 takes precedence and the motion-layer output is displayed as
 supporting context rather than as the operator's primary action
-cue. Within the classical-CA-OK state, the two-channel readout gives
+cue. Within the classical-CQA-OK state, the two-channel readout gives
 the operator four distinct positions on the way toward saturation.
 The three operator-visible alerts of the framework are therefore:
 
-- *Drift Off* (classical CA warning) — unchanged from current DP-2/DP-3 practice.
-- *Force Off* (classical CA warning) — unchanged from current DP-2/DP-3 practice.
+- *Drift Off* (classical CQA warning) — unchanged from current DP-2/DP-3 practice.
+- *Force Off* (classical CQA warning) — unchanged from current DP-2/DP-3 practice.
 - *Large Transient* (motion CQA caution / warning) — new; fires when \(p_{\text{sat}}\) crosses its amber or red threshold, indicating that the ensemble output should be read as a lower bound.
 
 No other alerts are added or removed; existing DP UX conventions,
@@ -824,7 +826,7 @@ The post-WCF response has two distinct phases with independent
 risk profiles. The *transient phase* — the first 30-60 s after the
 failure — is dominated by the survivor allocator absorbing the step
 in \(\tau_{\text{lost}}\); its peak excursion is what the classical
-CA implicitly verifies against by requiring the survivor set to
+CQA implicitly verifies against by requiring the survivor set to
 generate the pre-failure force and moment. The *long-term phase* is
 a new steady state under reduced capacity: with the surviving peak
 \(\tau\) closer to the mean environmental forcing than in the intact
@@ -832,7 +834,7 @@ condition, the LF headroom against wave-drift variability is
 compressed and the running-maximum footprint grows.
 
 In some sea states the long-term P95 footprint exceeds the transient
-peak. The classical CA sees the transient pass and reports green, but
+peak. The classical CQA sees the transient pass and reports green, but
 the operator is nonetheless outside the motion envelope. The
 [[Motion after WCF: ensemble evaluator][ensemble evaluator]] captures this correctly: it propagates
 the closed-loop vessel model over a window long enough (~5 min) to cover both
@@ -983,7 +985,7 @@ The 5.4 m motion prediction is nonetheless not what the operator
 sees on that cell. The framework raises a red alarm on
 bf8p5_q10_w45 through two independent channels. First, the predicted
 motion \(P_{95}\) of 5.4 m already exceeds the alarm radius of 4 m
-used for the CSOV, so the classical CA motion bar fires red on 28 of
+used for the CSOV, so the classical CQA motion bar fires red on 28 of
 30 simulator seeds. Second, the
 [[Transient right after WCF: saturation probability channel][saturation-probability channel]]
 evaluates \(p_{\text{sat}}\) with a mean of 0.14 and a maximum
@@ -1099,7 +1101,7 @@ in-service DP vessel of opportunity. The vessel is a
 standard DP telemetry channels used by the live layer of the
 framework: position deviation, controller thrust command, allocator
 feedback, and DP model observer state (see
-[[Positioning: additive to the classical CA][the positioning section]]). The logs cover
+[[Positioning: additive to the classical CQA][the positioning section]]). The logs cover
 [TODO: N] operational periods totalling [TODO: N] hours across
 [TODO: sea-state / heading range summary].
 
@@ -1152,7 +1154,7 @@ conference.
 
 This paper has developed a motion-based consequence quality analysis
 (CQA) framework that closes the motion gap in the classical DP
-capability and CA machinery. The contribution is two-part. The
+capability and CQA machinery. The contribution is two-part. The
 pre-operation risk assessment ([[Motion-Based Capability Analysis]]) extends the classical capability
 analysis with an estimate of vessel and mission-equipment motion
 from the forecast sea state, delivered as the operability polar, the
@@ -1183,9 +1185,9 @@ whether the motion forecast can be trusted as a tight upper bound or
 should be read as a lower bound.
 
 The framework is deliberately additive to the classical rules. The
-capability + CA computation mandated by IMO MSC/Circ.645, DNV-ST-0111
+capability + CQA computation mandated by IMO MSC/Circ.645, DNV-ST-0111
 and IMCA M254 is not superseded or contested; applying a percentage
-capacity margin on top of the classical CA continues to land the
+capacity margin on top of the classical CQA continues to land the
 operator comfortably inside a safe operating envelope for the
 majority of operations. What the motion layer adds is the ability to
 work closer to the operational limit in a controlled way — the

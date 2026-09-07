@@ -5,9 +5,9 @@ benefit of the motion-based CQA framework visually explicit by
 comparing three side-by-side utilisation heatmaps for the same synthetic
 24 h storm and the same twelve headings:
 
-  1. Classical CA utilisation:
+  1. Classical CQA utilisation:
        |tau_env| / tau_residual_cap, max across DOFs.
-     Follows the brucon-standard caution/warning convention:
+     Follows the reference DP system caution/warning convention:
        green   : util < 0.80  (comfortable)
        yellow  : 0.80 <= util < 0.90  (caution)
        red     : util >= 0.90  (warning)
@@ -26,7 +26,7 @@ comparing three side-by-side utilisation heatmaps for the same synthetic
 All three panels use the same green -> yellow -> red gradient colour
 map so the operator can directly compare "stress level" across the
 three CQA perspectives. The point the figure lands is: the classical
-CA remains comfortably green through the storm, but the motion-based
+CQA remains comfortably green through the storm, but the motion-based
 post-WCFDI panel identifies the actual operational constraint.
 
 Run:
@@ -64,22 +64,22 @@ def synthetic_storm_forecast(n_slots: int = 24):
     """Return a list of ForecastSlot for a synthetic 24 h passing storm.
 
     Storm profile chosen deliberately in the operationally interesting
-    regime: peak Vw ~ 12 m/s, so the classical CA stays comfortably
+    regime: peak Vw ~ 12 m/s, so the classical CQA stays comfortably
     within the residual (post-WCFDI) capacity throughout, while the
     motion-based post-WCFDI utilisation still identifies where and
     when the P90 excursion crosses IMCA M254 alarm thresholds. This is
     where the motion-based framework adds operational content beyond
-    the classical CA.
+    the classical CQA.
     """
     t_h = np.arange(n_slots)
     # Storm profile: peak Vw ~ 12 m/s at 12:00, chosen so the classical
-    # CA stays comfortably within the residual capacity through most of
+    # CQA stays comfortably within the residual capacity through most of
     # the storm (peak ~80% utilisation in beam sectors, at the caution
     # threshold), while the motion-based post-WCFDI utilisation identifies
     # a materially larger red band around the storm peak in the beam
     # headings. This is the operationally interesting regime where the
     # motion-based analysis adds new information beyond the classical
-    # CA verdict.
+    # CQA verdict.
     Vw = 5.0 + 7.5 * (1.0 - np.abs(t_h - 12.0) / 12.0)  # 5 -> 12.5 -> 5 m/s
     theta_deg = 315.0 + (360.0 - 315.0) * (t_h / (n_slots - 1))
     theta_deg = np.mod(theta_deg, 360.0)
@@ -100,7 +100,7 @@ def synthetic_storm_forecast(n_slots: int = 24):
 
 
 # ---------------------------------------------------------------------------
-# Classical CA utilisation
+# Classical CQA utilisation
 #
 # For each (slot, heading) cell, evaluate the mean environmental force
 # vector (wind + current + mean drift) in body frame and divide per
@@ -111,7 +111,7 @@ def synthetic_storm_forecast(n_slots: int = 24):
 def classical_ca_utilisation(cfg, slot: ForecastSlot,
                               heading_compass: float,
                               alpha: float = 2.0 / 3.0) -> float:
-    """Classical CA utilisation ratio at one (slot, heading) cell.
+    """Classical CQA utilisation ratio at one (slot, heading) cell.
 
     Returns max_DOF(|tau_env_DOF| / tau_residual_cap_DOF).
     """
@@ -225,8 +225,8 @@ def main() -> None:
         for s in range(n_s)
     ])
 
-    # ----- Classical CA utilisation matrix (built independently) -----
-    print(f"Building classical CA utilisation matrix: {n_s * n_h} cells")
+    # ----- Classical CQA utilisation matrix (built independently) -----
+    print(f"Building classical CQA utilisation matrix: {n_s * n_h} cells")
     classical_util = np.array([
         [classical_ca_utilisation(cfg, slots[s], headings[h])
          for h in range(n_h)]
@@ -244,14 +244,14 @@ def main() -> None:
     # past alarm) which is enough to communicate "well past".
     wcfdi_util = np.minimum(wcfdi_peak / pos_alarm, 1.2)
 
-    # Classical CA colour scale: brucon 80% caution, 90% warning.
+    # Classical CQA colour scale: reference DP system: 80% caution, 90% warning.
     classical_util_plot = np.minimum(classical_util, 1.2)
 
     # ----- Colour maps -----
     # Motion panels: caution at warn/alarm = 0.5, warning at alarm = 1.0.
     cmap_motion = _make_gradient_cmap(caution=warn_ratio, warning=1.0,
                                        max_val=1.2)
-    # Classical CA panel: brucon 80/90.
+    # Classical CQA panel: reference DP system 80/90.
     cmap_classical = _make_gradient_cmap(caution=0.80, warning=0.90,
                                           max_val=1.2)
 
@@ -261,7 +261,7 @@ def main() -> None:
 
     panels = [
         (axes[0], classical_util_plot, cmap_classical,
-         "Classical CA utilisation "
+         "Classical CQA utilisation "
          "(environmental forces / residual capability; "
          "caution 80%, warning 90%)"),
         (axes[1], intact_util, cmap_motion,
@@ -313,7 +313,7 @@ def main() -> None:
     # ---- Text summary -----
     print()
     print("Peak utilisation across the 24-h storm:")
-    print(f"  classical CA:              {classical_util.max():.2f} "
+    print(f"  classical CQA:              {classical_util.max():.2f} "
           f"(at slot {np.unravel_index(classical_util.argmax(), classical_util.shape)})")
     print(f"  motion-based intact:       {intact_util.max():.2f} "
           f"(at slot {np.unravel_index(intact_util.argmax(), intact_util.shape)})")
@@ -325,7 +325,7 @@ def main() -> None:
     frac_red_intact = float((intact_util >= 1.0).mean())
     frac_red_wcfdi = float((wcfdi_util >= 1.0).mean())
     print(f"Fraction of cells in red band:")
-    print(f"  classical CA (>= 90%):     {frac_red_classical:.1%}")
+    print(f"  classical CQA (>= 90%):     {frac_red_classical:.1%}")
     print(f"  motion intact (>= alarm):  {frac_red_intact:.1%}")
     print(f"  motion WCFDI (>= alarm):   {frac_red_wcfdi:.1%}")
 
