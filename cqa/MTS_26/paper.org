@@ -18,6 +18,12 @@
 #+LATEX_CLASS: article
 #+LaTeX_CLASS_OPTIONS: [letterpaper,11pt]
 #+LATEX_HEADER: \usepackage[T1]{fontenc}
+#+LATEX_HEADER: % Float spacing: default \belowcaptionskip is 0pt, which leaves table
+#+LATEX_HEADER: % captions (org places them above the tabular) running straight into
+#+LATEX_HEADER: % the header row. Also open up the gap between floats and body text.
+#+LATEX_HEADER: \setlength{\belowcaptionskip}{9pt}
+#+LATEX_HEADER: \setlength{\textfloatsep}{22pt plus 4pt minus 4pt}
+#+LATEX_HEADER: \setlength{\intextsep}{20pt plus 4pt minus 4pt}
 # mathptmx removed: mts.sty already loads newtxmath, and mathptmx loaded
 # afterwards reverts math to the older Times math font (zptmcm7y), which
 # lacks +, parentheses and accent glyphs - they were silently dropped from
@@ -939,7 +945,7 @@ labels in the roll-up figures later in this section.
 #+CAPTION: environments are taken from DNV-ST-0111
 #+CAPTION: [cite:@dnv_st_0111].
 #+NAME: tab:cells
-#+ATTR_LATEX: :align lrrrrrrl :font \small
+#+ATTR_LATEX: :align lrrrrrrl
 | Cell            |  Bf |   Vw |  Hs |    Tp |   Vc | Wave heading | Wind offset |
 |-----------------+-----+------+-----+-------+------+--------------+-------------|
 | bf4_c1_h0       | 4   |  7.0 | 1.5 |  6.00 | 1.0  | 0          | co-linear   |
