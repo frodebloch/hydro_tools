@@ -196,24 +196,35 @@ primary hard-failure signals.
 ** Why motion matters in modern DP operations
 
 Consider a walk-to-work operation transferring personnel to a wind
-turbine. The gangway operator has a firm limit on tip motion — a few
-tenths of a metre — beyond which the transfer is stopped. In many
-sea states the vessel itself is comfortable: the DP capacity margin
-against wind, wave, and current is generous, and the classical CQA
-reports green. Yet the transfer stops, because the *motion* projected
-through the gangway lever arms exceeds the tip limit long before the
-vessel exceeds its station-keeping limits. The same picture recurs
-in heave-compensated construction, ROV LARS operations, and offshore
-crane work: the operational limit is a motion limit on
-mission-sensitive equipment, and it sits inside the capacity-safe
-envelope reported by the classical CQA. Even for the vessel itself,
-the IMCA M254 [cite:@imca_m254] station-keeping alarm concept is
-inherently a motion concept: the yellow (P90) and red (P95) footprint
-bands are quantiles of the LF motion process, not a percentage of
-capacity reserve. A motion-based pre-operation risk assessment
-produces exactly these quantiles for the vessel and, through the
-same shared kinematic model, for any point on the mission equipment
-that the operator cares about.
+turbine. Once the gangway has landed, its tip is not free to follow
+the vessel: it rests on, or is pressed against, a landing point on
+the structure, and is therefore held fixed in the structure's frame.
+The vessel motion underneath is absorbed instead by the gangway
+mechanism — principally telescope stroke, together with slew. Both
+have hard mechanical end-stops. A typical gangway offers on the
+order of 8-10 m of total stroke between fully extended and fully
+compressed, and that stroke budget, shared with the slew envelope,
+is what sets the excursion the gangway pedestal — and hence the
+vessel — can be allowed before the mechanism runs out of travel and
+the transfer must be stopped. The IMCA M254 [cite:@imca_m254] amber
+(2 m) and red (4 m) station-keeping footprint limits express exactly
+this allowance.
+
+The consequence is that the binding limit is a *motion* limit that
+sits well inside the capacity-safe envelope. In many sea states the
+DP capacity margin against wind, wave, and current is generous and
+the classical CQA reports green, yet the transfer stops because the
+vessel's motion footprint has consumed the gangway's mechanical
+travel. The same picture recurs in heave-compensated construction,
+ROV LARS operations, and offshore crane work: the operational limit
+is a motion limit on mission-sensitive equipment, not a capacity
+limit. The IMCA M254 bands are themselves a motion concept — the
+yellow (P90) and red (P95) footprint bands are quantiles of the LF
+motion process, not a percentage of capacity reserve. A motion-based
+pre-operation risk assessment produces exactly these quantiles for
+the vessel and, through the same shared kinematic model, for the
+mission-equipment quantities the operator actually cares about, such
+as telescope stroke.
 
 ** High-quality weather forecasts as an enabler
 
@@ -292,10 +303,14 @@ wave-frequency component is added in quadrature.
 
 *d. Extension to mission equipment.* The same excursion process,
 projected through mission-equipment lever arms and coupling
-kinematics, gives the motion at any point of interest — a gangway
-tip, LARS boom head, or crane hook — as a linear combination of
-vessel translations and rotations. No new random inputs are
-introduced; vessel and mission-equipment footprints appear together
+kinematics, gives the motion at any point of interest — a LARS boom
+head or crane hook — as a linear combination of vessel translations
+and rotations. For a landed gangway the quantity of interest is not
+a point motion but the travel the mechanism must absorb to hold the
+tip fixed on the structure: the same projection yields the telescope
+stroke deviation directly, which is what the mechanical end-stops
+constrain. No new random inputs are introduced; vessel and
+mission-equipment footprints appear together
 in the [[Example: pre-op operator summary][pre-op operator summary]].
 
 *e. Note on conservatism.* The Rice / Vanmarcke running-max formula
