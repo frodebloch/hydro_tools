@@ -1214,11 +1214,13 @@ should be read as a lower bound.
 
 The framework is deliberately additive to the classical rules. The
 capability + CQA computation mandated by IMO MSC/Circ.645
-[cite:@imo_msc645], DNV-ST-0111 [cite:@dnv_st_0111]
-and IMCA M254 [cite:@imca_m254] is not superseded or contested; applying a percentage
-capacity margin on top of the classical CQA continues to land the
-operator comfortably inside a safe operating envelope for the
-majority of operations. What the motion layer adds is the ability to
+[cite:@imo_msc645] and the class rules [cite:@dnv_ru_ship;@abs_dps],
+and the station-keeping limits established for the operation under
+guidance such as DNV-ST-0111 [cite:@dnv_st_0111] and IMCA M254
+[cite:@imca_m254], are not superseded or contested; applying a
+percentage capacity margin on top of the classical CQA continues to
+land the operator comfortably inside a safe operating envelope for
+the majority of operations. What the motion layer adds is the ability to
 work closer to the operational limit in a controlled way — the
 operator sees continuous, graded, motion-based proximity to the
 limit rather than waiting for a breach. This directly enables the
