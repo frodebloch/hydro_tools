@@ -1,5 +1,6 @@
 #+OPTIONS: toc:nil
 #+OPTIONS: num:nil
+#+OPTIONS: ^:nil
 #+CITE_EXPORT: natbib
 #+BIBLIOGRAPHY: references.bib
 
@@ -17,7 +18,10 @@
 #+LATEX_CLASS: article
 #+LaTeX_CLASS_OPTIONS: [letterpaper,11pt]
 #+LATEX_HEADER: \usepackage[T1]{fontenc}
-#+LATEX_HEADER: \usepackage{mathptmx}
+# mathptmx removed: mts.sty already loads newtxmath, and mathptmx loaded
+# afterwards reverts math to the older Times math font (zptmcm7y), which
+# lacks +, parentheses and accent glyphs - they were silently dropped from
+# every equation in the paper.
 #+LATEX: \mtsMainTitlePage
 
 * Abstract
@@ -245,8 +249,9 @@ M \ddot{\eta} + D \dot{\eta} = \tau_{env} + \tau_{c},
 
 with \(\eta = (x, y, \psi)^{\top}\) the position and heading deviation
 from setpoint, \(M\) the mass and added-mass matrix, \(D\) the linear
-damping, \(\tau_{c}\) the DP thrust command from the vessel's own PID
-+ integrator controller closed around \(\eta\), and \(\tau_{env}\) the
+damping, \(\tau_{c}\) the DP thrust command from the vessel's own
+PID + integrator controller closed around \(\eta\), and
+\(\tau_{env}\) the
 environmental forcing. Only vessel mass, damping, and controller
 tuning are required; a full 6-DOF seakeeping representation is not
 used because the pre-op deliverable is a horizontal-plane
@@ -909,6 +914,53 @@ panel's own predictions. The panel is exercised on the same input
 streams the field system would see, with the simulator supplying
 the reference truth.
 
+The validation grid is the 14 cells of Table [[tab:cells]]. The
+Beaufort 6 and Beaufort 8 environments are the nominal and extreme
+sea states tabulated in DNV-ST-0111 [cite:@dnv_st_0111]; the
+half-Beaufort cells interpolate the same slope to probe the
+saturation boundary more finely, and the Beaufort 4 cells substitute
+a stronger, obliquely-set current to give a current-dominated check
+at low wave excitation. Two waves-only cells complete the grid,
+representing station-keeping driven purely by wave loading with no
+wind or current — the condition under which the wave-drift term
+alone sets the low-frequency motion. Cell names are used directly as
+labels in the roll-up figures later in this section.
+
+#+CAPTION: The 14-cell simulator validation grid. "Wave heading" is
+#+CAPTION: the wave direction relative to the vessel (0\deg{} = head
+#+CAPTION: seas, positive = off the port bow); the vessel heading
+#+CAPTION: itself is held fixed across all cells. "Wind offset" is
+#+CAPTION: the wind direction relative to the waves; 0\deg{} means
+#+CAPTION: wind, waves and current are co-linear, and 45\deg{} splits
+#+CAPTION: the wind off the wave direction. Current runs with the
+#+CAPTION: waves except on the Beaufort 4 cells, where it is set
+#+CAPTION: 45\deg{} off the vessel heading at 1.0 m/s to load the
+#+CAPTION: vessel asymmetrically. The Beaufort 6 and Beaufort 8
+#+CAPTION: environments are taken from DNV-ST-0111
+#+CAPTION: [cite:@dnv_st_0111].
+#+NAME: tab:cells
+#+ATTR_LATEX: :align lrrrrrrl :font \small
+| Cell            |  Bf |   Vw |  Hs |    Tp |   Vc | Wave heading | Wind offset |
+|-----------------+-----+------+-----+-------+------+--------------+-------------|
+| bf4_c1_h0       | 4   |  7.0 | 1.5 |  6.00 | 1.0  | 0          | co-linear   |
+| bf4_c1_q10      | 4   |  7.0 | 1.5 |  6.00 | 1.0  | +10        | co-linear   |
+| bf6_h0          | 6   | 13.8 | 3.1 |  8.50 | 0.75 | 0          | co-linear   |
+| bf6_q10         | 6   | 13.8 | 3.1 |  8.50 | 0.75 | +10        | co-linear   |
+| bf6_h0_w45      | 6   | 13.8 | 3.1 |  8.50 | 0.75 | 0          | +45         |
+| bf6_q10_w45     | 6   | 13.8 | 3.1 |  8.50 | 0.75 | +10        | +45         |
+| bf7p5_q10_w45   | 7.5 | 19.0 | 5.1 |  9.63 | 0.75 | +10        | +45         |
+| bf8_h0          | 8   | 20.7 | 5.7 | 10.00 | 0.75 | 0          | co-linear   |
+| bf8_q10         | 8   | 20.7 | 5.7 | 10.00 | 0.75 | +10        | co-linear   |
+| bf8_h0_w45      | 8   | 20.7 | 5.7 | 10.00 | 0.75 | 0          | +45         |
+| bf8_q10_w45     | 8   | 20.7 | 5.7 | 10.00 | 0.75 | +10        | +45         |
+| bf8p5_q10_w45   | 8.5 | 22.4 | 6.4 | 10.38 | 0.75 | +10        | +45         |
+| pwo             | --  |  0.0 | 4.2 | 10.22 | 0.0  | +90        | waves only  |
+| pwq30           | --  |  0.0 | 4.2 | 10.22 | 0.0  | +30        | waves only  |
+
+Units: \(V_w\) and \(V_c\) in m/s, \(H_s\) in m, \(T_p\) in s,
+wave heading and wind offset in degrees. Each cell is run for 30 seeds,
+giving 420 realisations in total.
+
 ** Capability to intact motion
 
 The left-hand panel of the motion roll-up (Figure [[fig:rollup_motion]])
@@ -976,7 +1028,9 @@ regime the case-study of the [[Long-term post-WCF motion larger than the short-t
 interesting one. On these cells the linear closed-loop ODE that
 drives the ensemble evaluator is no longer sufficient, and the
 framework's motion \(P_{95}\) drifts from the simulator truth. The
-worst case in the roll-up is bf8p5_q10_w45: the simulator reports an LF
+worst case in the roll-up is bf8p5_q10_w45 (Beaufort 8.5, waves
+10\deg{} off the bow, wind split 45\deg{} from the waves; Table
+[[tab:cells]]): the simulator reports an LF
 peak \(P_{95}\) of 29.9 m, driven by seeds where the vessel loses
 station outright in the post-WCF long-term regime; the framework's
 predicted \(P_{95}\) is 5.4 m, an 82% underprediction.
