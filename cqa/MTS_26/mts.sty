@@ -60,10 +60,13 @@
   \renewcommand{\@oddhead}{%
     \begin{minipage}[c]{\textwidth}
       \setlength{\extrarowheight}{1.5pt}
+      % Outer @{} added: the three columns already sum to \textwidth
+      % (165.1mm), so the default \tabcolsep at each outer edge pushed
+      % the header 12pt (2 x 6pt) past the right margin on every page.
       \begin{tabular}{%
-          m{60mm}@{}%
+          @{}m{60mm}@{}%
           @{}>{\centering}p{45.1mm}@{}%
-          @{}>{\centering}p{60mm}%
+          @{}>{\centering}p{60mm}@{}%
         }
         \sffamily\small\mtsAuthor{}
         & \sffamily\small\mtsType{}
@@ -78,7 +81,10 @@
     \begin{minipage}{\textwidth}
       \vspace{0.2cm}
       \setlength{\extrarowheight}{0.5pt}
-     \begin{tabular}{  p{6.0cm}  p{8.1cm}  p{1.0cm}}%
+     % Last column widened from 1.0cm and right-aligned: "Page NN" did
+     % not fit in 1.0cm and wrapped onto a second line. Total column
+     % width is unchanged (15.1cm) so the rule still spans as before.
+     \begin{tabular}{  p{6.0cm}  p{7.3cm}  >{\raggedleft\arraybackslash}p{1.8cm}}%
         \hline%
         \sffamily\small{MTS DP Conference - Houston} & \sffamily\small{October 13-14, 2026} & \sffamily\small{Page \thepage\ } \\
         % of \pageref{LastPage} \\
