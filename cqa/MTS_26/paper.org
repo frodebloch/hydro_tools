@@ -62,8 +62,12 @@ against logged operations is in progress.
 - *WCFDI* :: Worst-Case Failure Design Intent: the specific failure
   configuration the capability and consequence analyses are evaluated
   against; the vessel is designed to survive this.
-- *DP model* :: Industry term for the observer/Kalman estimator
-  carried by the DP controller (position, velocity, bias states).
+- *DP model* :: The mathematical model of the vessel used internally in
+  the DP control system to estimate the vessel response from the
+  combination of thruster action, sensor measurements, and position
+  reference measurements. It carries estimates of position, velocity,
+  and the slowly varying bias that absorbs the environmental load not
+  otherwise modelled.
 - *Capability analysis* :: The classical pre-operation deliverable
   computing the achievable envelope of environmental force the vessel
   can hold against.
@@ -260,7 +264,7 @@ obtained by applying the vessel's quadratic transfer functions
 per Isherwood coefficients [cite:@isherwood_wind]; and the current force
 per OCIMF coefficients [cite:@ocimf_current]. The wave-drift term
 dominates the LF driving spectrum; wind and current appear primarily
-as bias offsets absorbed by the DP model's integrator.
+as bias offsets absorbed by the DP model.
 
 *c. From \(\tau_{env}\) to motion envelope.* Under Eq.
 (\ref{eq:vessel-response}), the intact response has an LF component
@@ -548,9 +552,9 @@ the prevailing environmental force in that DOF), a force-off flag
 per DOF (the survivor set is available but the prevailing demand
 exceeds its cap), and \(\tau_{\text{lost}}\), the vector of thrust
 that would be lost in the WCF at each candidate failure. The motion
-layer treats these as its inputs, along with the DP model observer
+layer treats these as its inputs, along with the DP model
 state (position and velocity deviation \(\eta, \dot{\eta}\); bias
-observer \(\hat{b}\)) and a rolling buffer of the allocator feedback
+estimate \(\hat{b}\)) and a rolling buffer of the allocator feedback
 \(\tau_{\text{fb}}\); it does not duplicate the capacity-reserve
 computation and it does not consume any sea-state input at runtime.
 
@@ -693,7 +697,7 @@ that ensemble.
 
 Concretely, the evaluator maintains a rolling 300-second buffer of
 vessel-state snapshots \(\left(\eta, \dot{\eta}, \hat{b},
-\tau_{\text{pre}}\right)\) drawn from the DP model observer and the
+\tau_{\text{pre}}\right)\) drawn from the DP model and the
 allocator feedback. At each panel update, every snapshot in the
 buffer is used as the initial condition of the same closed-loop
 3-DOF vessel model developed for the pre-op prediction in the [[Method: from forecast sea state to motion envelope][method section]]
@@ -1100,7 +1104,7 @@ in-service DP vessel of opportunity. The vessel is a
 [TODO: geographical area, e.g. North Sea], instrumented with the
 standard DP telemetry channels used by the live layer of the
 framework: position deviation, controller thrust command, allocator
-feedback, and DP model observer state (see
+feedback, and DP model state (see
 [[Positioning: additive to the classical CQA][the positioning section]]). The logs cover
 [TODO: N] operational periods totalling [TODO: N] hours across
 [TODO: sea-state / heading range summary].
