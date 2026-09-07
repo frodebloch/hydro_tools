@@ -206,9 +206,15 @@ order of 8-10 m of total stroke between fully extended and fully
 compressed, and that stroke budget, shared with the slew envelope,
 is what sets the excursion the gangway pedestal — and hence the
 vessel — can be allowed before the mechanism runs out of travel and
-the transfer must be stopped. The IMCA M254 [cite:@imca_m254] amber
-(2 m) and red (4 m) station-keeping footprint limits express exactly
-this allowance.
+the transfer must be stopped. IMCA M254 [cite:@imca_m254] sets out
+how station-keeping footprint limits should be established for an
+operation; the resulting warning and alarm radii are what express
+this allowance in a form the DP operator can work to. Throughout
+this paper we use 2 m and 4 m as representative warning and alarm
+radii for the benchmark vessel. They are illustrative values for
+that vessel and gangway, not fixed limits: the radii are
+vessel-, equipment- and operation-specific and are established per
+operation.
 
 The consequence is that the binding limit is a *motion* limit that
 sits well inside the capacity-safe envelope. In many sea states the
@@ -298,8 +304,8 @@ the process variance \(\sigma^{2}\), the zero-upcrossing rate, and a
 spectral bandwidth parameter. The operator display reports the median
 \(P_{50}\) and tail \(P_{95}\) of \(R\); the traffic-light band that
 decides operable / caution / no-go is driven by \(P_{90}\) against
-the vessel- and mission-specific warning and alarm radii taken from
-the IMCA M254 station-keeping alarm concept [cite:@imca_m254]; the
+the vessel- and mission-specific warning and alarm radii established
+per the IMCA M254 station-keeping alarm concept [cite:@imca_m254]; the
 choice of \(P_{90}\) as the band-driving quantile is ours. The
 wave-frequency component is added in quadrature.
 
@@ -356,10 +362,10 @@ wind speed the polar answers whether the operation is operable
 (green), in a caution band (yellow), or no-go (red) in terms of the
 intact motion footprint. The colour band is driven by the P90 of the
 running-maximum excursion against a warning and alarm radius: for
-the vessel base position the warn / alarm thresholds are the IMCA M254
-station-keeping levels (here 2.0 m / 4.0 m); for the gangway
-telescope they are the mission-equipment stroke limits (4.20 m / 5.60
-m). The sea state at each polar radius is generated from the wind
+the vessel base position the warn / alarm thresholds are the
+station-keeping radii established for the operation (here 2.0 m /
+4.0 m); for the gangway telescope they are the mission-equipment
+stroke limits (4.20 m / 5.60 m). The sea state at each polar radius is generated from the wind
 speed via a Pierson-Moskowitz relation with a fixed current
 component, and the operating window is 20 minutes.
 
@@ -457,9 +463,9 @@ questions asked at the same (time, heading) cell:
   reports. The operational bands used by the reference DP system are caution at 80%
   utilisation and warning at 90%.
 - *Motion-based intact utilisation* (middle panel): the ratio of the
-  intact-condition P90 running-maximum footprint to the IMCA M254
+  intact-condition P90 running-maximum footprint to the operation's
   alarm radius. Reaches 1.0 when the intact motion of the vessel
-  itself would cross the M254 alarm threshold.
+  itself would cross that alarm threshold.
 - *Motion-based post-WCFDI utilisation* (bottom panel): the same
   ratio computed on the post-WCFDI motion envelope, i.e. what the
   motion would be if the worst-case failure occurred at that
@@ -508,13 +514,13 @@ the residual capacity constrains.
 #+CAPTION: (colour bar right). Reference thresholds: for the
 #+CAPTION: classical CQA panel, caution at 0.80 and warning at 0.90
 #+CAPTION: (reference DP system convention); for the two motion panels, caution
-#+CAPTION: at 0.50 (IMCA M254 warn / alarm ratio) and warning at
-#+CAPTION: 1.00 (P90 equals the M254 alarm radius). Top: classical
+#+CAPTION: at 0.50 (the warn / alarm radius ratio) and warning at
+#+CAPTION: 1.00 (P90 equals the alarm radius). Top: classical
 #+CAPTION: CQA utilisation (environmental forces / residual
 #+CAPTION: capability, max across DOFs). Middle: motion-based intact
-#+CAPTION: utilisation (P90 footprint / IMCA M254 alarm radius).
+#+CAPTION: utilisation (P90 footprint / alarm radius).
 #+CAPTION: Bottom: motion-based post-WCFDI utilisation (post-WCFDI
-#+CAPTION: peak / IMCA M254 alarm radius).
+#+CAPTION: peak / alarm radius).
 #+NAME: fig:decision_matrix
 #+ATTR_LATEX: :width 1.0\linewidth
 [[./images/csov_wcfdi_decision_matrix_utilisation.png]]
@@ -528,7 +534,7 @@ state and time. The pre-operation operator summary
 that the operator reads before committing to the operation. Two bars
 stack vertically: the top bar is vessel base-position capability, the
 bottom bar is gangway telescope capability, both against their
-own IMCA M254 warn / alarm bands. Each bar shows the median (open
+own warn / alarm bands. Each bar shows the median (open
 circle, \(P_{50}\)) and the tail (filled diamond, \(P_{95}\)) of the
 post-WCF running-maximum motion excursion evaluated on the current
 operating state, with the traffic-light background driven by the
@@ -555,7 +561,7 @@ and during the operation.
 #+CAPTION: [[fig:wcfdi_polar]]). Top bar:
 #+CAPTION: vessel base-position capability. Bottom bar: gangway
 #+CAPTION: telescope capability. Open circle: \(P_{50}\). Filled
-#+CAPTION: diamond: \(P_{95}\). Vertical dashed lines: IMCA M254
+#+CAPTION: diamond: \(P_{95}\). Vertical dashed lines:
 #+CAPTION: warn / alarm thresholds per system. Headline probabilities
 #+CAPTION: quantify the risk of exceeding each threshold under the
 #+CAPTION: post-WCF motion excursion.

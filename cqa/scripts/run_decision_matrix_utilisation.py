@@ -13,14 +13,14 @@ comparing three side-by-side utilisation heatmaps for the same synthetic
        red     : util >= 0.90  (warning)
 
   2. Motion-based intact utilisation:
-       intact P90 running-max footprint / IMCA M254 alarm radius.
+       intact P90 running-max footprint / alarm radius.
      Thresholds:
        green   : util < warn/alarm ratio  (P90 < warn)
        yellow  : warn/alarm <= util < 1.0 (warn <= P90 < alarm)
        red     : util >= 1.0              (P90 >= alarm)
 
   3. Motion-based post-WCFDI utilisation:
-       post-WCFDI peak envelope / IMCA M254 alarm radius,
+       post-WCFDI peak envelope / alarm radius,
      same threshold structure as (2).
 
 All three panels use the same green -> yellow -> red gradient colour
@@ -67,7 +67,7 @@ def synthetic_storm_forecast(n_slots: int = 24):
     regime: peak Vw ~ 12 m/s, so the classical CQA stays comfortably
     within the residual (post-WCFDI) capacity throughout, while the
     motion-based post-WCFDI utilisation still identifies where and
-    when the P90 excursion crosses IMCA M254 alarm thresholds. This is
+    when the P90 excursion crosses the alarm threshold. This is
     where the motion-based framework adds operational content beyond
     the classical CQA.
     """
@@ -266,10 +266,10 @@ def main() -> None:
          "caution 80%, warning 90%)"),
         (axes[1], intact_util, cmap_motion,
          "Motion-based intact utilisation "
-         "(P90 footprint / IMCA M254 alarm radius)"),
+         "(P90 footprint / alarm radius)"),
         (axes[2], wcfdi_util, cmap_motion,
          "Motion-based post-WCFDI utilisation "
-         "(post-WCFDI peak / IMCA M254 alarm radius)"),
+         "(post-WCFDI peak / alarm radius)"),
     ]
 
     ims = []

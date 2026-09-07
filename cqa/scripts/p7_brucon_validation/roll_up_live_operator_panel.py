@@ -310,7 +310,7 @@ def _validate_cell(tag: str) -> dict | None:
         n_green=sum(r["overall"] == "green" for r in rows),
         # Regime-B (sustained mean-thrust saturation risk on residual
         # polytope). See cqa.live_regime_b. severity = max_i p_sat,
-        # IMCA thresholds green<0.01, amber [0.01,0.10), red>=0.10.
+        # Saturation-probability bands: green<0.01, amber [0.01,0.10), red>=0.10.
         regb_sev_mean=float(regb_sev.mean()),
         regb_sev_p90=float(np.quantile(regb_sev, 0.90)),
         regb_sev_max=float(regb_sev.max()),
@@ -415,8 +415,8 @@ def main() -> int:
     ax.bar(x + 0.20, [m["intact_p95_truth_mean"] for m in results],
            width=0.4, color="#444444", alpha=0.8, label="simulator P95")
     ax.set_xticks(x); ax.set_xticklabels(tags, rotation=45, ha="right", fontsize=8)
-    ax.axhline(2.0, color="#ff9900", ls="--", lw=1, label="IMCA amber 2 m")
-    ax.axhline(4.0, color="#d62728", ls="--", lw=1, label="IMCA red 4 m")
+    ax.axhline(2.0, color="#ff9900", ls="--", lw=1, label="warn radius 2 m")
+    ax.axhline(4.0, color="#d62728", ls="--", lw=1, label="alarm radius 4 m")
     ax.set_ylabel("intact P95 of |R_LF| [m]")
     ax.set_title("INTACT axis  -  pred vs simulator LF P95 across cells")
     ax.legend(fontsize=8, loc="upper left")
@@ -430,8 +430,8 @@ def main() -> int:
     ax.plot(x, [m["wcf_truth_mean"] for m in results], "o",
             color="#888888", label="simulator LF peak mean")
     ax.set_xticks(x); ax.set_xticklabels(tags, rotation=45, ha="right", fontsize=8)
-    ax.axhline(2.0, color="#ff9900", ls="--", lw=1, label="IMCA amber 2 m")
-    ax.axhline(4.0, color="#d62728", ls="--", lw=1, label="IMCA red 4 m")
+    ax.axhline(2.0, color="#ff9900", ls="--", lw=1, label="warn radius 2 m")
+    ax.axhline(4.0, color="#d62728", ls="--", lw=1, label="alarm radius 4 m")
     ax.set_ylabel("WCF post-fault peak [m]")
     ax.set_title("WCF axis  -  pred vs simulator LF peak across cells")
     ax.legend(fontsize=8, loc="upper left")
@@ -463,8 +463,8 @@ def main() -> int:
            color="#444444", alpha=0.8, label="ensemble max")
     ax.set_yscale("log")
     ax.set_xticks(x); ax.set_xticklabels(tags, rotation=45, ha="right", fontsize=8)
-    ax.axhline(0.01, color="#ff9900", ls="--", lw=1, label="IMCA amber 0.01")
-    ax.axhline(0.10, color="#d62728", ls="--", lw=1, label="IMCA red 0.10")
+    ax.axhline(0.01, color="#ff9900", ls="--", lw=1, label="caution 0.01")
+    ax.axhline(0.10, color="#d62728", ls="--", lw=1, label="warning 0.10")
     ax.set_ylabel("saturation probability  p_sat (residual capability)")
     ax.set_title("SATURATION  -  sustained mean-thrust saturation risk")
     ax.legend(fontsize=8, loc="upper left")
@@ -486,8 +486,8 @@ def main() -> int:
         ax.text(x[k] + 0.0, max(legacy[k], truth[k]) * 1.05, "inact",
                 ha="center", fontsize=7, color="#9467bd", rotation=90)
     ax.set_xticks(x); ax.set_xticklabels(tags, rotation=45, ha="right", fontsize=8)
-    ax.axhline(2.0, color="#ff9900", ls="--", lw=1, label="IMCA amber 2 m")
-    ax.axhline(4.0, color="#d62728", ls="--", lw=1, label="IMCA red 4 m")
+    ax.axhline(2.0, color="#ff9900", ls="--", lw=1, label="warn radius 2 m")
+    ax.axhline(4.0, color="#d62728", ls="--", lw=1, label="alarm radius 4 m")
     ax.set_ylabel("post-WCF peak [m]")
     ax.set_title("Analytical saturation-excursion refinement vs simulator truth")
     ax.legend(fontsize=8, loc="upper left")
