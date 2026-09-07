@@ -292,22 +292,22 @@ wind and current appear primarily as bias offsets absorbed by the DP
 model.
 
 *c. From \(\tau_{env}\) to motion envelope.* Under Eq.
-(\ref{eq:vessel-response}), the intact response has an LF component
-driven by the wave-drift and wind spectral peaks and a wave-frequency
-component driven by first-order wave excitation; both are
-approximately stationary Gaussian on the 30-min operating-window
-timescale. The station-keeping footprint reported by the framework
-is the running maximum \(R\) of \(|\eta_{xy}(t)|\) over that window,
-whose distribution is given by the Rice [cite:@rice_running_max] /
-Vanmarcke [cite:@vanmarcke_bandwidth] running-max formula in terms of
-the process variance \(\sigma^{2}\), the zero-upcrossing rate, and a
-spectral bandwidth parameter. The operator display reports the median
-\(P_{50}\) and tail \(P_{95}\) of \(R\); the traffic-light band that
-decides operable / caution / no-go is driven by \(P_{90}\) against
-the vessel- and mission-specific warning and alarm radii established
-per the IMCA M254 station-keeping alarm concept [cite:@imca_m254]; the
-choice of \(P_{90}\) as the band-driving quantile is ours. The
-wave-frequency component is added in quadrature.
+(\ref{eq:vessel-response}), the intact response has a low-frequency
+component driven by wave-drift and wind and a wave-frequency
+component driven by first-order wave excitation, both approximately
+stationary over a 30-minute operating window. What matters
+operationally is not the instantaneous position but the largest
+excursion likely to occur during the operation. The framework
+therefore reports the distribution of the running maximum \(R\) of
+\(|\eta_{xy}(t)|\) over the window, obtained using standard
+extreme-value results for stationary processes; see Rice
+[cite:@rice_running_max] and Vanmarcke [cite:@vanmarcke_bandwidth]
+for the derivations. The display reports the median \(P_{50}\) and
+the tail \(P_{95}\) of \(R\), with the traffic-light band driven by
+\(P_{90}\) against the vessel- and mission-specific warning and
+alarm radii established per the IMCA M254 station-keeping alarm
+concept [cite:@imca_m254]. The wave-frequency component is added in
+quadrature.
 
 *d. Extension to mission equipment.* The same excursion process,
 projected through mission-equipment lever arms and coupling
@@ -321,12 +321,12 @@ constrain. No new random inputs are introduced; vessel and
 mission-equipment footprints appear together
 in the [[Example: pre-op operator summary][pre-op operator summary]].
 
-*e. Note on conservatism.* The Rice / Vanmarcke running-max formula
-assumes independence of successive up-crossings. Under feedback-
-controlled DP the controller compresses the LF tail, so the assumption
-is mildly conservative — typically about 1.5× on the P95 excursion.
-The framework treats this as safety margin; under-promising motion
-performance is preferred to over-promising it.
+*e. Note on conservatism.* The extreme-value result is mildly
+conservative for a feedback-controlled vessel, because the controller
+suppresses the largest excursions the underlying theory allows for —
+typically about 1.5× on the P95 excursion. The framework treats this
+as safety margin; under-promising motion performance is preferred to
+over-promising it.
 
 ** Assumptions
 
@@ -641,8 +641,8 @@ sufficient by the [[Simulation Studies][simulation validation]].
 #+CAPTION: then recovers exponentially with characteristic time
 #+CAPTION: \(T_{\text{realloc}}\), asymptoting either to the
 #+CAPTION: pre-failure demand \(\tau_{\text{pre}}\) (healthy case,
-#+CAPTION: blue) or to the residual capacity cap \(\tau_{\text{residual,
-#+CAPTION: cap}}\) when \(\tau_{\text{pre}}\)
+#+CAPTION: blue) or to the residual capacity cap
+#+CAPTION: \(\tau_{\text{residual, cap}}\) when \(\tau_{\text{pre}}\)
 #+CAPTION: exceeds the cap (saturated case, red-dashed). The
 #+CAPTION: saturated case is the operational territory of the
 #+CAPTION: classical Force Off alarm and of the motion layer's
@@ -664,38 +664,31 @@ developed in the [[Transient right after WCF: saturation probability channel][sa
 
 ** Extreme-value method for exceedance envelopes
 
-The intact-side extreme-value machinery on the live panel reuses the
-Rice / Vanmarcke running-maximum formula introduced in the [[Method: from forecast sea state to motion envelope][method section]]
-[cite:@rice_running_max], [cite:@vanmarcke_bandwidth]; what is new here is
-the online source of the process moments \((\mu, \sigma)\) per DOF
-that the formula consumes.
+The live panel reports the same quantity as the pre-op layer — the
+distribution of the running maximum of \(|\eta_{xy}(t)|\) over the
+coming 30 minutes — using the same extreme-value results
+[cite:@rice_running_max], [cite:@vanmarcke_bandwidth]. What differs
+is where the inputs come from: instead of a forecast sea state, the
+statistics of the motion process are estimated online from the DP
+model's own position-deviation channel.
 
-The panel runs an online Bayesian estimator of the position-deviation
-standard deviation \(\sigma\) on a sliding 10-minute window of the
-DP model's position-deviation channel \(\eta(t)\). The estimator is
-recursive and produces a posterior distribution over \(\sigma\)
-rather than a point estimate; the running-max evaluation is done at
-the posterior mean and cross-checked against the posterior 95th
-percentile so that early-warm-up transients on the estimator are
-visible to the operator as a widened envelope. Because the DP
-position-deviation samples are autocorrelated at the sample rate, the
-naive sample count over the sliding window would overstate the
-information available and produce an over-tight posterior. The
-estimator applies a Bartlett-style effective-sample-count correction
-that decouples the posterior variance from the sample rate and pins
-it to the process autocorrelation time.
+The panel maintains a recursive estimate of the position-deviation
+standard deviation on a sliding 10-minute window. The estimate is a
+distribution rather than a single value, so estimator uncertainty is
+visible to the operator as a widened envelope while the window fills.
+The estimator also accounts for the autocorrelation of the position
+samples, which would otherwise make the estimate look more confident
+than the data supports.
 
-The moments produced by the estimator feed the same running-maximum
-formula used offline: the panel reports \(P_{50}\) and \(P_{95}\) of
-the running maximum of \(|\eta_{xy}(t)|\) over the next 30 minutes,
+The panel reports \(P_{50}\) and \(P_{95}\) of the running maximum
 against the same vessel and mission-equipment warn / alarm radii used
-in the pre-op operator summary. The sub-Rayleigh conservatism noted in
-the [[Method: from forecast sea state to motion envelope][method section]] applies unchanged: the running-max formula assumes independence
-of up-crossings and is mildly conservative under feedback control,
-which is retained here as safety margin. The intact-side output of
-the live panel is therefore directly comparable to the
-[[Example: pre-op operator summary][pre-op operator summary]], but continuously updated on live data and with no
-sea-state input at runtime.
+in the pre-op operator summary. The mild conservatism noted in the
+[[Method: from forecast sea state to motion envelope][method section]]
+applies unchanged and is retained as margin. The intact-side output
+of the live panel is therefore directly comparable to the
+[[Example: pre-op operator summary][pre-op operator summary]], but
+continuously updated on live data and with no sea-state input at
+runtime.
 
 ** Motion after WCF: ensemble evaluator
 
@@ -1001,22 +994,18 @@ is within +7% to +28% of the simulator truth, with a median error of
 +17%. All 14 cells are on the positive side of zero — the framework
 systematically overpredicts.
 
-The systematic conservatism is not a modelling error; it is the
-sub-Rayleigh margin discussed in the
-[[Method: from forecast sea state to motion envelope][method]] and
-[[Extreme-value method for exceedance envelopes][extreme-value]] sections. The running-max
-formula assumes statistical independence of successive up-crossings,
-which is a mild overstatement under feedback-controlled DP because
-the controller compresses the LF tail. The magnitude of the observed
-bias (roughly a factor 1.15-1.20 in \(P_{95}\)) is consistent with
-the theoretical bound, and the sign is what the framework's design
-choice intended: the operator receives a mild upper bound rather
-than a mean or a lower bound.
+The systematic conservatism is not a modelling error but a known
+property of the method: the extreme-value result is mildly
+conservative for a feedback-controlled vessel, because the
+controller suppresses the largest excursions the underlying theory
+allows for. The observed bias, roughly a factor 1.15-1.20 in
+\(P_{95}\), is consistent with that expectation, and its sign is the
+one the framework intends: the operator receives a mild upper bound
+rather than a mean or a lower bound.
 
-The 14-cell agreement therefore validates the vessel-response model
-(3-DOF closed-loop dynamics with the observed DP integrator) and the
-extreme-value envelope (Rice / Vanmarcke running-max applied to the
-LF + WF process moments) on the intact side. The framework's
+The 14-cell agreement therefore validates both parts of the
+intact-side chain: the vessel-response model and the extreme-value
+envelope built on it. The framework's
 intact-side output is the same object used in the
 [[Example: pre-op operator summary][pre-op operator summary]] and in the live intact bar of
 the [[Extreme-value method for exceedance envelopes][extreme-value section]]; the roll-up
@@ -1038,8 +1027,8 @@ the sea-state statistics.
 
 The mild negative bias on the transient axis has a different origin
 than the positive bias on the intact axis. Where the intact axis
-sits on the sub-Rayleigh conservatism of the running-max formula,
-the WCF axis reflects the sea-state moment averaging over the
+sits on the built-in conservatism of the extreme-value result, the
+WCF axis reflects the sea-state averaging over the
 5-minute post-WCF window used by the ensemble evaluator. The
 integrated bias is small enough — comparable to the seed-to-seed
 scatter within each cell — that the framework's WCF number is a
@@ -1113,8 +1102,8 @@ despite the imprecise motion number.
 
 #+CAPTION: Motion accuracy across the 14-cell simulator roll-up.
 #+CAPTION: Left: intact axis \(P_{95}\) of \(|R_{LF}|\), predicted
-#+CAPTION: (blue) vs simulator (grey), against the IMCA amber (2 m)
-#+CAPTION: and red (4 m) alarm radii. Right: post-WCF \(P_{95}\),
+#+CAPTION: (blue) vs simulator (grey), against the warn (2 m) and
+#+CAPTION: alarm (4 m) radii. Right: post-WCF \(P_{95}\),
 #+CAPTION: predicted (blue) vs simulator LF peak (grey), with the
 #+CAPTION: simulator LF peak mean marked (dots).
 #+NAME: fig:rollup_motion
@@ -1259,7 +1248,8 @@ stops short of requiring the delivery.
 
 *(TODO: whoever helped)*
 
-* References
-
+# No "* References" heading here: the thebibliography environment
+# emits its own \section*{References}, so an org heading as well
+# produced the section title twice.
 #+LATEX: \bibliographystyle{unsrt}
 #+PRINT_BIBLIOGRAPHY:
