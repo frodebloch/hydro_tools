@@ -1090,66 +1090,6 @@ class of vessel and instrumentation: adding observables from past
 history to characterise the future wave-phase-at-trip alignment does
 not add predictive power.
 
-* Real-World Case
-
-** Data source and scope
-
-The framework is being validated against logged operations from an
-in-service DP vessel of opportunity. The vessel is a
-[TODO: vessel class, e.g. platform supply vessel] operating in
-[TODO: geographical area, e.g. North Sea], instrumented with the
-standard DP telemetry channels used by the live layer of the
-framework: position deviation, controller thrust command, allocator
-feedback, and DP model state (see
-[[Positioning: additive to the classical CQA][the positioning section]]). The logs cover
-[TODO: N] operational periods totalling [TODO: N] hours across
-[TODO: sea-state / heading range summary].
-
-The scope of the real-world validation is deliberately narrow:
-intact motion only. The framework's post-WCF prediction cannot be
-validated against real logs because no operator will intentionally
-trigger the worst-case failure for a paper. Post-WCF validation
-therefore stays with the simulator-truth roll-up of the [[Simulation Studies][simulation studies]]; the
-real-world case adds evidence that the intact-side machinery works
-when its input is the real world rather than a simulator.
-
-** Method: forecast-based motion capability vs realised motion
-
-The comparison is done in three steps.
-
-1. For each logged operating window, the archived weather forecast
-   in force at the start of the window is obtained from
-   [TODO: forecast provider — ECMWF operational archive, MET Norway,
-   NOAA, or a commercial subscription]. The forecast directional
-   wave spectrum, mean wind, and mean current are fed through the
-   pre-operation motion capability model of the [[Method: from forecast sea state to motion envelope][method section]] to produce the
-   predicted \(P_{95}\) intact motion envelope for the vessel and,
-   where applicable, for mission-equipment points.
-
-2. The realised motion is computed from the vessel logs as the
-   running maximum of \(|\eta_{xy}(t)|\) over the 30-minute operating
-   window, using the same definition the framework uses internally.
-   Predicted vs realised \(P_{95}\) is the primary comparison
-   metric; the intact \(P_{50}\) is reported as a secondary metric.
-
-3. The archived forecast is cross-checked against the ERA5
-   [cite:@era5] (or NORA3 [cite:@nora3] in the North Sea and Norwegian Sea)
-   hindcast reanalysis. If the archived forecast was materially
-   different from the hindcast for the same window, the comparison
-   in step 2 is not a fair test of the framework and the window is
-   flagged; the aggregate result is reported both including and
-   excluding flagged windows.
-
-** Status
-
-Data acquisition and processing are in progress at the time of
-writing. The full set of predicted-vs-realised \(P_{95}\)
-residuals across the [TODO: N] operational periods will be reported
-in the final version of the paper. If the comparison is not complete
-by the paper deadline, this section will present the methodology and
-initial results; the full outcome will be presented at the
-conference.
-
 * Conclusion
 
 This paper has developed a motion-based consequence quality analysis
@@ -1171,9 +1111,15 @@ accurate to within +7% to +28% (systematically conservative by
 design), the post-WCF \(P_{95}\) is within -23% to +16% on the eleven
 non-saturated cells, and the two-channel operator decision surface
 correctly red-flags the three saturated cells through two independent
-gates even where the motion prediction itself is understated.
-Real-vessel validation of the intact side against archived forecasts
-and hindcast is in progress ([[Real-World Case]]).
+gates even where the motion prediction itself is understated. One
+limitation of this evidence should be stated plainly: the simulator
+generates its sea states from the same spectral description the
+prediction model consumes, so the intact-side agreement tests the
+motion and statistical machinery but not the spectral assumptions
+themselves. Confirming those against measured vessel motion is the
+outstanding validation step.
+Validation against logged operations from in-service vessels is
+left to future work.
 
 The framework preserves the operator's mental model — motion,
 footprint, proximity to limits — rather than translating the DP
@@ -1185,8 +1131,9 @@ whether the motion forecast can be trusted as a tight upper bound or
 should be read as a lower bound.
 
 The framework is deliberately additive to the classical rules. The
-capability + CQA computation mandated by IMO MSC/Circ.645, DNV-ST-0111
-and IMCA M254 is not superseded or contested; applying a percentage
+capability + CQA computation mandated by IMO MSC/Circ.645
+[cite:@imo_msc645], DNV-ST-0111 [cite:@dnv_st_0111]
+and IMCA M254 [cite:@imca_m254] is not superseded or contested; applying a percentage
 capacity margin on top of the classical CQA continues to land the
 operator comfortably inside a safe operating envelope for the
 majority of operations. What the motion layer adds is the ability to
@@ -1207,12 +1154,16 @@ cross-current forcing, and near-installation shielding effects that
 would break wave-field-based online refinements (see
 [[Rejected extensions]]).
 
-Future work has three lines. First, extension of the mission-
-equipment coverage to further motion-sensitive systems (LARS,
-heave-compensated cranes, ROV winch handling). Second, completion
-of the real-vessel validation across a broader vessel population
-and operational area, building the field evidence needed to support
-rules-alignment discussions. Third, presentation of the motion-based
+Future work has three lines. First, validation of the intact side
+against logged operations from in-service DP vessels, comparing the
+forecast-driven motion envelope against realised vessel motion with
+the archived forecast cross-checked against hindcast reanalysis.
+This is the step that tests the spectral assumptions outside the
+simulator that shares them, and it is the natural route to the field
+evidence needed to support rules-alignment discussions. Second,
+extension of the mission-equipment coverage to further
+motion-sensitive systems (LARS, heave-compensated cranes, ROV winch
+handling). Third, presentation of the motion-based
 CQA deliverables to the rulemaking bodies as candidates for
 inclusion in the next revision of IMCA M254 and the DNV-ST-0111
 transient analysis guidance — a natural next step given that the
