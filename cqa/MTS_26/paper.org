@@ -1330,12 +1330,8 @@ The measurement-only online scope set out in [[Goal][the Goal section]]
 is honoured throughout:
 the live layer consumes only signals every DP-2/DP-3 vessel already
 publishes, plus vessel-constant parameters. No online seakeeping
-model, no runtime spectral partition, no runtime wave-field
-assumption. This is a deliberate scope limit that keeps the design
-defensible under operationally common mixed sea states,
-cross-current forcing, and near-installation shielding effects that
-would break wave-field-based online refinements (see
-[[Rejected extensions]]).
+model and no runtime wave-field assumption; the reasons are set out
+in [[Rejected extensions]].
 
 ** Future work
 
