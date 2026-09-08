@@ -206,12 +206,12 @@ the vessel: it rests on, or is pressed against, a landing point on
 the structure, and is therefore held fixed in the structure's frame.
 The vessel motion underneath is absorbed instead by the gangway
 mechanism — principally telescope stroke, together with slew. Both
-have hard mechanical end-stops. A typical gangway offers on the
-order of 8-10 m of total stroke between fully extended and fully
-compressed, and that stroke budget, shared with the slew envelope,
-is what sets the excursion the gangway pedestal — and hence the
-vessel — can be allowed before the mechanism runs out of travel and
-the transfer must be stopped. IMCA M254 [cite:@imca_m254] sets out
+have hard mechanical end-stops. A gangway carries only a limited
+amount of stroke between fully extended and fully compressed, and
+that stroke budget, shared with the slew envelope, is what sets the
+excursion the gangway pedestal — and hence the vessel — can be
+allowed before the mechanism runs out of travel and the transfer must
+be stopped. IMCA M254 [cite:@imca_m254] sets out
 how station-keeping footprint limits should be established for an
 operation; the resulting warning and alarm radii are what express
 this allowance in a form the DP operator can work to. Throughout
@@ -388,10 +388,15 @@ intact motion footprint. The colour band is driven by the P90 of the
 running-maximum excursion against a warning and alarm radius: for
 the vessel base position the warn / alarm thresholds are the
 station-keeping radii established for the operation (here 2.0 m /
-4.0 m); for the gangway telescope they are the mission-equipment
-stroke limits (4.20 m / 5.60 m). The sea state at each polar radius is generated from the wind
-speed via a Pierson-Moskowitz relation with a fixed current
-component, and the operating window is 20 minutes.
+4.0 m); for the gangway telescope they are derived from the
+mechanism's remaining travel. The benchmark gangway telescopes
+between 18 m and 32 m and is landed at mid-stroke, leaving 7 m of
+travel in each direction; warning and alarm are set at 60% and 80% of
+that remaining travel, giving 4.20 m and 5.60 m. Landing the gangway
+off-centre reduces the travel available in one direction and tightens
+these thresholds accordingly. The sea state at each polar radius is
+generated from the wind speed via a Pierson-Moskowitz relation with a
+fixed current component, and the operating window is 20 minutes.
 
 Two features are worth calling out. First, the operable envelopes
 are visibly anisotropic: both panels show larger operable radii in
