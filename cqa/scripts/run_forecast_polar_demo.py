@@ -151,7 +151,13 @@ def main() -> None:
         # post-failure motion would cross the alarm limit.
         ax.plot(th_closed, np.minimum(wcf_alarm, R_MAX),
                 color="#1a1a1a", lw=2.0, ls="--",
-                label="post-WCF no-go boundary")
+                label="post-WCF alarm boundary")
+        # Validity boundary: beyond this the linear post-WCF predictor
+        # is in the meta-stable regime and its motion figure should be
+        # read as a lower bound. Same role as p_sat on the live panel.
+        ax.plot(th_closed, np.minimum(close(overlay.bist_Vw), R_MAX),
+                color="#6a3d9a", lw=1.8, ls=":",
+                label="post-WCF prediction not trustworthy")
         ax.plot(th_closed, np.full_like(th_closed, FORECAST_VW),
                 color="#1f77b4", lw=2.4, ls="--",
                 label=f"forecast wind {FORECAST_VW:.1f} m/s")
@@ -163,7 +169,7 @@ def main() -> None:
 
     handles, labels = axes[0].get_legend_handles_labels()
     fig.legend(handles, labels, loc="lower center",
-               bbox_to_anchor=(0.5, -0.02), ncol=5, fontsize=9,
+               bbox_to_anchor=(0.5, -0.04), ncol=3, fontsize=9,
                frameon=False)
 
     fig.suptitle(
@@ -198,6 +204,9 @@ def main() -> None:
           f"(margin {margin[worst]:+.1f} m/s); "
           f"most open {np.rad2deg(th[best]):.0f} deg "
           f"(margin {margin[best]:+.1f} m/s)")
+    bst = overlay.bist_Vw
+    print(f"  post-WCF validity boundary: {np.nanmin(bst):.1f} to "
+          f"{np.nanmax(bst):.1f} m/s")
     wcf = overlay.pos_alarm_Vw
     n_nogo = int(np.sum(wcf < FORECAST_VW))
     print(f"  post-WCF alarm boundary: {np.nanmin(wcf):.1f} to "

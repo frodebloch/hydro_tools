@@ -676,6 +676,13 @@ class WcfdiOperabilityOverlay:
     gw_warn_capped_high: np.ndarray
     gw_alarm_capped_low: np.ndarray
     gw_alarm_capped_high: np.ndarray
+    # Wind speed at which the bistability score crosses its threshold:
+    # where the linear post-WCFDI predictor stops being trustworthy.
+    # A validity boundary, not a motion boundary. Kept separate so the
+    # motion boundaries above stay true motion boundaries.
+    bist_Vw: np.ndarray
+    bist_capped_low: np.ndarray
+    bist_capped_high: np.ndarray
     Vw_min: float
     Vw_max: float
     Vc_m_s: float
@@ -906,9 +913,14 @@ def wcfdi_operability_overlay(
     gw_alarm_lo = np.zeros(n_directions, dtype=bool)
     gw_alarm_hi = np.zeros(n_directions, dtype=bool)
 
+    bist_Vw = np.zeros(n_directions)
+    bist_lo = np.zeros(n_directions, dtype=bool)
+    bist_hi = np.zeros(n_directions, dtype=bool)
+
     for i, theta in enumerate(thetas):
         cache_pos: dict[float, float] = {}
         cache_gw: dict[float, float] = {}
+        cache_bist: dict[float, float] = {}
 
         def _eval(Vw: float):
             key = round(float(Vw), 6)
@@ -929,9 +941,13 @@ def wcfdi_operability_overlay(
                 # both metrics to +inf so bisection saturates this
                 # operating point as alarm. Score < threshold leaves the
                 # nominal envelope alone.
-                if bist > bistability_alarm:
-                    p_peak = float("inf")
-                    dL_peak = float("inf")
+                # The bistability score is deliberately NOT folded into
+                # the motion metrics. Forcing both to +inf made every
+                # motion bisection converge on the bistability crossing
+                # instead of its own threshold, so the vessel and
+                # gangway boundaries came out numerically identical.
+                # It is bisected separately as its own validity curve.
+                pass
             except Exception:
                 # CQA precondition violation -> divergent ODE; treat as
                 # already past every threshold so bisection saturates low.
@@ -939,13 +955,22 @@ def wcfdi_operability_overlay(
                 dL_peak = float("inf")
             cache_pos[key] = p_peak
             cache_gw[key] = dL_peak
+            cache_bist[key] = bist
             return p_peak, dL_peak
+
+        def metric_bist(Vw: float) -> float:
+            _eval(Vw)
+            return cache_bist[round(float(Vw), 6)]
 
         def metric_pos(Vw: float) -> float:
             return _eval(Vw)[0]
 
         def metric_gw(Vw: float) -> float:
             return _eval(Vw)[1]
+
+        v, lo, hi = _bisect_boundary(metric_bist, bistability_alarm,
+                                     Vw_min, Vw_max, tol=bisect_tol_m_s)
+        bist_Vw[i], bist_lo[i], bist_hi[i] = v, lo, hi
 
         v, lo, hi = _bisect_boundary(metric_pos, pos_warn_r,
                                      Vw_min, Vw_max, tol=bisect_tol_m_s)
@@ -982,6 +1007,9 @@ def wcfdi_operability_overlay(
         gw_warn_capped_high=gw_warn_hi,
         gw_alarm_capped_low=gw_alarm_lo,
         gw_alarm_capped_high=gw_alarm_hi,
+        bist_Vw=bist_Vw,
+        bist_capped_low=bist_lo,
+        bist_capped_high=bist_hi,
         Vw_min=float(Vw_min),
         Vw_max=float(Vw_max),
         Vc_m_s=float(Vc_m_s),

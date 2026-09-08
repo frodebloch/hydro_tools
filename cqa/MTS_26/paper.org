@@ -517,19 +517,27 @@ way to tell that some headings carry twice the margin of others. That
 margin is what makes the difference between an operation that absorbs
 a forecast busting by a few metres per second and one that does not.
 
-Each panel also carries the post-WCF alarm boundary (black dashed):
-the wind speed at which the motion *after* the worst-case failure
-would cross the alarm limit at that heading. This is where the chart
-earns its place. The intact boundaries are comfortable everywhere —
-the forecast wind sits inside the green region at every heading — but
-the post-WCF boundary falls as low as 11.6 m/s in the worst
-orientations, below the 13.8 m/s forecast wind itself. At 10 of the
-36 headings evaluated the vessel would already be outside its motion
-envelope if the worst-case failure occurred, in a forecast that the
-intact assessment reports as entirely operable. The strongly
-asymmetric shape of that boundary is the operational content: it
-identifies the heading sector to avoid, which no intact-condition
-chart and no pass / fail capability check can show.
+Each panel carries two further contours, and the distinction between
+them is the same one the live panel draws. The black dashed curve is
+the post-WCF alarm boundary: the wind speed at which the motion after
+the worst-case failure would cross the alarm limit. The dotted curve
+is the validity boundary, beyond which the linear post-WCF predictor
+enters a regime where its motion figure should be read as a lower
+bound rather than a tight one — the pre-operation counterpart of the
+saturation-probability trust indicator on the live panel.
+
+The two say different things here, and that is the point. On motion
+alone the operation is comfortable: the post-WCF alarm boundary does
+not fall below 16.0 m/s at any heading, against a forecast wind of
+13.8 m/s, so no heading is predicted to breach the envelope. But the
+validity boundary falls to 11.6 m/s in the worst orientations, and at
+10 of the 36 headings evaluated it sits below the forecast wind. In
+those orientations — two sectors around 020-060\deg{} and
+200-240\deg{} — the framework is not saying the vessel will exceed
+its motion limit after a failure; it is saying it cannot promise that
+it will not. An operator reading a single number would see a
+comfortable margin and no indication that the number itself is
+untrustworthy in a quarter of the heading circle.
 
 The two panels also show which limit is actually binding. The gangway
 telescope boundary does not fall below 31 m/s at any heading, and at
@@ -556,9 +564,9 @@ next subsection.
 #+CAPTION: forecast wind speed. The radial gap between the ring and
 #+CAPTION: the green boundary is the wind margin available at that
 #+CAPTION: heading. The black dashed contour is the post-WCF alarm
-#+CAPTION: boundary; where it falls inside the forecast ring, the
-#+CAPTION: heading is no-go after the worst-case failure even though
-#+CAPTION: the intact condition is operable. Gangway boundaries beyond the plotted range are
+#+CAPTION: boundary and the dotted contour the validity boundary,
+#+CAPTION: beyond which the post-WCF motion figure should be read as a
+#+CAPTION: lower bound rather than a tight prediction. Gangway boundaries beyond the plotted range are
 #+CAPTION: clipped at the rim: at those headings the telescope limit
 #+CAPTION: is not reached at any wind speed of interest.
 #+NAME: fig:forecast_polar
