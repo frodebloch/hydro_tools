@@ -56,16 +56,19 @@ def main() -> None:
     ax1.set_ylabel("speed [m/s]")
     ax1.grid(True, alpha=0.3)
 
+    # Tp is deliberately not plotted. The Pierson-Moskowitz relation
+    # gives Tp = 2*pi*U/(0.877*g) ~= 0.71*U, so Tp is exactly
+    # proportional to Vw and its curve simply overlays the wind trace
+    # on any similarly scaled axis. Hs is quadratic in Vw and does
+    # carry visible shape, so it is kept.
     ax1b = ax1.twinx()
     ax1b.plot(t, Hs, color="#d62728", lw=2.0, ls="--",
               label="$H_s$ [m]")
-    ax1b.plot(t, Tp, color="#9467bd", lw=1.6, ls=":",
-              label="$T_p$ [s]")
-    ax1b.set_ylabel("$H_s$ [m] / $T_p$ [s]")
+    ax1b.set_ylabel("$H_s$ [m]")
 
     h1, l1 = ax1.get_legend_handles_labels()
     h2, l2 = ax1b.get_legend_handles_labels()
-    ax1.legend(h1 + h2, l1 + l2, loc="upper left", fontsize=8, ncol=2)
+    ax1.legend(h1 + h2, l1 + l2, loc="upper left", fontsize=8, ncol=3)
     ax1.set_title("Synthetic 24-hour storm driving the decision matrix",
                   fontsize=11)
 

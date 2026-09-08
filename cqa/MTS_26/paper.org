@@ -542,7 +542,10 @@ m/s to a 12.5 m/s peak at 12:00 and falling away again, the direction
 veering steadily from 315\deg{} to 360\deg{} through the day, and a
 constant 0.5 m/s current. Wind, waves and current are collinear, and
 the sea state follows the same DNV-ST-0111 wind-wave correlation used
-for the design polar, so \(H_s\) and \(T_p\) track the wind. The
+for the design polar, so \(H_s\) and \(T_p\) follow the wind speed.
+\(T_p\) is omitted from the figure: the correlation makes it directly
+proportional to \(V_w\), so its trace would simply overlay the wind
+curve. The
 peak is deliberately modest: it keeps the classical CQA comfortably
 inside the residual capacity throughout, which is the regime where
 the motion layer has something to add.
@@ -550,7 +553,8 @@ the motion layer has something to add.
 #+CAPTION: Synthetic 24-hour storm forecast driving the decision
 #+CAPTION: matrix. Wind, waves and current are collinear; the sea
 #+CAPTION: state follows the DNV-ST-0111 wind-wave correlation, so
-#+CAPTION: \(H_s\) and \(T_p\) track the wind speed.
+#+CAPTION: \(H_s\) tracks the wind speed. \(T_p\) is proportional to
+#+CAPTION: \(V_w\) under that correlation and is omitted.
 #+NAME: fig:storm_profile
 #+ATTR_LATEX: :width 0.82\linewidth :placement [tbp]
 [[./images/csov_storm_profile.png]]
