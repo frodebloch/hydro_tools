@@ -516,22 +516,10 @@ next subsection.
 
 #+CAPTION: Forecast-conditioned operability polar for the CSOV
 #+CAPTION: benchmark, vessel base position (left) and gangway
-#+CAPTION: telescope (right) on a common scale. The wave condition and
-#+CAPTION: current are pinned at the forecast values (Hs = 3.1 m,
-#+CAPTION: Tp = 8.5 s, Vc = 0.75 m/s, wind and current veered
-#+CAPTION: 90\deg{} from the waves) and only the wind speed is swept.
-#+CAPTION: Radius is wind speed; the angular coordinate is vessel
-#+CAPTION: heading. Green is operable, the amber band runs from the
-#+CAPTION: warning to the alarm boundary, and the dashed ring is the
-#+CAPTION: forecast wind speed. The radial gap between the ring and
-#+CAPTION: the green boundary is the wind margin available at that
-#+CAPTION: heading. The black dashed contour is the post-WCF alarm
-#+CAPTION: boundary; the dotted contour marks where a large transient
-#+CAPTION: becomes possible after the failure, beyond which the
-#+CAPTION: post-WCF motion figure should be read as a lower bound
-#+CAPTION: rather than a tight prediction. Gangway boundaries beyond the plotted range are
-#+CAPTION: clipped at the rim: at those headings the telescope limit
-#+CAPTION: is not reached at any wind speed of interest.
+#+CAPTION: telescope (right) on a common scale. Radius is wind speed;
+#+CAPTION: the angular coordinate is vessel heading. Contours and
+#+CAPTION: colour bands are described in the text. Gangway boundaries
+#+CAPTION: beyond the plotted range are clipped at the rim.
 #+NAME: fig:forecast_polar
 #+ATTR_LATEX: :width 0.86\linewidth :placement [tbp]
 [[./images/csov_forecast_polar.png]]
