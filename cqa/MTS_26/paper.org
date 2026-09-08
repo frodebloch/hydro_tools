@@ -217,7 +217,7 @@ operation; the resulting warning and alarm radii are what express
 this allowance in a form the DP operator can work to. Throughout
 this paper we use 2 m and 4 m as representative warning and alarm
 radii for the benchmark vessel. They are illustrative values for
-that vessel and gangway, not fixed limits: the radii are
+that vessel and gangway, not fixed values: these limits are
 vessel-, equipment- and operation-specific and are established per
 operation.
 
@@ -396,7 +396,7 @@ is operable (green), in a caution band (amber), or no-go (red) in
 terms of the intact motion footprint, and the black dashed contour
 adds the post-WCF boundary on the same axes. The colour band is set
 by the motion excursion exceeded about one time in ten, compared
-against a warning and alarm radius: for the vessel base position
+against a warning and alarm limit: for the vessel base position
 these are the station-keeping radii established for the operation
 (here 2.0 m / 4.0 m); for the gangway telescope they are derived from
 the mechanism's remaining travel. The benchmark gangway telescopes
@@ -444,8 +444,8 @@ constraint after the failure, not the gangway telescope.
 #+CAPTION: speed [m/s]; heading is vessel-relative wave direction. The
 #+CAPTION: colour band is set by the intact motion excursion exceeded
 #+CAPTION: about one time in ten, compared against the vessel and
-#+CAPTION: mission-equipment warning and alarm radii. The black dashed
-#+CAPTION: contour is the wind speed at which the alarm radius would
+#+CAPTION: mission-equipment warning and alarm limits. The black dashed
+#+CAPTION: contour is the wind speed at which the alarm limit would
 #+CAPTION: be exceeded about one time in ten after the worst-case
 #+CAPTION: failure.
 #+NAME: fig:design_polar
@@ -786,7 +786,7 @@ samples, which would otherwise make the estimate look more confident
 than the data supports.
 
 The panel reports \(P_{50}\) and \(P_{95}\) of the running maximum
-against the same vessel and mission-equipment warn / alarm radii used
+against the same vessel and mission-equipment warn / alarm limits used
 in the pre-op operator summary. The mild conservatism noted in the
 [[Method: from forecast sea state to motion envelope][method section]]
 applies unchanged and is retained as margin. The intact-side output
