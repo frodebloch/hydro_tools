@@ -1250,10 +1250,21 @@ scope of this framework the panel has nothing better to offer than
 the trust indicator. Whether some other observable could recover
 the post-WCF peak is left open. The most promising direction is
 instrumentation that resolves the incoming wave field ahead of the
-vessel: the post-WCF peak depends on the wave phase at the instant
-of the trip, which no past-history statistic contains, but which a
-deterministic short-horizon wave-field prediction would in
-principle supply. Equally, the rejection of the QTF-gradient
+vessel — deterministic short-horizon wave prediction, typically
+built by inverting X-band marine radar backscatter to a
+phase-resolved surface and propagating it forward. The post-WCF
+peak depends on the wave phase at the instant of the trip, which
+no past-history statistic contains, but which such a prediction
+would in principle supply, and over a horizon comfortably longer
+than the post-WCF window evaluated here. Two reservations apply.
+The inversion recovers wave geometry more reliably than wave
+height, and the forward propagation assumes linear dispersion,
+which is weakest in precisely the steep, near-saturation sea
+states where the framework's own linear model breaks. It would
+also sit on the boundary of the measurement-only scope: the radar
+is onboard instrumentation, but the inversion reintroduces the
+wave-field assumptions that scope was drawn to exclude.
+Equally, the rejection of the QTF-gradient
 refinement above is a scope decision rather than a statement of
 impossibility — it is ruled out for a measurement-only online
 panel, not for an offline analysis willing to carry the
@@ -1326,7 +1337,7 @@ cross-current forcing, and near-installation shielding effects that
 would break wave-field-based online refinements (see
 [[Rejected extensions]]).
 
-Future work has three lines. First, validation of the intact side
+Future work has four lines. First, validation of the intact side
 against logged operations from in-service DP vessels, comparing the
 forecast-driven motion envelope against realised vessel motion with
 the archived forecast cross-checked against hindcast reanalysis.
@@ -1341,6 +1352,22 @@ candidate input — a natural next step given that the
 current guidance already gestures in this direction (see
 [[Introduction]]) but
 stops short of requiring the delivery.
+
+Fourth, extension of the alert set using forward-looking wave-field
+instrumentation. A phase-resolved short-horizon prediction of the
+incoming wave field would not tighten the post-WCF envelope
+materially — the residual uncertainty there is dominated by the
+nonlinear survivor-allocator behaviour rather than by the wave
+input, and would remain wider than the intact-side uncertainty —
+but it would support a distinct, forward-looking alert on the
+intact vessel: warning of an incoming wave group that will drive
+the thrust demand into saturation before any failure has occurred.
+That is a question none of the channels developed here asks, since
+the saturation channel evaluates the survivor set on the
+assumption that the worst-case failure has already happened. Such
+an alert would be additive to the alert set developed here rather
+than a refinement of it, and would need a name that does not
+collide with the rule-mandated Force Off signal.
 
 # No "* References" heading here: the thebibliography environment
 # emits its own \section*{References}, so an org heading as well
