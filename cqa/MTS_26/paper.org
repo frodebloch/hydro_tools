@@ -367,10 +367,15 @@ assumptions.
 - Forward-speed effects are absent (station-keeping regime): the
   vessel is dynamically holding a setpoint, not transiting.
 - The low-frequency and wave-frequency responses are treated as
-  statistically independent. How the two are combined depends on the
-  quantity being reported: variances add for the process statistics,
-  while a peak and a level are added directly where an end-stop or
-  a hard limit is at stake.
+  statistically independent. They are not merged into a single
+  process: each band keeps its own variance and its own crossing
+  rate, and it is the expected numbers of limit crossings
+  contributed by the two that add. This matters because the two
+  bands cross a given level at very different rates, which a single
+  merged variance would discard. Where an end-stop is at stake the
+  combination is deliberately cruder and more conservative: a
+  wave-frequency peak is added directly to the low-frequency level,
+  assuming the two coincide.
 - The classical capability analysis provides the outer envelope of
   operability. The motion-based envelope produced here is the inner
   envelope: within the capacity-safe outer envelope, the motion
@@ -688,17 +693,11 @@ simulator runs, and the approximation is confirmed to be operationally
 sufficient by the [[Simulation Studies][simulation validation]].
 
 #+CAPTION: Post-WCF thrust recovery profile assumed by the motion
-#+CAPTION: layer, per DOF. At the WCF event the total commanded
-#+CAPTION: thrust capability drops instantaneously; the survivor set
-#+CAPTION: then recovers exponentially with characteristic time
-#+CAPTION: \(T_{\text{realloc}}\), asymptoting either to the
-#+CAPTION: pre-failure demand \(\tau_{\text{pre}}\) (healthy case,
-#+CAPTION: blue) or to the residual capacity cap
-#+CAPTION: \(\tau_{\text{residual, cap}}\) when \(\tau_{\text{pre}}\)
-#+CAPTION: exceeds the cap (saturated case, red-dashed). The
-#+CAPTION: saturated case is the operational territory of the
-#+CAPTION: classical Force Off alarm and of the motion layer's
-#+CAPTION: saturation-probability channel.
+#+CAPTION: layer, per DOF. Blue: the healthy case, recovering to the
+#+CAPTION: pre-failure demand \(\tau_{\text{pre}}\). Red-dashed: the
+#+CAPTION: saturated case, capped at the residual capacity
+#+CAPTION: \(\tau_{\text{residual, cap}}\). Both are described in the
+#+CAPTION: text.
 #+NAME: fig:tau_recovery
 #+ATTR_LATEX: :width 0.85\textwidth :placement [tbp]
 [[file:images/tau_recovery_schematic.png]]
@@ -756,16 +755,13 @@ actual vessel state, and reads its output from the spread across
 that ensemble.
 
 #+CAPTION: Conceptual illustration of the ensemble post-WCF motion
-#+CAPTION: prediction. At each panel update, snapshots of the recent
-#+CAPTION: vessel state are used as initial conditions for the vessel
-#+CAPTION: model, and each is propagated forward through the post-WCF
-#+CAPTION: window. The spread across the resulting trajectories is
-#+CAPTION: summarised by the ensemble \(P_{50}\) and \(P_{95}\) of
+#+CAPTION: prediction. The spread across the propagated trajectories
+#+CAPTION: is summarised by the ensemble \(P_{50}\) and \(P_{95}\) of
 #+CAPTION: \(|\eta_{xy}(t)|\); the panel reports the \(P_{50}\) and
 #+CAPTION: \(P_{95}\) of the per-trajectory peaks (dotted lines).
-#+CAPTION: Numeric scales are omitted deliberately — the figure is
-#+CAPTION: illustrative of the mechanism, not of a specific vessel or
-#+CAPTION: sea state.
+#+CAPTION: Numeric scales are omitted deliberately — the figure
+#+CAPTION: illustrates the mechanism, not a specific vessel or sea
+#+CAPTION: state.
 #+NAME: fig:ensemble_concept
 #+ATTR_LATEX: :width 0.85\textwidth :placement [tbp]
 [[file:images/ensemble_concept.png]]
@@ -986,9 +982,7 @@ they were the offline pre-op prediction.
 #+CAPTION: 10-minute Bayesian estimator with a prior deliberately biased
 #+CAPTION: high at \(\sigma\) = 0.90 m to make warm-up visible. The
 #+CAPTION: posterior median (solid) and 5-95% credible band (shaded)
-#+CAPTION: converge onto the true value as the window fills; the band
-#+CAPTION: width itself is what the operator reads as trust in the
-#+CAPTION: live number.
+#+CAPTION: converge onto the true value as the window fills.
 #+NAME: fig:estimator_convergence
 #+ATTR_LATEX: :width 0.85\textwidth :placement [tbp]
 [[file:images/estimator_convergence.png]]
@@ -1195,7 +1189,10 @@ despite the imprecise motion number.
 #+CAPTION: (blue) vs simulator (grey), against the warn (2 m) and
 #+CAPTION: alarm (4 m) radii. Right: post-WCF \(P_{95}\),
 #+CAPTION: predicted (blue) vs simulator LF peak (grey), with the
-#+CAPTION: simulator LF peak mean marked (dots).
+#+CAPTION: simulator LF peak mean marked (dots). The post-WCF axis is
+#+CAPTION: clipped at 10 m so that the non-saturated cells remain
+#+CAPTION: legible; the one value above the clip is printed on the
+#+CAPTION: plot.
 #+NAME: fig:rollup_motion
 #+ATTR_LATEX: :width 1.0\linewidth
 [[./images/roll_up_live_operator_panel_motion.png]]
@@ -1327,17 +1324,12 @@ simulator that shares them, and it is the natural route to the field
 evidence needed to support rules-alignment discussions. Second,
 extension of the mission-equipment coverage to further
 motion-sensitive systems (LARS, heave-compensated cranes, ROV winch
-handling). Third, presentation of the motion-based
-CQA deliverables to the rulemaking bodies as candidates for
-inclusion in the next revision of IMCA M254 and the DNV-ST-0111
-transient analysis guidance — a natural next step given that the
+handling). Third, contribution of the motion-based
+CQA deliverables to the JDP DP Consequence Analysis (CA) as
+candidate input — a natural next step given that the
 current guidance already gestures in this direction (see
 [[Introduction]]) but
 stops short of requiring the delivery.
-
-* Acknowledgements
-
-*(TODO: whoever helped)*
 
 # No "* References" heading here: the thebibliography environment
 # emits its own \section*{References}, so an org heading as well
