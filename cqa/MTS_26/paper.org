@@ -346,8 +346,7 @@ conservative for a feedback-controlled vessel, because the controller
 suppresses the largest excursions the underlying theory allows for.
 The predicted excursion therefore comes out somewhat larger than the
 vessel actually experiences; the simulation studies quantify the
-margin. The framework treats this as safety margin — under-promising
-motion performance is preferred to over-promising it.
+margin.
 
 ** Assumptions
 
