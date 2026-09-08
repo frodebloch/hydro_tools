@@ -33,7 +33,10 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from cqa import csov_default_config, GangwayJointState  # noqa: E402
-from cqa.operability_polar import operability_polar  # noqa: E402
+from cqa.operability_polar import (  # noqa: E402
+    operability_polar,
+    wcfdi_operability_overlay,
+)
 
 
 # --- Forecast operating point ------------------------------------------
@@ -86,6 +89,16 @@ def main() -> None:
         current_offset_rad=np.deg2rad(CURRENT_OFFSET_DEG),
     )
 
+    print("  evaluating post-WCFDI overlay ...")
+    overlay = wcfdi_operability_overlay(
+        cfg, joint,
+        n_directions=36,
+        Vw_min=0.5, Vw_max=70.0, Vc_m_s=FORECAST_VC,
+        Hs_fixed=FORECAST_HS, Tp_fixed=FORECAST_TP,
+        wind_offset_rad=np.deg2rad(WIND_OFFSET_DEG),
+        current_offset_rad=np.deg2rad(CURRENT_OFFSET_DEG),
+    )
+
     th = polar.theta_rel_rad
     th_closed = np.concatenate([th, th[:1]])
 
@@ -96,9 +109,11 @@ def main() -> None:
 
     panels = [
         ("Vessel base position",
-         close(polar.pos_warn_Vw), close(polar.pos_alarm_Vw)),
+         close(polar.pos_warn_Vw), close(polar.pos_alarm_Vw),
+         close(overlay.pos_alarm_Vw)),
         ("Gangway telescope",
-         close(polar.gw_warn_Vw), close(polar.gw_alarm_Vw)),
+         close(polar.gw_warn_Vw), close(polar.gw_alarm_Vw),
+         close(overlay.gw_alarm_Vw)),
     ]
 
     fig, axes = plt.subplots(
@@ -106,7 +121,7 @@ def main() -> None:
         subplot_kw={"projection": "polar"},
     )
 
-    for ax, (title, warn, alarm) in zip(axes, panels):
+    for ax, (title, warn, alarm, wcf_alarm) in zip(axes, panels):
         ax.set_theta_zero_location("N")
         ax.set_theta_direction(-1)
 
@@ -122,6 +137,11 @@ def main() -> None:
                 label="warning boundary")
         ax.plot(th_closed, alarm_c, color="#d62728", lw=2.0,
                 label="alarm boundary")
+        # Post-WCFDI no-go boundary: the wind speed at which the
+        # post-failure motion would cross the alarm limit.
+        ax.plot(th_closed, np.minimum(wcf_alarm, R_MAX),
+                color="black", lw=2.0, ls="--",
+                label="post-WCF alarm boundary")
         ax.plot(th_closed, np.full_like(th_closed, FORECAST_VW),
                 color="#1f77b4", lw=2.4, ls="--",
                 label=f"forecast wind {FORECAST_VW:.1f} m/s")
@@ -132,7 +152,7 @@ def main() -> None:
         ax.grid(True, alpha=0.35)
 
     axes[0].legend(loc="upper center", bbox_to_anchor=(1.12, -0.06),
-                   ncol=3, fontsize=9, frameon=False)
+                   ncol=4, fontsize=9, frameon=False)
 
     fig.suptitle(
         "Forecast-conditioned operability polar  -  "
@@ -166,6 +186,15 @@ def main() -> None:
           f"(margin {margin[worst]:+.1f} m/s); "
           f"most open {np.rad2deg(th[best]):.0f} deg "
           f"(margin {margin[best]:+.1f} m/s)")
+    wcf = overlay.pos_alarm_Vw
+    n_nogo = int(np.sum(wcf < FORECAST_VW))
+    print(f"  post-WCF alarm boundary: {np.nanmin(wcf):.1f} to "
+          f"{np.nanmax(wcf):.1f} m/s")
+    print(f"  headings where post-WCF alarm is already breached at the "
+          f"forecast wind: {n_nogo} of {len(th)}")
+    if n_nogo:
+        bad = np.rad2deg(th[wcf < FORECAST_VW])
+        print(f"    no-go headings: {bad.min():.0f} to {bad.max():.0f} deg")
     gw_binds = int(np.sum(polar.gw_warn_Vw < polar.pos_warn_Vw))
     print(f"  gangway warn boundary: {polar.gw_warn_Vw.min():.1f} to "
           f"{polar.gw_warn_Vw.max():.1f} m/s "

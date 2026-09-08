@@ -627,6 +627,8 @@ def wcfdi_transient(
     Vc: float,
     theta_rel: float,
     scenario: WcfdiScenario,
+    theta_wind_rel: float | None = None,
+    theta_curr_rel: float | None = None,
     omega_n: Optional[tuple[float, float, float]] = None,
     zeta: Optional[tuple[float, float, float]] = None,
     T_b: Optional[float] = None,
@@ -713,8 +715,12 @@ def wcfdi_transient(
         frontal_area_underwater=frontal_uw,
         loa=vp.loa,
     )
-    F_wind = wind_model.force(Vw_mean, theta_rel)
-    F_curr = current_model.force(Vc, theta_rel)
+    # theta_rel is the wave direction. Wind and current may be offset
+    # from it (non-collinear forecast); default to collinear.
+    th_wind = theta_rel if theta_wind_rel is None else float(theta_wind_rel)
+    th_curr = theta_rel if theta_curr_rel is None else float(theta_curr_rel)
+    F_wind = wind_model.force(Vw_mean, th_wind)
+    F_curr = current_model.force(Vc, th_curr)
     # Mean drift force.
     if rao_table is not None:
         # Spectral path: integrate pdstrip diagonal QTF against
@@ -744,7 +750,7 @@ def wcfdi_transient(
     # --- Pre-failure covariance at t = 0- ---
     cl_intact = ClosedLoop.build(vessel, controller)
     if Vw_mean > 1e-9:
-        S_wind = npd_wind_gust_force_psd(wind_model, Vw_mean, theta_rel)
+        S_wind = npd_wind_gust_force_psd(wind_model, Vw_mean, th_wind)
     else:
         # Vw_mean == 0 -> NPD spectrum is undefined and wind force is
         # identically zero. Provide a constant zero PSD callable.

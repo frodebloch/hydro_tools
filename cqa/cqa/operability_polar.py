@@ -703,6 +703,10 @@ def _wcfdi_peak_metrics(
     sigma_Vc: float,
     tau_Vc: float,
     c_L: np.ndarray,
+    Hs_fixed: float | None = None,
+    Tp_fixed: float | None = None,
+    theta_wind_rel: float | None = None,
+    theta_curr_rel: float | None = None,
 ):
     """Run wcfdi_transient and return ``(peak_pos_m, peak_dL_m, bistability_score)``.
 
@@ -737,11 +741,12 @@ def _wcfdi_peak_metrics(
     from .transient import wcfdi_transient
     from .sea_state_relations import pm_hs_from_vw, pm_tp_from_vw
 
-    Hs = pm_hs_from_vw(Vw)
-    Tp = pm_tp_from_vw(Vw)
+    Hs = pm_hs_from_vw(Vw) if Hs_fixed is None else float(Hs_fixed)
+    Tp = pm_tp_from_vw(Vw) if Tp_fixed is None else float(Tp_fixed)
     res = wcfdi_transient(
         cfg,
         Vw_mean=Vw, Hs=Hs, Tp=Tp, Vc=Vc, theta_rel=theta_rel,
+        theta_wind_rel=theta_wind_rel, theta_curr_rel=theta_curr_rel,
         scenario=scenario,
         sigma_Vc=sigma_Vc, tau_Vc=tau_Vc, t_end=t_end,
     )
@@ -785,6 +790,10 @@ def wcfdi_operability_overlay(
     bisect_tol_m_s: float = 0.25,
     t_end: float = 200.0,
     bistability_alarm: float = 1.5,
+    Hs_fixed: float | None = None,
+    Tp_fixed: float | None = None,
+    wind_offset_rad: float = 0.0,
+    current_offset_rad: float = 0.0,
 ) -> WcfdiOperabilityOverlay:
     """Sweep relative weather direction and find, per axis, the V_w at
     which the post-WCFDI transient peak crosses the IMCA M254 warn /
@@ -910,6 +919,9 @@ def wcfdi_operability_overlay(
                     cfg, joint, Vw, Vc_m_s, theta,
                     scenario=scenario, k_sigma=k_sigma, t_end=t_end,
                     sigma_Vc=sigma_Vc, tau_Vc=tau_Vc, c_L=c_L,
+                    Hs_fixed=Hs_fixed, Tp_fixed=Tp_fixed,
+                    theta_wind_rel=theta + wind_offset_rad,
+                    theta_curr_rel=theta + current_offset_rad,
                 )
                 # Bistability gate: if the deterministic predictor is in
                 # the meta-stable regime where stochastic realisations
