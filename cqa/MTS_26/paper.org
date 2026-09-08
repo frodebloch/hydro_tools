@@ -323,8 +323,8 @@ value, exceeded in only one window in twenty.
 
 The traffic-light band that decides operable / caution / no-go is set
 by comparing a high excursion level against the vessel- and
-mission-specific warning and alarm radii established per the IMCA
-M254 station-keeping alarm concept [cite:@imca_m254]. The level used
+mission-specific warning and alarm limits established for the
+operation. The level used
 is the one exceeded in about one operating window in ten, written
 \(P_{90}\) in what follows and in the figures; on the same
 convention \(P_{50}\) is the typical excursion, exceeded in about
