@@ -323,7 +323,8 @@ def _traffic_light_colour(p_exceed: float) -> str:
     return _TRAFFIC_COLOURS["red"]
 
 
-def plot_operator_summary(summary: OperatorSummary, fig=None):
+def plot_operator_summary(summary: OperatorSummary, fig=None,
+                          presentation: bool = False):
     """Render the two-bar operator-facing figure.
 
     Two horizontal bars stacked vertically:
@@ -335,6 +336,13 @@ def plot_operator_summary(summary: OperatorSummary, fig=None):
     exceedance probability (warning -> amber, alarm -> red).
 
     The title prints the conditional probabilities in plain language.
+
+    With ``presentation=True`` the dense annotation is stripped: the
+    parameter header, the numeric legends and the probability lines are
+    dropped, and the remaining labels are enlarged. The bars, markers,
+    threshold lines and axis scales are unchanged. This is for projected
+    slides, where the numbers are spoken rather than read; the annotated
+    default remains the version used in the paper.
     """
     import matplotlib.pyplot as plt
 
@@ -374,19 +382,28 @@ def plot_operator_summary(summary: OperatorSummary, fig=None):
                label=f"IMCA red = {summary.pos_alarm_radius_m:.1f} m")
     ax.set_xlim(0, bar_max)
     ax.set_yticks([])
-    ax.set_xlabel("Vessel footprint (P95 of post-WCF |dp_base|) [m]")
-    ax.set_title(
-        f"VESSEL CAPABILITY  [{summary.pos_traffic.upper()}]   "
+    ax.set_xlabel(
+        "Vessel footprint after worst-case failure [m]" if presentation
+        else "Vessel footprint (P95 of post-WCF |dp_base|) [m]",
+        fontsize=14 if presentation else None)
+    if presentation:
+        ax.tick_params(axis="x", labelsize=13)
+        ax.set_title(f"VESSEL POSITION  [{summary.pos_traffic.upper()}]",
+                     fontsize=17, loc="left", fontweight="bold")
+    else:
+        ax.set_title(
+            f"VESSEL CAPABILITY  [{summary.pos_traffic.upper()}]   "
         f"footprint = {summary.pos_p95:.2f} m   "
         f"(IMCA M254 Fig.8: amber > {summary.pos_warning_radius_m:.0f} m, "
         f"red > {summary.pos_alarm_radius_m:.0f} m)\n"
         f"if WCF now: P(footprint > {summary.pos_warning_radius_m:.0f} m) "
         f"= {summary.pos_p_warning*100:.1f} %     "
         f"P(footprint > {summary.pos_alarm_radius_m:.0f} m) "
-        f"= {summary.pos_p_alarm*100:.1f} %",
-        fontsize=10, loc="left",
-    )
-    ax.legend(loc="upper right", fontsize=8, framealpha=0.95)
+            f"= {summary.pos_p_alarm*100:.1f} %",
+            fontsize=10, loc="left",
+        )
+    if not presentation:
+        ax.legend(loc="upper right", fontsize=8, framealpha=0.95)
     ax.grid(True, axis="x", alpha=0.3)
 
     # --- Gangway bar ---
@@ -480,32 +497,43 @@ def plot_operator_summary(summary: OperatorSummary, fig=None):
                label=f"L_max = {L_max:.1f} m")
     ax.set_xlim(L_min - 0.5, L_max + 0.5)
     ax.set_yticks([])
-    ax.set_xlabel("Telescope length L [m]")
+    ax.set_xlabel(
+        "Gangway telescope length [m]" if presentation
+        else "Telescope length L [m]",
+        fontsize=14 if presentation else None)
+    if presentation:
+        ax.tick_params(axis="x", labelsize=13)
     title_extra = (
         f"   \u03c3_L_wave = {summary.gw_sigma_L_wave_m:.2f} m"
         if use_wave else ""
     )
-    ax.set_title(
-        f"GANGWAY CAPABILITY  [{summary.gw_traffic.upper()}]   "
+    if presentation:
+        ax.set_title(f"GANGWAY TELESCOPE  [{summary.gw_traffic.upper()}]",
+                     fontsize=17, loc="left", fontweight="bold")
+    else:
+        ax.set_title(
+            f"GANGWAY CAPABILITY  [{summary.gw_traffic.upper()}]   "
         f"util = {summary.gw_util_imca*100:.0f} %   "
         f"(IMCA M254 Fig.8: amber > {summary.gw_imca_warning_frac*100:.0f} %, "
         f"red > {summary.gw_imca_alarm_frac*100:.0f} %){title_extra}\n"
         f"if WCF now: P(end-stop hit, slow+wave) = {summary.gw_p_alarm*100:.1f} %     "
         f"min margin P95 = "
-        f"{min(summary.gw_lower_margin_p95, summary.gw_upper_margin_p95):.2f} m",
-        fontsize=10, loc="left",
-    )
+            f"{min(summary.gw_lower_margin_p95, summary.gw_upper_margin_p95):.2f} m",
+            fontsize=10, loc="left",
+        )
     # Legend placed below the axes: inside "upper right" it sat on top
     # of the telescope envelope and the end-stop margins it labels.
-    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.32),
-              fontsize=8, framealpha=0.95, ncol=3, frameon=False)
+    if not presentation:
+        ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.32),
+                  fontsize=8, framealpha=0.95, ncol=3, frameon=False)
     ax.grid(True, axis="x", alpha=0.3)
 
-    fig.suptitle(
-        f"WCFDI consequence summary for current operating state\n"
-        f"({summary.weather_summary}, N_MC={summary.n_samples}, sample_mode={summary.sample_mode})",
-        fontsize=12, y=0.96,
-    )
+    if not presentation:
+        fig.suptitle(
+            f"WCFDI consequence summary for current operating state\n"
+            f"({summary.weather_summary}, N_MC={summary.n_samples}, sample_mode={summary.sample_mode})",
+            fontsize=12, y=0.96,
+        )
     return fig
 
 

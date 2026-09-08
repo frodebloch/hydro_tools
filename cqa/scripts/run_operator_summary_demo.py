@@ -164,6 +164,14 @@ def main() -> None:
     fig.savefig(out, dpi=120, bbox_inches="tight")
     print(f"\nSaved {out}")
 
+    # Stripped variant for projected slides: same bars, markers and
+    # thresholds, without the annotation that is unreadable from the
+    # back of a conference room. The numbers are spoken instead.
+    fig_pres = plot_operator_summary(summary, presentation=True)
+    out_pres = os.path.join(HERE, "csov_operator_summary_presentation.png")
+    fig_pres.savefig(out_pres, dpi=120, bbox_inches="tight")
+    print(f"Saved {out_pres}")
+
     # ------------------------------------------------------------------
     # Intact-prior panel (Q1: "before operation, what's the chance the
     # vessel breaches its footprint or the gangway hits an end-stop in
