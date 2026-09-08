@@ -343,7 +343,7 @@ tip fixed on the structure: the same projection yields the telescope
 stroke deviation directly, which is what the mechanical end-stops
 constrain. No new random inputs are introduced; vessel and
 mission-equipment footprints appear together
-in the [[Example: pre-op operator summary][pre-op operator summary]].
+in the [[Example: the live operator display][live operator display]].
 
 *e. Note on conservatism.* The extreme-value result is mildly
 conservative for a feedback-controlled vessel, because the controller
@@ -620,50 +620,6 @@ the residual capacity constrains.
 #+ATTR_LATEX: :width 1.0\linewidth
 [[./images/csov_wcfdi_decision_matrix_utilisation.png]]
 
-** Example: pre-op operator summary
-
-The polar plots and the decision matrix are planning views over sea
-state and time. The pre-operation operator summary
-(Figure [[fig:operator_summary]]) collapses a single operating point
-— the state selected for the operation — into a single-page display
-that the operator reads before committing to the operation. Two bars
-stack vertically: the top bar is vessel base-position capability, the
-bottom bar is gangway telescope capability, both against their
-own warn / alarm bands. Each bar shows the median (open
-circle, \(P_{50}\)) and the tail (filled diamond, \(P_{95}\)) of the
-post-WCF running-maximum motion excursion evaluated on the current
-operating state, with the traffic-light background driven by the
-same P90-based threshold used in the polars.
-
-The important content on the display is not the traffic light itself
-— the operator already reads that on the polar — but the two headline
-probability numbers on each bar: "P(footprint > amber)" and
-"P(footprint > red)". In the example shown, the vessel bar reports
-"if WCF now: P(footprint > 2 m) = 5.0 %, P(footprint > 4 m) = 0.0 %".
-This is the concrete delivery of the abstract's *probability of
-exceeding operational limits*: not "the vessel can hold" (yes), not
-"the footprint is 2 m" (a single point estimate), but a probabilistic
-statement that the operator can weigh against the operational
-acceptance criterion for the specific mission. The gangway bar
-reports the analogous "P(end-stop hit)". Both are direct products of
-the same motion-based framework used to build the polars and the
-decision matrix; the operator sees one coherent set of numbers before
-and during the operation.
-
-#+CAPTION: Pre-operation operator summary for the CSOV benchmark at
-#+CAPTION: a single operating point (Vw=14 m/s, Hs=2.8 m, Tp=9.0 s,
-#+CAPTION: bow-quartering seas, WCFDI scenario per Fig.
-#+CAPTION: [[fig:design_polar]]). Top bar:
-#+CAPTION: vessel base-position capability. Bottom bar: gangway
-#+CAPTION: telescope capability. Open circle: \(P_{50}\). Filled
-#+CAPTION: diamond: \(P_{95}\). Vertical dashed lines:
-#+CAPTION: warn / alarm thresholds per system. Headline probabilities
-#+CAPTION: quantify the risk of exceeding each threshold under the
-#+CAPTION: post-WCF motion excursion.
-#+NAME: fig:operator_summary
-#+ATTR_LATEX: :width 1.0\linewidth
-[[./images/csov_operator_summary.png]]
-
 * Consequence Analysis (Live)
 
 ** Positioning: additive to the classical CQA
@@ -777,11 +733,11 @@ than the data supports.
 
 The panel reports \(P_{50}\) and \(P_{95}\) of the running maximum
 against the same vessel and mission-equipment warn / alarm limits used
-in the pre-op operator summary. The mild conservatism noted in the
+in the live operator display. The mild conservatism noted in the
 [[Method: from forecast sea state to motion envelope][method section]]
 applies unchanged and is retained as margin. The intact-side output
 of the live panel is therefore directly comparable to the
-[[Example: pre-op operator summary][pre-op operator summary]], but
+[[Example: the live operator display][live operator display]], but
 continuously updated on live data and with no sea-state input at
 runtime.
 
@@ -826,7 +782,7 @@ trajectory; across the buffer this gives an empirical distribution
 of post-WCF peak excursions covering the actual pre-failure state
 variability the vessel is experiencing right now. The panel reports
 the median \(P_{50}\) and the tail \(P_{95}\) of that distribution,
-directly comparable to the [[Example: pre-op operator summary][pre-op operator summary]].
+directly comparable to the [[Example: the live operator display][live operator display]].
 
 Using the same vessel model the pre-op layer uses is deliberate: it
 enforces the "one model, two operating regimes" design goal of the [[Goal][Goal section]].
@@ -941,6 +897,44 @@ The three operator-visible alerts of the framework are therefore:
 No other alerts are added or removed; existing DP UX conventions,
 including audible / visual behaviour of Drift Off and Force Off,
 are preserved.
+
+** Example: the live operator display
+
+Figure [[fig:operator_summary]] shows the display the two channels
+drive. Two bars stack vertically: the top is vessel base-position
+capability, the bottom gangway telescope capability, each against its
+own warn / alarm bands. Each bar carries the median (open circle) and
+the tail (filled diamond) of the post-WCF motion excursion evaluated
+on the vessel's current state, with a traffic-light background.
+
+The important content is not the traffic light but the two headline
+probabilities on each bar. In the example the vessel bar reports "if
+WCF now: P(footprint > 2 m) = 5.0 %, P(footprint > 4 m) = 0.0 %", and
+the gangway bar the analogous "P(end-stop hit)". This is the concrete
+delivery of the *probability of exceeding operational limits*: not
+"the vessel can hold" (yes), not "the footprint is 0.5 m" (a single
+point estimate), but a statement the operator can weigh against the
+acceptance criterion for the mission in hand. The layout follows the
+IMCA M254 station-keeping alarm concept [cite:@imca_m254], whose
+traffic lights attach to approach and connection decisions — proceed,
+check at connection distance, or abort and recover the gangway.
+
+Because the display is fed by the same model the pre-operation layer
+uses, the numbers the operator sees here are directly comparable to
+the operability polars produced before the operation. What changes is
+the input: a forecast sea state beforehand, the live vessel state
+during.
+
+#+CAPTION: Live operator display for the CSOV benchmark at a single
+#+CAPTION: operating state. Top bar: vessel base-position capability.
+#+CAPTION: Bottom bar: gangway telescope capability. Open circle:
+#+CAPTION: median; filled diamond: tail value. Vertical dashed lines:
+#+CAPTION: warn / alarm thresholds per system. The headline
+#+CAPTION: probabilities quantify the risk of exceeding each threshold
+#+CAPTION: if the worst-case failure occurred now.
+#+NAME: fig:operator_summary
+#+ATTR_LATEX: :width 1.0\linewidth
+[[./images/csov_operator_summary.png]]
 
 ** Long-term post-WCF motion larger than the short-term transient
 
@@ -1102,7 +1096,7 @@ The 14-cell agreement therefore validates both parts of the
 intact-side chain: the vessel-response model and the extreme-value
 envelope built on it. The framework's
 intact-side output is the same object used in the
-[[Example: pre-op operator summary][pre-op operator summary]] and in the live intact bar of
+[[Example: the live operator display][live operator display]] and in the live intact bar of
 the [[Extreme-value method for exceedance envelopes][extreme-value section]]; the roll-up
 confirms both.
 
@@ -1263,11 +1257,12 @@ This paper has developed a motion-based consequence quality analysis
 capability and CQA machinery. The contribution is two-part. The
 pre-operation risk assessment ([[Motion-Based Capability Analysis]]) extends the classical capability
 analysis with an estimate of vessel and mission-equipment motion
-from the forecast sea state, delivered as the operability polar, the
-WCFDI decision matrix, and the pre-op operator summary. The live CQA
-panel ([[Consequence Analysis (Live)]]) reformulates the same underlying model for online
-execution, delivering intact and post-WCF motion \(P_{95}\)
-continuously from real-time measurements and the DP model, with a
+from the forecast sea state, delivered as the design and
+forecast-conditioned operability polars and the WCF decision matrix.
+The live CQA panel ([[Consequence Analysis (Live)]]) reformulates the
+same underlying model for online execution, delivering intact and
+post-WCF motion \(P_{95}\) continuously from real-time measurements
+and the DP model, presented on the operator display, with a
 saturation-probability trust indicator that fires when the linear
 motion prediction is no longer reliable.
 
