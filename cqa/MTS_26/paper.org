@@ -471,15 +471,13 @@ For this vessel and gangway configuration the vessel-station-keeping
 metric is the binding constraint after the WCFDI, not the gangway
 telescope.
 
-#+CAPTION: Post-WCFDI operability polar for the CSOV benchmark
+#+CAPTION: Post-WCF operability polar for the CSOV benchmark
 #+CAPTION: vessel and forward walk-to-work gangway. The coloured
 #+CAPTION: bands are the intact-condition operability of Figure
 #+CAPTION: [[fig:intact_polar]]; the black dashed contour is the
-#+CAPTION: wind-speed limit at which the post-WCFDI running-maximum
-#+CAPTION: P90 reaches the alarm radius. Scenario: loss of one of
-#+CAPTION: three thruster groups (per-DOF surviving-fleet capacity
-#+CAPTION: two-thirds of intact for this illustrative figure), allocator
-#+CAPTION: reallocation time 10 s.
+#+CAPTION: wind speed at which the alarm radius would be exceeded
+#+CAPTION: about one operating window in ten after the worst-case
+#+CAPTION: failure.
 #+NAME: fig:wcfdi_polar
 #+ATTR_LATEX: :width 1.0\linewidth
 [[./images/csov_wcfdi_operability_polar.png]]
