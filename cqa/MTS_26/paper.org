@@ -1359,10 +1359,10 @@ Four strands follow from the work presented here.
 - *Forward-looking wave-field instrumentation.* A phase-resolved
   short-horizon prediction of the incoming wave field would extend
   the alert set rather than tighten the envelopes developed here. Its
-  value is expected to lie in real-time operator warning — flagging
-  an incoming wave group that will drive the thrust demand into
-  saturation before any failure has occurred — which is a question
-  none of the channels in this paper asks.
+  value is expected to lie in real-time operator warning: alerting
+  the operator to an incoming wave train that could force the vessel
+  off position, or cause vessel motions exceeding the limits of the
+  mission equipment.
 
 # No "* References" heading here: the thebibliography environment
 # emits its own \section*{References}, so an org heading as well
