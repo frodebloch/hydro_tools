@@ -377,30 +377,29 @@ assumptions.
   equipment — are first exceeded. The two envelopes are used
   together, not one instead of the other.
 
-** Example: intact operability polar
+** Design operability polar
 
 The framework produces two kinds of polar, answering different
-questions. The *design polar* of this subsection and the next sweeps
-wind speed with the sea state growing alongside it, and answers
-whether a given vessel and thruster layout is suitable for a work
-scope at all. It is a design and feasibility chart of the same family
-as the standard DP capability plot, not something a navigator reads
-on the bridge. The *forecast-conditioned polar* of the following
-subsection pins the sea state to a specific forecast and varies only
-the wind, and is the operational chart. Both are built from the same
-motion model.
+questions. The *design polar* of this subsection sweeps wind speed
+with the sea state growing alongside it, and answers whether a given
+vessel and thruster layout is suitable for a work scope at all. It is
+a design and feasibility chart of the same family as the standard DP
+capability plot, not something a navigator reads on the bridge. The
+*forecast-conditioned polar* of the next subsection pins the sea
+state to a specific forecast and varies only the wind, and is the
+operational chart. Both are built from the same motion model.
 
-Figure [[fig:intact_polar]] illustrates the intact-condition
-operability polar produced by the framework for the CSOV benchmark
-vessel introduced in Section 5. At any given vessel heading and mean
-wind speed the polar answers whether the operation is operable
-(green), in a caution band (yellow), or no-go (red) in terms of the
-intact motion footprint. The colour band is driven by the P90 of the
-running-maximum excursion against a warning and alarm radius: for
-the vessel base position the warn / alarm thresholds are the
-station-keeping radii established for the operation (here 2.0 m /
-4.0 m); for the gangway telescope they are derived from the
-mechanism's remaining travel. The benchmark gangway telescopes
+Figure [[fig:design_polar]] shows the design polar for the CSOV
+benchmark vessel introduced in Section 5. At any given vessel heading
+and mean wind speed the coloured bands answer whether the operation
+is operable (green), in a caution band (amber), or no-go (red) in
+terms of the intact motion footprint, and the black dashed contour
+adds the post-WCF boundary on the same axes. The colour band is set
+by the motion excursion exceeded about one time in ten, compared
+against a warning and alarm radius: for the vessel base position
+these are the station-keeping radii established for the operation
+(here 2.0 m / 4.0 m); for the gangway telescope they are derived from
+the mechanism's remaining travel. The benchmark gangway telescopes
 between 18 m and 32 m and is landed at mid-stroke, leaving 7 m of
 travel in each direction; warning and alarm are set at 60% and 80% of
 that remaining travel, giving 4.20 m and 5.60 m. Landing the gangway
@@ -412,76 +411,48 @@ which is the Pierson-Moskowitz relation, with a Bretschneider
 spectrum shape and a fixed current component. The operating window is
 20 minutes.
 
-Two features are worth calling out. First, the operable envelopes
+Three features are worth calling out. First, the operable envelopes
 are visibly anisotropic: both panels show larger operable radii in
-head and following seas than in the beam sector, as expected from
-the projection of environmental force through the vessel geometry.
+head and following seas than in the beam sector, as expected from the
+projection of environmental force through the vessel geometry.
 Second, the gangway telescope panel has a larger operable envelope
-than the vessel base position, because the gangway threshold levels
-are set from the mechanical stroke of the telescope, not from a
+than the vessel base position, because the gangway thresholds are set
+from the mechanical stroke of the telescope rather than from a
 station-keeping alarm limit; the vessel and mission-equipment
 footprints are treated in the same motion-based framework but each
 against its own operational limits. The framework can produce the
-same polar for any additional mission-equipment point that the
-operator provides thresholds for.
+same polar for any additional mission-equipment point the operator
+provides thresholds for.
 
-#+CAPTION: Intact-condition operability polar for the CSOV benchmark
-#+CAPTION: vessel and forward walk-to-work gangway. Polar radius is
-#+CAPTION: mean wind speed [m/s]; heading is vessel-relative wave
-#+CAPTION: direction. The colour band is set by the motion excursion
-#+CAPTION: exceeded about one time in ten, compared against the
-#+CAPTION: vessel and mission-equipment warning and alarm radii.
-#+NAME: fig:intact_polar
-#+ATTR_LATEX: :width 1.0\linewidth
-[[./images/csov_operability_polar.png]]
+Third, and the operational point of the figure, the post-WCF boundary
+sits well inside the intact alarm ring: on the vessel panel it falls
+in the beam sector to roughly 15-20 m/s wind speed, against an intact
+alarm at around 25 m/s. This is the motion equivalent of the tighter
+capacity envelope the classical CQA already screens against, but
+expressed in the operator's motion units rather than as a
+capacity-reserve percentage. The restriction is itself strongly
+asymmetric — tightest in the beam sector where the worst-affected DOF
+is loaded hardest, and closest to the intact envelope in head and
+following seas — and it bites less hard on the gangway telescope,
+whose mechanical stroke limit is generous relative to the post-WCF
+excursion at the same sea state. For this vessel and gangway
+configuration the vessel station-keeping metric is the binding
+constraint after the failure, not the gangway telescope.
 
-** Example: post-WCFDI operability polar
-
-Figure [[fig:wcfdi_polar]] overlays the post-WCFDI no-go boundary
-(black dashed) on the same intact-prior polar of the previous
-subsection. The WCFDI scenario for this illustrative figure is a
-loss of one of three symmetric thruster groups, which for the
-standalone prototype used to generate the figure is parameterised as
-a per-DOF surviving-fleet capacity of two-thirds of intact and an
-allocator reallocation time \(T_{\text{realloc}} = 10\) s; the
-P90 Gaussian factor is \(k_{\sigma} = 0.674\). In a real deployment
-the per-DOF residual capacity is not a scalar of intact — the motion
-layer consumes whichever \(\tau_{\text{residual, cap}}\) the classical
-CQA already publishes over the survivor set. The dashed boundary is
-the wind-speed contour at which the P90 of the running-maximum
-excursion, evaluated on the post-WCFDI closed-loop dynamics with
-this residual capacity, reaches the alarm radius per DOF.
-
-The important operational message is that the post-WCFDI boundary
-sits well inside the intact alarm ring — the vessel panel shows the
-WCFDI no-go contour at roughly 15-20 m/s wind speed in the beam
-sector, compared to the intact alarm at around 25 m/s. This is the
-motion equivalent of the tighter capacity envelope the classical CQA
-already screens against, but expressed in the operator's motion
-units rather than in a capacity-reserve percentage. Two features of
-the plot deserve comment. First, the WCFDI restriction is materially
-asymmetric across headings: the boundary is tightest in the beam
-sector (heading 90 / 270°) where the DOF that lost the most capacity
-is loaded worst, and closest to the intact envelope in head and
-following seas. Second, the WCFDI restriction bites less hard on the
-gangway telescope panel than on the vessel base position panel: the
-mission-equipment threshold is a mechanical stroke limit that is
-generous relative to the post-WCFDI excursion at the same sea state.
-For this vessel and gangway configuration the vessel-station-keeping
-metric is the binding constraint after the WCFDI, not the gangway
-telescope.
-
-#+CAPTION: Post-WCF operability polar for the CSOV benchmark
-#+CAPTION: vessel and forward walk-to-work gangway. The coloured
-#+CAPTION: bands are the intact-condition operability of Figure
-#+CAPTION: [[fig:intact_polar]]; the black dashed contour is the
-#+CAPTION: wind speed at which the alarm radius would be exceeded
-#+CAPTION: about one time in ten after the worst-case failure.
-#+NAME: fig:wcfdi_polar
+#+CAPTION: Design operability polar for the CSOV benchmark vessel and
+#+CAPTION: forward walk-to-work gangway. Polar radius is mean wind
+#+CAPTION: speed [m/s]; heading is vessel-relative wave direction. The
+#+CAPTION: colour band is set by the intact motion excursion exceeded
+#+CAPTION: about one time in ten, compared against the vessel and
+#+CAPTION: mission-equipment warning and alarm radii. The black dashed
+#+CAPTION: contour is the wind speed at which the alarm radius would
+#+CAPTION: be exceeded about one time in ten after the worst-case
+#+CAPTION: failure.
+#+NAME: fig:design_polar
 #+ATTR_LATEX: :width 1.0\linewidth
 [[./images/csov_wcfdi_operability_polar.png]]
 
-** Example: forecast-conditioned operability polar
+** Forecast-conditioned operability polar
 
 The design polars answer a design question. The operational question
 is different: given the sea state actually forecast for the operating
@@ -692,7 +663,7 @@ and during the operation.
 #+CAPTION: Pre-operation operator summary for the CSOV benchmark at
 #+CAPTION: a single operating point (Vw=14 m/s, Hs=2.8 m, Tp=9.0 s,
 #+CAPTION: bow-quartering seas, WCFDI scenario per Fig.
-#+CAPTION: [[fig:wcfdi_polar]]). Top bar:
+#+CAPTION: [[fig:design_polar]]). Top bar:
 #+CAPTION: vessel base-position capability. Bottom bar: gangway
 #+CAPTION: telescope capability. Open circle: \(P_{50}\). Filled
 #+CAPTION: diamond: \(P_{95}\). Vertical dashed lines:
