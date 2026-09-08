@@ -560,11 +560,12 @@ questions asked at the same (time, heading) cell:
 - *Motion-based intact utilisation* (middle panel): the ratio of the
   intact-condition P90 running-maximum footprint to the operation's
   alarm radius. Reaches 1.0 when the intact motion of the vessel
-  itself would cross that alarm threshold.
+  itself would cross that alarm threshold; the colour scale runs
+  caution from 0.50, the warn / alarm ratio, and warning from 1.00.
 - *Motion-based post-WCFDI utilisation* (bottom panel): the same
-  ratio computed on the post-WCFDI motion envelope, i.e. what the
+  ratio computed on the post-WCF motion envelope, i.e. what the
   motion would be if the worst-case failure occurred at that
-  (time, heading) cell.
+  (time, heading) cell, on the same 0.50 / 1.00 scale.
 
 The operator's task is to plan a safe operation through the forecast
 window. The three panels answer that task in three different ways.
@@ -600,22 +601,10 @@ delivers: the *when* and the *which heading* at the resolution the
 motion actually constrains, not just the *whether* at the resolution
 the residual capacity constrains.
 
-#+CAPTION: WCFDI forecast decision matrix over a synthetic 24-hour
-#+CAPTION: storm for the CSOV benchmark vessel, shown as three
-#+CAPTION: side-by-side utilisation heatmaps. Rows: vessel heading
+#+CAPTION: WCF forecast decision matrix over a synthetic 24-hour
+#+CAPTION: storm for the CSOV benchmark vessel. Rows: vessel heading
 #+CAPTION: (deg, true). Columns: forecast slot (hour of day). All
-#+CAPTION: three panels use the same green→yellow→red gradient
-#+CAPTION: colour map on a common utilisation ratio scale 0 to 1.2
-#+CAPTION: (colour bar right). Reference thresholds: for the
-#+CAPTION: classical CQA panel, caution at 0.80 and warning at 0.90
-#+CAPTION: (reference DP system convention); for the two motion panels, caution
-#+CAPTION: at 0.50 (the warn / alarm radius ratio) and warning at
-#+CAPTION: 1.00 (P90 equals the alarm radius). Top: classical
-#+CAPTION: CQA utilisation (environmental forces / residual
-#+CAPTION: capability, max across DOFs). Middle: motion-based intact
-#+CAPTION: utilisation (P90 footprint / alarm radius).
-#+CAPTION: Bottom: motion-based post-WCFDI utilisation (post-WCFDI
-#+CAPTION: peak / alarm radius).
+#+CAPTION: three panels share one colour scale, described in the text.
 #+NAME: fig:decision_matrix
 #+ATTR_LATEX: :width 1.0\linewidth
 [[./images/csov_wcfdi_decision_matrix_utilisation.png]]
