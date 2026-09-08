@@ -536,6 +536,25 @@ using the same green→yellow→red gradient across all three panels so
 that different views of operability can be read directly against
 each other. The example is driven by a synthetic 24-hour storm.
 
+The forecast driving the example is shown in Figure
+[[fig:storm_profile]]: a passing storm with the wind rising from 5
+m/s to a 12.5 m/s peak at 12:00 and falling away again, the direction
+veering steadily from 315\deg{} to 360\deg{} through the day, and a
+constant 0.5 m/s current. Wind, waves and current are collinear, and
+the sea state follows the same DNV-ST-0111 wind-wave correlation used
+for the design polar, so \(H_s\) and \(T_p\) track the wind. The
+peak is deliberately modest: it keeps the classical CQA comfortably
+inside the residual capacity throughout, which is the regime where
+the motion layer has something to add.
+
+#+CAPTION: Synthetic 24-hour storm forecast driving the decision
+#+CAPTION: matrix. Wind, waves and current are collinear; the sea
+#+CAPTION: state follows the DNV-ST-0111 wind-wave correlation, so
+#+CAPTION: \(H_s\) and \(T_p\) track the wind speed.
+#+NAME: fig:storm_profile
+#+ATTR_LATEX: :width 0.82\linewidth :placement [tbp]
+[[./images/csov_storm_profile.png]]
+
 The three panels correspond to three different consequence-analysis
 questions asked at the same (time, heading) cell:
 
