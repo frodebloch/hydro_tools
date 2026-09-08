@@ -1356,20 +1356,13 @@ Four strands follow from the work presented here.
   input — a natural next step given that the current guidance already
   gestures in this direction (see [[Introduction]]) but stops short of
   requiring the delivery.
-- *Forward-looking wave-field instrumentation.* Extension of the
-  alert set using a phase-resolved short-horizon prediction of the
-  incoming wave field. Such a prediction would not tighten the
-  post-WCF envelope materially — the residual uncertainty there is
-  dominated by the nonlinear survivor-allocator behaviour rather than
-  by the wave input, and would remain wider than the intact-side
-  uncertainty — but it would support a distinct, forward-looking
-  alert on the intact vessel: warning of an incoming wave group that
-  will drive the thrust demand into saturation before any failure has
-  occurred. That is a question none of the channels developed here
-  asks, since the saturation channel evaluates the survivor set on
-  the assumption that the worst-case failure has already happened.
-  Such an alert would be additive to the alert set developed here
-  rather than a refinement of it.
+- *Forward-looking wave-field instrumentation.* A phase-resolved
+  short-horizon prediction of the incoming wave field would extend
+  the alert set rather than tighten the envelopes developed here. Its
+  value is expected to lie in real-time operator warning — flagging
+  an incoming wave group that will drive the thrust demand into
+  saturation before any failure has occurred — which is a question
+  none of the channels in this paper asks.
 
 # No "* References" heading here: the thebibliography environment
 # emits its own \section*{References}, so an org heading as well
