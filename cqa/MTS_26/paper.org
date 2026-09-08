@@ -395,8 +395,11 @@ travel in each direction; warning and alarm are set at 60% and 80% of
 that remaining travel, giving 4.20 m and 5.60 m. Landing the gangway
 off-centre reduces the travel available in one direction and tightens
 these thresholds accordingly. The sea state at each polar radius is
-generated from the wind speed via a Pierson-Moskowitz relation with a
-fixed current component, and the operating window is 20 minutes.
+generated from the wind speed using the DNV-ST-0111
+[cite:@dnv_st_0111] wind-wave correlation for a fully-developed sea,
+which is the Pierson-Moskowitz relation, with a Bretschneider
+spectrum shape and a fixed current component. The operating window is
+20 minutes.
 
 Two features are worth calling out. First, the operable envelopes
 are visibly anisotropic: both panels show larger operable radii in
