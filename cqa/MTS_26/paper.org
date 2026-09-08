@@ -412,32 +412,22 @@ spectrum shape and a fixed current component. The operating window is
 20 minutes.
 
 Three features are worth calling out. First, the operable envelopes
-are visibly anisotropic: both panels show larger operable radii in
-head and following seas than in the beam sector, as expected from the
-projection of environmental force through the vessel geometry.
-Second, the gangway telescope panel has a larger operable envelope
-than the vessel base position, because the gangway thresholds are set
-from the mechanical stroke of the telescope rather than from a
-station-keeping alarm limit; the vessel and mission-equipment
-footprints are treated in the same motion-based framework but each
-against its own operational limits. The framework can produce the
-same polar for any additional mission-equipment point the operator
-provides thresholds for.
+are anisotropic: both panels reach further in head and following seas
+than in the beam sector, as expected from how environmental force
+projects through the vessel geometry. Second, the post-WCF boundary
+sits well inside the intact one — in the beam sector it falls to
+roughly 15-20 m/s against an intact alarm near 25 m/s — and it is
+asymmetric in the same way, tightest on the beam and closest to the
+intact envelope head-on. This is the motion equivalent of the tighter
+envelope the classical CQA already screens against, expressed in
+motion rather than as a capacity-reserve percentage.
 
-Third, and the operational point of the figure, the post-WCF boundary
-sits well inside the intact alarm ring: on the vessel panel it falls
-in the beam sector to roughly 15-20 m/s wind speed, against an intact
-alarm at around 25 m/s. This is the motion equivalent of the tighter
-capacity envelope the classical CQA already screens against, but
-expressed in the operator's motion units rather than as a
-capacity-reserve percentage. The restriction is itself strongly
-asymmetric — tightest in the beam sector where the worst-affected DOF
-is loaded hardest, and closest to the intact envelope in head and
-following seas — and it bites less hard on the gangway telescope,
-whose mechanical stroke limit is generous relative to the post-WCF
-excursion at the same sea state. For this vessel and gangway
-configuration the vessel station-keeping metric is the binding
-constraint after the failure, not the gangway telescope.
+Third, the gangway telescope envelope is much the larger of the two,
+both intact and after the failure. For this vessel and gangway the
+station-keeping limits are the more constraining, so the vessel, not
+the gangway, decides when the operation stops. The same polar can be
+produced for any other mission-equipment point the operator sets
+thresholds for.
 
 #+CAPTION: Design operability polar for the CSOV benchmark vessel and
 #+CAPTION: forward walk-to-work gangway. Polar radius is mean wind
