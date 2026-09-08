@@ -67,6 +67,11 @@ against logged operations is in progress.
   in this paper, which quantifies the *probability of exceeding
   operational limits*, in both intact and post-WCF conditions,
   continuously and in motion terms.
+- *P50 / P90 / P95* :: Percentiles of the predicted maximum motion
+  excursion. \(P_{50}\) is the typical value, exceeded in about half
+  of operating windows; \(P_{90}\) is exceeded in roughly one window
+  in ten; \(P_{95}\) is a conservative value exceeded in one window
+  in twenty.
 - *WCF* :: Worst-Case Failure: the failure event (typically loss of a
   thruster group or bus section) against which CQA is evaluated.
 - *WCFDI* :: Worst-Case Failure Design Intent: the specific failure
@@ -311,16 +316,18 @@ processes; see Rice [cite:@rice_running_max] and Vanmarcke
 
 What is then reported is not the distribution itself but the number
 the operator can act on: the probability that the excursion exceeds
-the warning and alarm limits set for the operation. Representative
-values — the median \(P_{50}\) and the tail \(P_{95}\) of \(R\) —
-are shown alongside it to give a sense of scale.
+the warning and alarm limits set for the operation. Alongside it, two
+representative excursions give a sense of scale — a typical value,
+exceeded in about half of operating windows, and a conservative
+value, exceeded in only one window in twenty.
 
-The traffic-light band that decides operable / caution / no-go is
-driven by \(P_{90}\) against the vessel- and mission-specific
-warning and alarm radii established per the IMCA M254
-station-keeping alarm concept [cite:@imca_m254]. The vessel's
-wave-frequency motion is combined with the slower drifting motion to
-give the total excursion.
+The traffic-light band that decides operable / caution / no-go is set
+by comparing a high excursion level — the value exceeded in about one
+operating window in ten — against the vessel- and mission-specific
+warning and alarm radii established per the IMCA M254 station-keeping
+alarm concept [cite:@imca_m254]. The vessel's wave-frequency motion is
+combined with the slower drifting motion to give the total
+excursion.
 
 *d. Extension to mission equipment.* The same excursion process,
 projected through mission-equipment lever arms and coupling
