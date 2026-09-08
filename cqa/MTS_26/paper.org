@@ -322,10 +322,14 @@ exceeded in about half of operating windows, and a conservative
 value, exceeded in only one window in twenty.
 
 The traffic-light band that decides operable / caution / no-go is set
-by comparing a high excursion level — the value exceeded in about one
-operating window in ten — against the vessel- and mission-specific
-warning and alarm radii established per the IMCA M254 station-keeping
-alarm concept [cite:@imca_m254]. The vessel's wave-frequency motion is
+by comparing a high excursion level against the vessel- and
+mission-specific warning and alarm radii established per the IMCA
+M254 station-keeping alarm concept [cite:@imca_m254]. The level used
+is the one exceeded in about one operating window in ten, written
+\(P_{90}\) in what follows and in the figures; on the same
+convention \(P_{50}\) is the typical excursion, exceeded in about
+half of operating windows, and \(P_{95}\) a conservative one
+exceeded in one window in twenty. The vessel's wave-frequency motion is
 combined with the slower drifting motion to give the total
 excursion.
 
