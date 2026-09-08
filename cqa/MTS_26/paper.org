@@ -1243,10 +1243,21 @@ roll-up, with no consistent sign.
 the pre-WCF Vanmarcke spectral bandwidth. Empirically falsified on
 the same evidence, with the same range of correlations.
 
-The two-channel design is therefore the *tight* envelope on this
-class of vessel and instrumentation: adding observables from past
-history to characterise the future wave-phase-at-trip alignment does
-not add predictive power.
+The two-channel design is therefore the *tight* envelope for the
+observables tested here: both candidate predictors drawn from the
+pre-trip record were falsified, and within the measurement-only
+scope of this framework the panel has nothing better to offer than
+the trust indicator. Whether some other observable could recover
+the post-WCF peak is left open. The most promising direction is
+instrumentation that resolves the incoming wave field ahead of the
+vessel: the post-WCF peak depends on the wave phase at the instant
+of the trip, which no past-history statistic contains, but which a
+deterministic short-horizon wave-field prediction would in
+principle supply. Equally, the rejection of the QTF-gradient
+refinement above is a scope decision rather than a statement of
+impossibility — it is ruled out for a measurement-only online
+panel, not for an offline analysis willing to carry the
+computational cost.
 
 * Conclusion
 
