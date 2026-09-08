@@ -1112,14 +1112,17 @@ def plot_operability_polar(
                ncol=min(len(handles), 4), frameon=False)
 
     if title is None:
-        title = (f"Intact-prior operability polar  (T_op = "
+        # Design / table-top chart: the sea state grows with wind speed
+        # via the DNV-ST-0111 wind-wave correlation, so the radial axis
+        # is a design condition rather than a forecast. Internal
+        # scenario parameters (alpha, k_sigma) are deliberately kept out
+        # of the title - they are configuration, not operator content.
+        title = (f"Design operability polar  (T_op = "
                  f"{polar.T_op_s/60:.0f} min, Vc = {polar.Vc_m_s:.1f} m/s, "
-                 f"Hs/Tp from PM(V_w))")
+                 f"sea state from DNV-ST-0111 wind-wave correlation)")
         if overlay is not None:
-            alpha_str = ", ".join(f"{a:.2f}" for a in overlay.alpha)
-            title += (f"\n+ post-WCFDI no-go boundary (alpha=({alpha_str}), "
-                      f"T_realloc={overlay.T_realloc:.0f} s, "
-                      f"k_sigma={overlay.k_sigma:.3f})")
+            title += (f"\n+ post-WCFDI no-go boundary "
+                      f"(T_realloc={overlay.T_realloc:.0f} s)")
     fig.suptitle(title, fontsize=12)
     fig.tight_layout(rect=(0, 0.03, 1, 0.96))
     return fig
