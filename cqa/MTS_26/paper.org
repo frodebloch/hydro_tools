@@ -124,8 +124,8 @@ the current CQA implementation, in two coupled deliverables: a
 design intent in motion terms from the forecast sea state;
 and a *live CQA panel*, producing continuously updated \(P_{50}\) /
 \(P_{95}\) motion-footprint envelopes for intact and post-WCF
-conditions from measurements every DP-2/DP-3 vessel already
-publishes. The framework is additive: the current CQA continues to
+conditions from measurements already available on every DP-2/DP-3
+vessel. The framework is additive: the current CQA continues to
 run and continues to raise its Drift Off / Force Off alarms; the
 motion layer adds one new operator alert, *Large Transient*, that
 fires when the motion prediction itself should be read as a lower
@@ -183,8 +183,8 @@ motion model serves the pre-operation stage (fed by the forecast sea
 state) and the live stage (fed by live measurements and the DP
 model), so that the operator sees the same numbers before and during
 the operation. Third, *readily available measurements only, online*:
-the live layer consumes only signals every DP-2/DP-3 vessel already
-publishes, plus vessel-constant parameters — no runtime seakeeping
+the live layer consumes only signals already available on every
+DP-2/DP-3 vessel, plus vessel-constant parameters — no runtime seakeeping
 model, no runtime spectral partition, no runtime wave forecast — so
 that the design stays defensible under mixed wind-sea and swell,
 cross-current forcing, and near-installation shielding. Fourth,
@@ -1328,8 +1328,8 @@ expanded the DP envelope beyond simple hold-vs-drift.
 
 The measurement-only online scope set out in [[Goal][the Goal section]]
 is honoured throughout:
-the live layer consumes only signals every DP-2/DP-3 vessel already
-publishes, plus vessel-constant parameters. No online seakeeping
+the live layer consumes only signals already available on every
+DP-2/DP-3 vessel, plus vessel-constant parameters. No online seakeeping
 model and no runtime wave-field assumption; the reasons are set out
 in [[Rejected extensions]].
 
