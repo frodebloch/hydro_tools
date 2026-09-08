@@ -76,7 +76,7 @@ def main() -> None:
         cfg, joint,
         n_directions=36,
         Vw_min=0.5,
-        Vw_max=45.0,
+        Vw_max=70.0,
         Vc_m_s=FORECAST_VC,
         T_op_s=20.0 * 60.0,
         quantile_p=0.90,
@@ -92,52 +92,56 @@ def main() -> None:
     def close(a):
         return np.concatenate([a, a[:1]])
 
-    warn = close(polar.pos_warn_Vw)
-    alarm = close(polar.pos_alarm_Vw)
+    R_MAX = 40.0   # common radial scale for both panels
 
-    fig = plt.figure(figsize=(7.2, 6.4))
-    ax = fig.add_subplot(111, projection="polar")
-    ax.set_theta_zero_location("N")
-    ax.set_theta_direction(-1)
+    panels = [
+        ("Vessel base position",
+         close(polar.pos_warn_Vw), close(polar.pos_alarm_Vw)),
+        ("Gangway telescope",
+         close(polar.gw_warn_Vw), close(polar.gw_alarm_Vw)),
+    ]
 
-    # Operable region: inside the warn boundary.
-    ax.fill(th_closed, warn, color="#2ca02c", alpha=0.22,
-            label="operable (below warn)")
-    # Caution band between warn and alarm.
-    ax.fill_between(th_closed, warn, alarm, color="#ff9900", alpha=0.28,
-                    label="caution (warn to alarm)")
-
-    ax.plot(th_closed, warn, color="#2ca02c", lw=2.0)
-    ax.plot(th_closed, alarm, color="#d62728", lw=2.0,
-            label="alarm boundary")
-
-    # The forecast wind speed as a ring: where the ring sits outside the
-    # alarm boundary, that heading is not operable in this forecast.
-    ax.plot(th_closed, np.full_like(th_closed, FORECAST_VW),
-            color="#1f77b4", lw=2.4, ls="--",
-            label=f"forecast wind {FORECAST_VW:.0f} m/s")
-
-    # Shade the headings where the forecast wind already sits outside
-    # the alarm boundary - the no-go sector for this forecast.
-    nogo = alarm < FORECAST_VW
-    if nogo.any():
-        ax.fill_between(th_closed, 0.0, ax.get_rmax(), where=nogo,
-                        color="#d62728", alpha=0.13, zorder=0,
-                        label="no-go at forecast wind")
-
-    ax.set_rmax(float(np.nanmax(alarm)) * 1.08)
-    ax.set_rlabel_position(112.5)
-    ax.set_title(
-        "Forecast-conditioned operability polar\n"
-        f"forecast sea state Hs={FORECAST_HS} m, Tp={FORECAST_TP} s, "
-        f"Vc={FORECAST_VC} m/s; wind and current veered "
-        f"{WIND_OFFSET_DEG:.0f}\u00b0 from the waves\n"
-        f"radius = wind speed [m/s]; heading = vessel heading",
-        fontsize=10, pad=18,
+    fig, axes = plt.subplots(
+        1, 2, figsize=(12.4, 6.0),
+        subplot_kw={"projection": "polar"},
     )
-    ax.grid(True, alpha=0.35)
-    ax.legend(loc="upper right", bbox_to_anchor=(1.32, 1.10), fontsize=8)
-    fig.tight_layout()
+
+    for ax, (title, warn, alarm) in zip(axes, panels):
+        ax.set_theta_zero_location("N")
+        ax.set_theta_direction(-1)
+
+        # Clip to the plotted range; boundaries beyond R_MAX mean the
+        # limit is never reached at any wind speed of interest.
+        warn_c = np.minimum(warn, R_MAX)
+        alarm_c = np.minimum(alarm, R_MAX)
+
+        ax.fill(th_closed, warn_c, color="#2ca02c", alpha=0.22)
+        ax.fill_between(th_closed, warn_c, alarm_c,
+                        color="#ff9900", alpha=0.28)
+        ax.plot(th_closed, warn_c, color="#2ca02c", lw=2.0,
+                label="warning boundary")
+        ax.plot(th_closed, alarm_c, color="#d62728", lw=2.0,
+                label="alarm boundary")
+        ax.plot(th_closed, np.full_like(th_closed, FORECAST_VW),
+                color="#1f77b4", lw=2.4, ls="--",
+                label=f"forecast wind {FORECAST_VW:.1f} m/s")
+
+        ax.set_rmax(R_MAX)
+        ax.set_rlabel_position(112.5)
+        ax.set_title(title, fontsize=11, pad=14)
+        ax.grid(True, alpha=0.35)
+
+    axes[0].legend(loc="upper center", bbox_to_anchor=(1.12, -0.06),
+                   ncol=3, fontsize=9, frameon=False)
+
+    fig.suptitle(
+        "Forecast-conditioned operability polar  -  "
+        f"Hs={FORECAST_HS} m, Tp={FORECAST_TP} s, Vc={FORECAST_VC} m/s, "
+        f"wind and current veered {WIND_OFFSET_DEG:.0f}\u00b0 from the waves\n"
+        "radius = wind speed [m/s]; angle = vessel heading",
+        fontsize=11,
+    )
+    fig.tight_layout(rect=(0, 0.04, 1, 0.94))
 
     out_dir = Path.home() / "Documents" / "MTS_26" / "images"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -162,6 +166,10 @@ def main() -> None:
           f"(margin {margin[worst]:+.1f} m/s); "
           f"most open {np.rad2deg(th[best]):.0f} deg "
           f"(margin {margin[best]:+.1f} m/s)")
+    gw_binds = int(np.sum(polar.gw_warn_Vw < polar.pos_warn_Vw))
+    print(f"  gangway warn boundary: {polar.gw_warn_Vw.min():.1f} to "
+          f"{polar.gw_warn_Vw.max():.1f} m/s "
+          f"(binds at {gw_binds} of {len(th)} headings)")
 
 
 if __name__ == "__main__":

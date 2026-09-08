@@ -506,27 +506,44 @@ the envelope genuinely asymmetric: the heading that is most
 comfortable for the waves is not the one that is most comfortable for
 the wind and current.
 
-The operational content is the margin, not the colour. The caution
-boundary ranges from 19.3 m/s to 24.6 m/s across headings, so against
-a forecast wind of 13.8 m/s the operator has between 5.5 and 10.8 m/s
-of wind in hand depending on how the vessel is oriented — roughly a
-factor of two between the tightest heading (180\deg{}) and the most
-open one (080\deg{}). An operator reading only a pass / fail
+The operational content is the margin, not the colour. On the vessel
+panel the caution boundary ranges from 19.3 m/s to 24.6 m/s across
+headings, so against a forecast wind of 13.8 m/s the operator has
+between 5.5 and 10.8 m/s of wind in hand depending on how the vessel
+is oriented — roughly a factor of two between the tightest heading
+and the most open one. An operator reading only a pass / fail
 capability check sees "operable" across the whole circle and has no
 way to tell that some headings carry twice the margin of others. That
 margin is what makes the difference between an operation that absorbs
 a forecast busting by a few metres per second and one that does not.
 
+The two panels also show which limit is actually binding. The gangway
+telescope boundary does not fall below 31 m/s at any heading, and at
+some orientations the telescope limit is not reached at any wind
+speed of interest because the vessel motion barely projects onto the
+telescope axis. For this vessel, gangway configuration and forecast
+the vessel station-keeping limit binds everywhere and the gangway has
+substantial margin behind it — but that is a result of the geometry
+rather than a general rule, and a shorter-stroke gangway or an
+off-centre landing would move the binding limit. Both limits are
+motion limits; the classical force-balance check is a separate
+constraint and appears as the top panel of the decision matrix in the
+next subsection.
+
 #+CAPTION: Forecast-conditioned operability polar for the CSOV
-#+CAPTION: benchmark. The wave condition and current are pinned at the
-#+CAPTION: forecast values (Hs = 3.1 m, Tp = 8.5 s, Vc = 0.75 m/s,
-#+CAPTION: wind and current veered 90\deg{} from the waves) and only
-#+CAPTION: the wind speed is swept. Radius is wind speed; the angular
-#+CAPTION: coordinate is vessel heading. Green is operable, the amber
-#+CAPTION: band runs from the warning to the alarm boundary, and the
-#+CAPTION: dashed ring is the forecast wind speed. The radial gap
-#+CAPTION: between the ring and the green boundary is the wind margin
-#+CAPTION: available at that heading.
+#+CAPTION: benchmark, vessel base position (left) and gangway
+#+CAPTION: telescope (right) on a common scale. The wave condition and
+#+CAPTION: current are pinned at the forecast values (Hs = 3.1 m,
+#+CAPTION: Tp = 8.5 s, Vc = 0.75 m/s, wind and current veered
+#+CAPTION: 90\deg{} from the waves) and only the wind speed is swept.
+#+CAPTION: Radius is wind speed; the angular coordinate is vessel
+#+CAPTION: heading. Green is operable, the amber band runs from the
+#+CAPTION: warning to the alarm boundary, and the dashed ring is the
+#+CAPTION: forecast wind speed. The radial gap between the ring and
+#+CAPTION: the green boundary is the wind margin available at that
+#+CAPTION: heading. Gangway boundaries beyond the plotted range are
+#+CAPTION: clipped at the rim: at those headings the telescope limit
+#+CAPTION: is not reached at any wind speed of interest.
 #+NAME: fig:forecast_polar
 #+ATTR_LATEX: :width 0.86\linewidth :placement [tbp]
 [[./images/csov_forecast_polar.png]]
