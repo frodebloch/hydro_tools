@@ -117,7 +117,7 @@ def main() -> None:
     ]
 
     fig, axes = plt.subplots(
-        1, 2, figsize=(12.4, 6.0),
+        1, 2, figsize=(12.0, 6.0),
         subplot_kw={"projection": "polar"},
     )
 
@@ -130,18 +130,23 @@ def main() -> None:
         warn_c = np.minimum(warn, R_MAX)
         alarm_c = np.minimum(alarm, R_MAX)
 
-        ax.fill(th_closed, warn_c, color="#2ca02c", alpha=0.22)
+        # Palette matches plot_operability_polar so the forecast chart
+        # reads the same way as the design polars: green operable,
+        # amber caution, light red outside the alarm boundary.
+        ax.fill(th_closed, warn_c, color="#bce6b0", alpha=0.7,
+                label="green (operable)")
         ax.fill_between(th_closed, warn_c, alarm_c,
-                        color="#ff9900", alpha=0.28)
-        ax.plot(th_closed, warn_c, color="#2ca02c", lw=2.0,
-                label="warning boundary")
-        ax.plot(th_closed, alarm_c, color="#d62728", lw=2.0,
-                label="alarm boundary")
+                        color="#f6d57a", alpha=0.7, label="amber (caution)")
+        ax.fill_between(th_closed, alarm_c,
+                        np.full_like(alarm_c, R_MAX),
+                        color="#f29c9c", alpha=0.5, label="red (no go)")
+        ax.plot(th_closed, warn_c, color="#cc8800", lw=2.0)
+        ax.plot(th_closed, alarm_c, color="#990000", lw=2.0)
         # Post-WCFDI no-go boundary: the wind speed at which the
         # post-failure motion would cross the alarm limit.
         ax.plot(th_closed, np.minimum(wcf_alarm, R_MAX),
-                color="black", lw=2.0, ls="--",
-                label="post-WCF alarm boundary")
+                color="#1a1a1a", lw=2.0, ls="--",
+                label="post-WCF no-go boundary")
         ax.plot(th_closed, np.full_like(th_closed, FORECAST_VW),
                 color="#1f77b4", lw=2.4, ls="--",
                 label=f"forecast wind {FORECAST_VW:.1f} m/s")
@@ -151,8 +156,10 @@ def main() -> None:
         ax.set_title(title, fontsize=11, pad=14)
         ax.grid(True, alpha=0.35)
 
-    axes[0].legend(loc="upper center", bbox_to_anchor=(1.12, -0.06),
-                   ncol=4, fontsize=9, frameon=False)
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center",
+               bbox_to_anchor=(0.5, -0.02), ncol=5, fontsize=9,
+               frameon=False)
 
     fig.suptitle(
         "Forecast-conditioned operability polar  -  "
@@ -161,7 +168,7 @@ def main() -> None:
         "radius = wind speed [m/s]; angle = vessel heading",
         fontsize=11,
     )
-    fig.tight_layout(rect=(0, 0.04, 1, 0.94))
+    fig.tight_layout(rect=(0, 0.03, 1, 0.94))
 
     out_dir = Path.home() / "Documents" / "MTS_26" / "images"
     out_dir.mkdir(parents=True, exist_ok=True)
