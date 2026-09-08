@@ -426,9 +426,22 @@ def plot_operator_summary(summary: OperatorSummary, fig=None):
     p95_lo = L0 - summary.gw_p95
     p95_hi = L0 + summary.gw_p95
     ax.plot([p95_lo, p95_hi], [0, 0],
-            marker="D", markersize=10, color="black",
-            markerfacecolor=bar_colour_gw, markeredgewidth=2,
+            marker="D", markersize=8, color="black",
+            markerfacecolor="white", markeredgewidth=1.5,
             ls="", label=f"P95 slow |dL| = {summary.gw_p95:.2f} m")
+
+    # Combined slow + wave-frequency demand. This is the quantity the
+    # utilisation figure and the end-stop probability are computed from
+    # (gw_p95 + k_wave * sigma_L_wave), so it is drawn as the primary
+    # marker; the slow-only P95 above is kept as the open diamond so the
+    # split between the two contributions stays visible.
+    if use_wave:
+        tot = summary.gw_p95 + delta_wave
+        ax.plot([L0 - tot, L0 + tot], [0, 0],
+                marker="D", markersize=11, color="black",
+                markerfacecolor=bar_colour_gw, markeredgewidth=2,
+                ls="", zorder=6,
+                label=f"total slow+wave |dL| = {tot:.2f} m")
 
     # Wave-frequency envelope around the P95 slow markers (combined reach)
     if use_wave:
