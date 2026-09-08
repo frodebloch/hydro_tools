@@ -107,11 +107,16 @@ def main() -> None:
 
     R_MAX = 40.0   # common radial scale for both panels
 
+    # Threshold labels follow plot_operability_polar so both charts
+    # state their limits the same way.
     panels = [
         ("Vessel base position",
+         f"warn {polar.pos_warn_radius_m:.1f} m / "
+         f"alarm {polar.pos_alarm_radius_m:.1f} m",
          close(polar.pos_warn_Vw), close(polar.pos_alarm_Vw),
          close(overlay.pos_alarm_Vw)),
         ("Gangway telescope",
+         f"warn {polar.gw_warn_m:.2f} m / alarm {polar.gw_alarm_m:.2f} m",
          close(polar.gw_warn_Vw), close(polar.gw_alarm_Vw),
          close(overlay.gw_alarm_Vw)),
     ]
@@ -121,7 +126,7 @@ def main() -> None:
         subplot_kw={"projection": "polar"},
     )
 
-    for ax, (title, warn, alarm, wcf_alarm) in zip(axes, panels):
+    for ax, (title, thr_label, warn, alarm, wcf_alarm) in zip(axes, panels):
         ax.set_theta_zero_location("N")
         ax.set_theta_direction(-1)
 
@@ -152,8 +157,8 @@ def main() -> None:
                 label=f"forecast wind {FORECAST_VW:.1f} m/s")
 
         ax.set_rmax(R_MAX)
-        ax.set_rlabel_position(112.5)
-        ax.set_title(title, fontsize=11, pad=14)
+        ax.set_rlabel_position(135.0)
+        ax.set_title(f"{title}\n({thr_label})", fontsize=11, pad=15)
         ax.grid(True, alpha=0.35)
 
     handles, labels = axes[0].get_legend_handles_labels()
