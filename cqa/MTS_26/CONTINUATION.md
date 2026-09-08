@@ -51,7 +51,7 @@ citations or cross-references.
 
 Abstract · Abbreviations · Introduction · Goal · Motion-Based
 Capability Analysis · Consequence Analysis (Live) · Simulation Studies
-· Conclusion · Acknowledgements
+· Conclusion
 
 Pre-op deliverables are the two operability polars and the WCF decision
 matrix. The operator display belongs to the live section — it was moved
@@ -61,22 +61,41 @@ gangway"), which is not a planning artefact.
 
 ## Open items
 
-1. **Acknowledgements is still `(TODO: whoever helped)`.**
-2. **Check the LF/WF combination in `cqa/excursion.py`** — does the
-   quadrature happen on the σ's before the running-max step, or on the
-   two peak values after it? The assumptions bullet now only claims
-   independence, so nothing is wrong in the paper, but it would be good
-   to know which the intact path does. The gangway end-stop check adds
-   a peak to a level and that is deliberate.
+1. ~~Acknowledgements is still `(TODO: whoever helped)`.~~ **Removed.**
+   The section is gone; the paper now ends on the Conclusion and goes
+   straight into References. If it ever comes back, note that the
+   `thebibliography` environment emits its own `\section*{References}`,
+   so the new heading goes before that comment block, not after.
+2. ~~Check the LF/WF combination.~~ **Answered.** The file is
+   `cqa/cqa/excursion.py` (not `cqa/excursion.py`), and it does no
+   LF/WF combination at all — it is a pure LF force-PSD/covariance
+   engine. The intact forecast path is
+   `operator_view.summarise_intact_prior` (line 709), and it does
+   *neither* of the two options: LF and WF are carried as separate
+   bands, each with its own `(sigma, nu0, q)`, into
+   `extreme_value.inverse_rice_multiband` (line 753), where a common
+   threshold is tested per band and the Vanmarcke-corrected expected
+   crossing counts are summed in the exponent. So the *counts* add,
+   not the sigmas and not the peaks. The assumptions bullet has been
+   corrected accordingly — it previously said "variances add for the
+   process statistics", which was wrong. The one place a genuine
+   sigma-quadrature-then-`k_sigma` does happen is
+   `live_decision.py:520,542`, and there is no running-max step there
+   at all. The gangway end-stop peak-plus-level is confirmed
+   deliberate and documented in-code
+   (`live_operator_view.py:1059-1066`).
 3. **Real-vessel validation** was dropped from the paper and moved to
    future work. Data is reportedly available (vessels operating west of
    Florø to west of Stavanger). If it returns: NORA3 is the right
    hindcast for that area, not ERA5. The intact side is what can be
    validated; post-WCF cannot be, since nobody triggers a WCF for a
    paper.
-4. **Captions are worth a general pass.** Two had grown into second
-   copies of the body text and were cut hard; the roll-up captions may
-   have the same problem.
+4. ~~Captions are worth a general pass.~~ **Done.** Three more were
+   cut where they had grown into restatements of the adjacent body
+   text: the thrust-recovery profile, the ensemble concept figure and
+   the estimator convergence figure. The roll-up captions were checked
+   and are fine — they identify panels and series rather than
+   re-explaining the method.
 
 ## Conventions settled this session
 
