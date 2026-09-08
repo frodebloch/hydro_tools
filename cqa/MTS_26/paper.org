@@ -521,23 +521,27 @@ Each panel carries two further contours, and the distinction between
 them is the same one the live panel draws. The black dashed curve is
 the post-WCF alarm boundary: the wind speed at which the motion after
 the worst-case failure would cross the alarm limit. The dotted curve
-is the validity boundary, beyond which the linear post-WCF predictor
-enters a regime where its motion figure should be read as a lower
-bound rather than a tight one — the pre-operation counterpart of the
-saturation-probability trust indicator on the live panel.
+marks where a *large transient* becomes possible after the failure:
+beyond it the post-WCF motion figure should be read as a lower bound
+rather than a tight prediction. It is the pre-operation counterpart
+of the Large Transient alert on the live panel, reached by a
+different computation — a bistability score on the predicted
+trajectory here, the saturation probability \(p_{\text{sat}}\)
+there — but carrying the same operational meaning.
 
 The two say different things here, and that is the point. On motion
 alone the operation is comfortable: the post-WCF alarm boundary does
 not fall below 16.0 m/s at any heading, against a forecast wind of
 13.8 m/s, so no heading is predicted to breach the envelope. But the
-validity boundary falls to 11.6 m/s in the worst orientations, and at
-10 of the 36 headings evaluated it sits below the forecast wind. In
-those orientations — two sectors around 020-060\deg{} and
+large-transient boundary falls to 11.6 m/s in the worst orientations,
+and at 10 of the 36 headings evaluated it sits below the forecast
+wind. In those orientations — two sectors around 020-060\deg{} and
 200-240\deg{} — the framework is not saying the vessel will exceed
-its motion limit after a failure; it is saying it cannot promise that
-it will not. An operator reading a single number would see a
-comfortable margin and no indication that the number itself is
-untrustworthy in a quarter of the heading circle.
+its motion limit after a failure; it is warning that a large
+transient is possible and that the predicted motion may therefore be
+an underestimate. An operator reading a single number would see a
+comfortable margin, with no indication that a quarter of the heading
+circle carries that risk.
 
 The two panels also show which limit is actually binding. The gangway
 telescope boundary does not fall below 31 m/s at any heading, and at
@@ -564,9 +568,10 @@ next subsection.
 #+CAPTION: forecast wind speed. The radial gap between the ring and
 #+CAPTION: the green boundary is the wind margin available at that
 #+CAPTION: heading. The black dashed contour is the post-WCF alarm
-#+CAPTION: boundary and the dotted contour the validity boundary,
-#+CAPTION: beyond which the post-WCF motion figure should be read as a
-#+CAPTION: lower bound rather than a tight prediction. Gangway boundaries beyond the plotted range are
+#+CAPTION: boundary; the dotted contour marks where a large transient
+#+CAPTION: becomes possible after the failure, beyond which the
+#+CAPTION: post-WCF motion figure should be read as a lower bound
+#+CAPTION: rather than a tight prediction. Gangway boundaries beyond the plotted range are
 #+CAPTION: clipped at the rim: at those headings the telescope limit
 #+CAPTION: is not reached at any wind speed of interest.
 #+NAME: fig:forecast_polar

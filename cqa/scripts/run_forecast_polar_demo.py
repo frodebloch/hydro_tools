@@ -152,12 +152,12 @@ def main() -> None:
         ax.plot(th_closed, np.minimum(wcf_alarm, R_MAX),
                 color="#1a1a1a", lw=2.0, ls="--",
                 label="post-WCF alarm boundary")
-        # Validity boundary: beyond this the linear post-WCF predictor
-        # is in the meta-stable regime and its motion figure should be
-        # read as a lower bound. Same role as p_sat on the live panel.
+        # Pre-operation counterpart of the live Large Transient alert:
+        # beyond this boundary the post-WCF motion figure should be
+        # read as a lower bound rather than a tight prediction.
         ax.plot(th_closed, np.minimum(close(overlay.bist_Vw), R_MAX),
                 color="#6a3d9a", lw=1.8, ls=":",
-                label="post-WCF prediction not trustworthy")
+                label="post-WCF possible large transient")
         ax.plot(th_closed, np.full_like(th_closed, FORECAST_VW),
                 color="#1f77b4", lw=2.4, ls="--",
                 label=f"forecast wind {FORECAST_VW:.1f} m/s")
