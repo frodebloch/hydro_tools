@@ -1369,8 +1369,7 @@ Four strands follow from the work presented here.
   asks, since the saturation channel evaluates the survivor set on
   the assumption that the worst-case failure has already happened.
   Such an alert would be additive to the alert set developed here
-  rather than a refinement of it, and would need a name that does not
-  collide with the rule-mandated Force Off signal.
+  rather than a refinement of it.
 
 # No "* References" heading here: the thebibliography environment
 # emits its own \section*{References}, so an org heading as well
