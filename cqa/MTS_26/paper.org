@@ -46,7 +46,7 @@ This work develops a motion-based CQA framework that closes that gap
 end-to-end. A pre-operation risk assessment extends the conventional
 capability analysis with an estimate of vessel response and post-WCF
 excursion from the planned sea state, allowing the worst-case failure
-design intent (WCFDI) to be evaluated in motion terms. The same model
+design intent to be evaluated in motion terms. The same model
 is reformulated for online execution, producing a continuously
 updated CQA panel that estimates intact and post-WCF station-keeping
 footprint directly from live measurements and the DP model, without a
@@ -73,10 +73,8 @@ against logged operations is in progress.
   in ten; \(P_{95}\) is a conservative value exceeded in one window
   in twenty.
 - *WCF* :: Worst-Case Failure: the failure event (typically loss of a
-  thruster group or bus section) against which CQA is evaluated.
-- *WCFDI* :: Worst-Case Failure Design Intent: the specific failure
-  configuration the capability and consequence analyses are evaluated
-  against; the vessel is designed to survive this.
+  thruster group or bus section) against which CQA is evaluated, and
+  which the vessel is designed to survive.
 - *DP model* :: The mathematical model of the vessel used internally in
   the DP control system to estimate the vessel response from the
   combination of thruster action, sensor measurements, and position
@@ -86,8 +84,8 @@ against logged operations is in progress.
 - *Capability analysis* :: The classical pre-operation deliverable
   computing the achievable envelope of environmental force the vessel
   can hold against.
-- *WCFDI decision matrix* :: A traffic-light forecast of intact and
-  post-WCFDI operability as a function of (vessel heading, forecast
+- *WCF decision matrix* :: A traffic-light forecast of intact and
+  post-WCF operability as a function of (vessel heading, forecast
   time), delivered before the operation starts.
 
 * Introduction
@@ -123,7 +121,7 @@ This paper proposes a *motion-based consequence quality analysis*
 (CQA) framework that closes that gap by adding a layer on top of
 the current CQA implementation, in two coupled deliverables: a
 *pre-operation risk assessment*, evaluating the worst-case failure
-design intent (WCFDI) in motion terms from the forecast sea state;
+design intent in motion terms from the forecast sea state;
 and a *live CQA panel*, producing continuously updated \(P_{50}\) /
 \(P_{95}\) motion-footprint envelopes for intact and post-WCF
 conditions from measurements every DP-2/DP-3 vessel already
@@ -369,7 +367,10 @@ assumptions.
 - Forward-speed effects are absent (station-keeping regime): the
   vessel is dynamically holding a setpoint, not transiting.
 - The low-frequency and wave-frequency responses are treated as
-  independent and combined by root-sum-square.
+  statistically independent. How the two are combined depends on the
+  quantity being reported: variances add for the process statistics,
+  while a peak and a level are added directly where an end-stop or
+  a hard limit is at stake.
 - The classical capability analysis provides the outer envelope of
   operability. The motion-based envelope produced here is the inner
   envelope: within the capacity-safe outer envelope, the motion
@@ -524,11 +525,11 @@ next subsection.
 #+ATTR_LATEX: :width 0.86\linewidth :placement [tbp]
 [[./images/csov_forecast_polar.png]]
 
-** Example: WCFDI decision matrix
+** Example: WCF decision matrix
 
 The operability polar of the previous subsection gives a static
 picture: for a given sea state, which headings are operable? The
-WCFDI decision matrix (Figure [[fig:decision_matrix]]) puts that
+WCF decision matrix (Figure [[fig:decision_matrix]]) puts that
 picture on a forecast timeline. Each cell of the matrix is one
 (heading, forecast slot) combination; the cell colour is the
 utilisation ratio evaluated on the forecast sea state at that time,
@@ -563,7 +564,7 @@ The three panels correspond to three different consequence-analysis
 questions asked at the same (time, heading) cell:
 
 - *Classical CQA utilisation* (top panel): the ratio of mean
-  environmental force to residual (post-WCFDI) thrust capability,
+  environmental force to residual (post-WCF) thrust capability,
   per DOF, taken maximum across DOFs. This is what the current
   force-and-moment reserve check that runs on any DP-2/DP-3 vessel
   reports. The operational bands used by the reference DP system are caution at 80%
@@ -573,7 +574,7 @@ questions asked at the same (time, heading) cell:
   alarm radius. Reaches 1.0 when the intact motion of the vessel
   itself would cross that alarm threshold; the colour scale runs
   caution from 0.50, the warn / alarm ratio, and warning from 1.00.
-- *Motion-based post-WCFDI utilisation* (bottom panel): the same
+- *Motion-based post-WCF utilisation* (bottom panel): the same
   ratio computed on the post-WCF motion envelope, i.e. what the
   motion would be if the worst-case failure occurred at that
   (time, heading) cell, on the same 0.50 / 1.00 scale.
@@ -591,9 +592,9 @@ essentially nothing new here — the vessel motion itself never comes
 close to the alarm radius, so the classical CQA plus intact motion
 confirms the same operational verdict.
 
-The motion-based post-WCFDI panel changes the picture. Even though
+The motion-based post-WCF panel changes the picture. Even though
 the classical CQA reports at most yellow-caution across the storm
-peak, the motion-based post-WCFDI utilisation reaches saturation
+peak, the motion-based post-WCF utilisation reaches saturation
 (dark red, well past the alarm radius) in a narrow ~2-hour window
 around 12:00 in the beam headings. Physically, this is the regime
 where the storm energy is still comfortably below the vessel's
@@ -604,7 +605,7 @@ envelope. Two heading windows around head and following seas
 
 The operator's plan therefore depends on which panel is authoritative.
 On classical CQA alone the plan is "operate through the storm, easing
-off around 12:00"; on the motion-based post-WCFDI panel the plan
+off around 12:00"; on the motion-based post-WCF panel the plan
 becomes "avoid the beam sector 11:00-13:00 window entirely, or use
 one of the two green heading windows through it". The 2-hour narrow
 red band is the added operational content the motion-based framework
