@@ -428,9 +428,9 @@ operator provides thresholds for.
 #+CAPTION: Intact-condition operability polar for the CSOV benchmark
 #+CAPTION: vessel and forward walk-to-work gangway. Polar radius is
 #+CAPTION: mean wind speed [m/s]; heading is vessel-relative wave
-#+CAPTION: direction. Colour band is driven by the P90 of the
-#+CAPTION: running-maximum motion excursion against the vessel /
-#+CAPTION: mission-equipment warning and alarm radii.
+#+CAPTION: direction. The colour band is set by the motion excursion
+#+CAPTION: exceeded about one time in ten, compared against the
+#+CAPTION: vessel and mission-equipment warning and alarm radii.
 #+NAME: fig:intact_polar
 #+ATTR_LATEX: :width 1.0\linewidth
 [[./images/csov_operability_polar.png]]
@@ -476,8 +476,7 @@ telescope.
 #+CAPTION: bands are the intact-condition operability of Figure
 #+CAPTION: [[fig:intact_polar]]; the black dashed contour is the
 #+CAPTION: wind speed at which the alarm radius would be exceeded
-#+CAPTION: about one operating window in ten after the worst-case
-#+CAPTION: failure.
+#+CAPTION: about one time in ten after the worst-case failure.
 #+NAME: fig:wcfdi_polar
 #+ATTR_LATEX: :width 1.0\linewidth
 [[./images/csov_wcfdi_operability_polar.png]]
