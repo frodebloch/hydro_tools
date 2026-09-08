@@ -150,6 +150,33 @@ CELLS = [
 from _constants import T_WCF_S as T_WCF  # noqa: E402  # active script: refresh sec.12.21.16
 SEED_LO, SEED_HI = 1000, 1030
 
+# Upper limit of the WCF motion axis. The saturated cells (notably
+# bf8p5_q10_w45, where the simulator loses station outright) run far
+# above the rest; without a clip they flatten the 11 non-saturated
+# cells that carry the accuracy claim. Values above this are printed
+# on the plot rather than hidden.
+WCF_AXIS_CLIP_M = 10.0
+
+
+def _label_offscale(ax, xs, vals, ymax, color, marker: bool = True) -> None:
+    """Print the true value for any point that leaves the axis window.
+
+    Draws a caret at the clip line so it is obvious the bar continues
+    off-scale, and the numeric value just inside it.
+    """
+    for xi, v in zip(np.atleast_1d(xs), np.atleast_1d(vals)):
+        if not np.isfinite(v) or v <= ymax:
+            continue
+        if marker:
+            ax.plot([xi], [ymax], marker="^", ms=6, color=color,
+                    clip_on=False, zorder=5)
+        ax.annotate(f"{v:.1f}", xy=(xi, ymax), xytext=(0, -4),
+                    textcoords="offset points", ha="center", va="top",
+                    fontsize=8, fontweight="bold", color=color,
+                    clip_on=False, zorder=6,
+                    bbox=dict(boxstyle="round,pad=0.15", fc="white",
+                              ec="none", alpha=0.85))
+
 
 def _set_cell(tag: str) -> None:
     live_cell.TAG = tag
@@ -423,17 +450,30 @@ def main() -> int:
     ax.grid(True, axis="y", alpha=0.3)
 
     ax = axes1[1]
-    ax.bar(x - 0.20, [m["wcf_p95_pred_mean"] for m in results],
+    wcf_pred = [m["wcf_p95_pred_mean"] for m in results]
+    wcf_truth = [m["wcf_truth_p95"] for m in results]
+    wcf_truth_mean = [m["wcf_truth_mean"] for m in results]
+    ax.bar(x - 0.20, wcf_pred,
            width=0.4, color="#1f77b4", alpha=0.8, label="pred P95 (mean)")
-    ax.bar(x + 0.20, [m["wcf_truth_p95"] for m in results],
+    ax.bar(x + 0.20, wcf_truth,
            width=0.4, color="#444444", alpha=0.8, label="simulator LF peak P95")
-    ax.plot(x, [m["wcf_truth_mean"] for m in results], "o",
+    ax.plot(x, wcf_truth_mean, "o",
             color="#888888", label="simulator LF peak mean")
     ax.set_xticks(x); ax.set_xticklabels(tags, rotation=45, ha="right", fontsize=8)
     ax.axhline(2.0, color="#ff9900", ls="--", lw=1, label="warn radius 2 m")
     ax.axhline(4.0, color="#d62728", ls="--", lw=1, label="alarm radius 4 m")
     ax.set_ylabel("WCF post-fault peak [m]")
     ax.set_title("WCF axis  -  pred vs simulator LF peak across cells")
+
+    # The saturated cells run an order of magnitude above the rest, which
+    # would compress the 11 non-saturated cells into an unreadable strip.
+    # Clip the axis and print the true value above any bar or marker that
+    # leaves the window, so nothing is silently hidden.
+    ax.set_ylim(0.0, WCF_AXIS_CLIP_M)
+    _label_offscale(ax, x - 0.20, wcf_pred, WCF_AXIS_CLIP_M, "#1f77b4")
+    _label_offscale(ax, x + 0.20, wcf_truth, WCF_AXIS_CLIP_M, "#444444")
+    _label_offscale(ax, x, wcf_truth_mean, WCF_AXIS_CLIP_M, "#888888",
+                    marker=False)
     ax.legend(fontsize=8, loc="upper left")
     ax.grid(True, axis="y", alpha=0.3)
 
