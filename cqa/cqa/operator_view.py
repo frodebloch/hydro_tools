@@ -345,7 +345,7 @@ def plot_operator_summary(summary: OperatorSummary, fig=None):
         axes = fig.subplots(2, 1, gridspec_kw=dict(hspace=1.1))
     # Reserve top margin for the suptitle so it does not overlap the
     # upper-axes left-aligned title.
-    fig.subplots_adjust(top=0.82, bottom=0.10, left=0.07, right=0.97)
+    fig.subplots_adjust(top=0.82, bottom=0.20, left=0.07, right=0.97)
 
     # --- Vessel position bar ---
     ax = axes[0]
@@ -482,7 +482,10 @@ def plot_operator_summary(summary: OperatorSummary, fig=None):
         f"{min(summary.gw_lower_margin_p95, summary.gw_upper_margin_p95):.2f} m",
         fontsize=10, loc="left",
     )
-    ax.legend(loc="upper right", fontsize=8, framealpha=0.95, ncol=2)
+    # Legend placed below the axes: inside "upper right" it sat on top
+    # of the telescope envelope and the end-stop margins it labels.
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.32),
+              fontsize=8, framealpha=0.95, ncol=3, frameon=False)
     ax.grid(True, axis="x", alpha=0.3)
 
     fig.suptitle(
