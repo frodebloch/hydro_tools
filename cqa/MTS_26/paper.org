@@ -343,10 +343,11 @@ in the [[Example: pre-op operator summary][pre-op operator summary]].
 
 *e. Note on conservatism.* The extreme-value result is mildly
 conservative for a feedback-controlled vessel, because the controller
-suppresses the largest excursions the underlying theory allows for —
-typically about 1.5× on the P95 excursion. The framework treats this
-as safety margin; under-promising motion performance is preferred to
-over-promising it.
+suppresses the largest excursions the underlying theory allows for.
+The predicted excursion therefore comes out somewhat larger than the
+vessel actually experiences; the simulation studies quantify the
+margin. The framework treats this as safety margin — under-promising
+motion performance is preferred to over-promising it.
 
 ** Assumptions
 
