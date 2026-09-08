@@ -1337,37 +1337,40 @@ cross-current forcing, and near-installation shielding effects that
 would break wave-field-based online refinements (see
 [[Rejected extensions]]).
 
-Future work has four lines. First, validation of the intact side
-against logged operations from in-service DP vessels, comparing the
-forecast-driven motion envelope against realised vessel motion with
-the archived forecast cross-checked against hindcast reanalysis.
-This is the step that tests the spectral assumptions outside the
-simulator that shares them, and it is the natural route to the field
-evidence needed to support rules-alignment discussions. Second,
-extension of the mission-equipment coverage to further
-motion-sensitive systems (LARS, heave-compensated cranes, ROV winch
-handling). Third, contribution of the motion-based
-CQA deliverables to the JDP DP Consequence Analysis (CA) as
-candidate input — a natural next step given that the
-current guidance already gestures in this direction (see
-[[Introduction]]) but
-stops short of requiring the delivery.
+** Future work
 
-Fourth, extension of the alert set using forward-looking wave-field
-instrumentation. A phase-resolved short-horizon prediction of the
-incoming wave field would not tighten the post-WCF envelope
-materially — the residual uncertainty there is dominated by the
-nonlinear survivor-allocator behaviour rather than by the wave
-input, and would remain wider than the intact-side uncertainty —
-but it would support a distinct, forward-looking alert on the
-intact vessel: warning of an incoming wave group that will drive
-the thrust demand into saturation before any failure has occurred.
-That is a question none of the channels developed here asks, since
-the saturation channel evaluates the survivor set on the
-assumption that the worst-case failure has already happened. Such
-an alert would be additive to the alert set developed here rather
-than a refinement of it, and would need a name that does not
-collide with the rule-mandated Force Off signal.
+Four strands follow from the work presented here.
+
+- *Real-vessel validation of the intact side.* Validation against
+  logged operations from in-service DP vessels, comparing the
+  forecast-driven motion envelope against realised vessel motion with
+  the archived forecast cross-checked against hindcast reanalysis.
+  This is the step that tests the spectral assumptions outside the
+  simulator that shares them, and it is the natural route to the field
+  evidence needed to support rules-alignment discussions.
+- *Further mission equipment.* Extension of the mission-equipment
+  coverage to further motion-sensitive systems (LARS,
+  heave-compensated cranes, ROV winch handling).
+- *Input to the JDP.* Contribution of the motion-based CQA
+  deliverables to the JDP DP Consequence Analysis (CA) as candidate
+  input — a natural next step given that the current guidance already
+  gestures in this direction (see [[Introduction]]) but stops short of
+  requiring the delivery.
+- *Forward-looking wave-field instrumentation.* Extension of the
+  alert set using a phase-resolved short-horizon prediction of the
+  incoming wave field. Such a prediction would not tighten the
+  post-WCF envelope materially — the residual uncertainty there is
+  dominated by the nonlinear survivor-allocator behaviour rather than
+  by the wave input, and would remain wider than the intact-side
+  uncertainty — but it would support a distinct, forward-looking
+  alert on the intact vessel: warning of an incoming wave group that
+  will drive the thrust demand into saturation before any failure has
+  occurred. That is a question none of the channels developed here
+  asks, since the saturation channel evaluates the survivor set on
+  the assumption that the worst-case failure has already happened.
+  Such an alert would be additive to the alert set developed here
+  rather than a refinement of it, and would need a name that does not
+  collide with the rule-mandated Force Off signal.
 
 # No "* References" heading here: the thebibliography environment
 # emits its own \section*{References}, so an org heading as well
