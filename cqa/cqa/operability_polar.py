@@ -241,6 +241,10 @@ def _evaluate_intact_prior_at(
     omega_grid: np.ndarray,
     use_pm_for_drift: bool,
     use_observer: bool = False,
+    Hs_fixed: float | None = None,
+    Tp_fixed: float | None = None,
+    theta_wind_rel: float | None = None,
+    theta_curr_rel: float | None = None,
 ):
     """Build the closed loop + disturbance PSDs for one operating point
     and call summarise_intact_prior. Returns the IntactPriorSummary.
@@ -268,8 +272,14 @@ def _evaluate_intact_prior_at(
     from .wave_response import sigma_L_wave as _sigma_L_wave_fn
     from .drift import slow_drift_force_psd_newman_pdstrip
 
-    Hs = pm_hs_from_vw(Vw)
-    Tp = pm_tp_from_vw(Vw)
+    # Design sweep: the sea state grows with V_w via the DNV-ST-0111 /
+    # Pierson-Moskowitz fully-developed law. Forecast-conditioned sweep:
+    # Hs and Tp are pinned to the forecast values and only the wind
+    # varies, so the boundary answers "how much more wind can this
+    # heading take in *this* sea state" rather than "how big a
+    # fully-developed sea can it take".
+    Hs = pm_hs_from_vw(Vw) if Hs_fixed is None else float(Hs_fixed)
+    Tp = pm_tp_from_vw(Vw) if Tp_fixed is None else float(Tp_fixed)
 
     vp = cfg.vessel
     wp = cfg.wind
@@ -297,7 +307,11 @@ def _evaluate_intact_prior_at(
 
     from .psd import WindForceModel
     wind_model = WindForceModel(wp=wp, loa=vp.loa)
-    S_wind = npd_wind_gust_force_psd(wind_model, Vw, theta_rel)
+    # theta_rel is the wave direction; wind and current may be offset
+    # from it (non-collinear forecast). Default to collinear.
+    th_wind = theta_rel if theta_wind_rel is None else float(theta_wind_rel)
+    th_curr = theta_rel if theta_curr_rel is None else float(theta_curr_rel)
+    S_wind = npd_wind_gust_force_psd(wind_model, Vw, th_wind)
 
     if rao_table is not None:
         S_drift = slow_drift_force_psd_newman_pdstrip(
@@ -319,7 +333,7 @@ def _evaluate_intact_prior_at(
         loa=vp.loa,
     )
     if Vc > 1e-9:
-        F0 = current_model.force(Vc, theta_rel)
+        F0 = current_model.force(Vc, th_curr)
         dFdVc = 2.0 * F0 / Vc
     else:
         dFdVc = np.zeros(3)
@@ -363,9 +377,27 @@ def operability_polar(
     bisect_tol_m_s: float = 0.1,
     omega_grid: Optional[np.ndarray] = None,
     use_observer: bool = False,
+    Hs_fixed: float | None = None,
+    Tp_fixed: float | None = None,
+    wind_offset_rad: float = 0.0,
+    current_offset_rad: float = 0.0,
 ) -> OperabilityPolar:
     """Sweep relative weather direction and find, per axis, the V_w at
     which the intact-prior amber and red operability thresholds are hit.
+
+    Two modes:
+
+    * **Design sweep** (default, ``Hs_fixed``/``Tp_fixed`` = None). The
+      sea state grows with V_w via the DNV-ST-0111 / Pierson-Moskowitz
+      fully-developed law. Answers "is this vessel suitable for this
+      work scope" and is a design / table-top chart.
+    * **Forecast-conditioned sweep** (``Hs_fixed``, ``Tp_fixed`` set).
+      The wave condition is pinned to the forecast values and only the
+      wind varies, so the boundary answers "in *this* forecast sea
+      state, how much wind can each heading take before the motion
+      limit is reached". This is an operational chart: the forecast
+      wind speed can be marked against the boundary to read off the
+      remaining margin per heading.
 
     **Scope reminder:** design / table-top / feasibility tool, NOT an
     operational chart -- see the module docstring.
@@ -490,6 +522,10 @@ def operability_polar(
                 omega_grid=omega_grid,
                 use_pm_for_drift=use_pm_for_drift,
                 use_observer=use_observer,
+                Hs_fixed=Hs_fixed,
+                Tp_fixed=Tp_fixed,
+                theta_wind_rel=theta + wind_offset_rad,
+                theta_curr_rel=theta + current_offset_rad,
             )
             cache_pos[key] = float(res.pos_a_p90)
             cache_gw[key] = float(res.gw_a_p90)

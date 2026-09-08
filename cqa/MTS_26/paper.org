@@ -379,6 +379,17 @@ assumptions.
 
 ** Example: intact operability polar
 
+The framework produces two kinds of polar, answering different
+questions. The *design polar* of this subsection and the next sweeps
+wind speed with the sea state growing alongside it, and answers
+whether a given vessel and thruster layout is suitable for a work
+scope at all. It is a design and feasibility chart of the same family
+as the standard DP capability plot, not something a navigator reads
+on the bridge. The *forecast-conditioned polar* of the following
+subsection pins the sea state to a specific forecast and varies only
+the wind, and is the operational chart. Both are built from the same
+motion model.
+
 Figure [[fig:intact_polar]] illustrates the intact-condition
 operability polar produced by the framework for the CSOV benchmark
 vessel introduced in Section 5. At any given vessel heading and mean
@@ -472,6 +483,53 @@ telescope.
 #+NAME: fig:wcfdi_polar
 #+ATTR_LATEX: :width 1.0\linewidth
 [[./images/csov_wcfdi_operability_polar.png]]
+
+** Example: forecast-conditioned operability polar
+
+The design polars answer a design question. The operational question
+is different: given the sea state actually forecast for the operating
+window, which vessel headings work, and how much margin is left on
+each? Figure [[fig:forecast_polar]] answers it directly. The wave
+condition and the current are pinned at their forecast values and
+only the wind speed is swept, so the boundary for each vessel heading
+is the wind speed at which the motion limit would be reached in *this*
+sea state. The forecast wind speed is drawn as a ring on the same
+axes, and the radial gap between that ring and the boundary is the
+wind margin the operator has in hand at each heading.
+
+The example is a Beaufort 6 forecast — the nominal DNV-ST-0111
+condition, Hs = 3.1 m, Tp = 8.5 s, Vc = 0.75 m/s — with the wind
+veered 90\deg{} ahead of a sea that has not yet turned to follow it,
+and the tidal stream running with the wind. This is an ordinary
+forecast situation rather than a contrived one, and it is what makes
+the envelope genuinely asymmetric: the heading that is most
+comfortable for the waves is not the one that is most comfortable for
+the wind and current.
+
+The operational content is the margin, not the colour. The caution
+boundary ranges from 19.3 m/s to 24.6 m/s across headings, so against
+a forecast wind of 13.8 m/s the operator has between 5.5 and 10.8 m/s
+of wind in hand depending on how the vessel is oriented — roughly a
+factor of two between the tightest heading (180\deg{}) and the most
+open one (080\deg{}). An operator reading only a pass / fail
+capability check sees "operable" across the whole circle and has no
+way to tell that some headings carry twice the margin of others. That
+margin is what makes the difference between an operation that absorbs
+a forecast busting by a few metres per second and one that does not.
+
+#+CAPTION: Forecast-conditioned operability polar for the CSOV
+#+CAPTION: benchmark. The wave condition and current are pinned at the
+#+CAPTION: forecast values (Hs = 3.1 m, Tp = 8.5 s, Vc = 0.75 m/s,
+#+CAPTION: wind and current veered 90\deg{} from the waves) and only
+#+CAPTION: the wind speed is swept. Radius is wind speed; the angular
+#+CAPTION: coordinate is vessel heading. Green is operable, the amber
+#+CAPTION: band runs from the warning to the alarm boundary, and the
+#+CAPTION: dashed ring is the forecast wind speed. The radial gap
+#+CAPTION: between the ring and the green boundary is the wind margin
+#+CAPTION: available at that heading.
+#+NAME: fig:forecast_polar
+#+ATTR_LATEX: :width 0.86\linewidth :placement [tbp]
+[[./images/csov_forecast_polar.png]]
 
 ** Example: WCFDI decision matrix
 
