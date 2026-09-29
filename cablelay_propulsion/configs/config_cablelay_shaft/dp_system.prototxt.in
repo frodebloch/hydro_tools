@@ -1,0 +1,96 @@
+hardware {
+  controller {
+    name: "io-a"
+  }
+  controller {
+    name: "io-b"
+  }
+  controller {
+    name: "dp-a"
+  }
+  controller {
+    name: "dp-b"
+  }
+  controller {
+    name: "os-1-pc"
+  }
+  controller {
+    name: "os-2-pc"
+  }
+  controller {
+    name: "os-3-panel-pc"
+  }
+  controller {
+    name: "os-4-panel-pc"
+  }
+}
+interfaces {
+  cabinet_io {
+    input {
+      key: "A1_0_0_0"
+      value: FuseInputs1
+    }
+    input {
+      key: "A1_0_0_1"
+      value: FuseOutputs1
+    }
+    input {
+      key: "A1_0_0_2"
+      value: SwitchAAlarm
+    }
+    input {
+      key: "A3_0_0_3"
+      value: SwitchVpnActive
+    }
+    input {
+      key: "A1_0_0_7"
+      value: CabinetDoorSwitch
+    }
+
+    input {
+      key: "A1_4_1_4"
+      value: Ups1Alarm
+    }
+    input {
+      key: "A1_4_1_5"
+      value: Ups1Bypassed
+    }
+    input {
+      key: "A1_4_1_6"
+      value: Ups1EarthFault
+    }
+
+    input {
+      key: "A2_0_0_0"
+      value: FuseInputs2
+    }
+    input {
+      key: "A2_0_0_1"
+      value: FuseOutputs2
+    }
+    input {
+      key: "A2_0_0_2"
+      value: SwitchBAlarm
+    }
+
+    input {
+      key: "A2_4_1_4"
+      value: Ups2Alarm
+    }
+    input {
+      key: "A2_4_1_5"
+      value: Ups2Bypassed
+    }
+    input {
+      key: "A2_4_1_6"
+      value: Ups2EarthFault
+    }
+  }
+  mode_selector_switch {
+    signal_type: ModeSelectorBrucon
+  }
+  draft_sensors {
+    bow: "A2.1.1.2"
+    stern: "A2.1.1.3"
+  }
+}

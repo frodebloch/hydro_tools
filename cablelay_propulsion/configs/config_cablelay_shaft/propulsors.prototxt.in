@@ -1,0 +1,297 @@
+# Cable lay vessel propulsion study - Option 2: Shaft line option
+# Hull, positions and system setup from config_csov (Norwind SOV hull used for both options).
+# ESTIMATES - replace with maker data:
+#  - Low speed thrust scaled with T ~ (P*D)^(2/3) from reference thrusters.
+#  - Wake fraction / thrust deduction are typical values, not model test data.
+# Order matters: power_system.prototxt thruster_index refers to this order.
+
+propulsor {
+  name: "Bow Tunnel Thruster 1"
+  short_name: "BT1"
+  position {
+    x_position: 42.813
+    y_position: 0.0
+    z_position: 4.2
+  }
+  tunnel {
+    details {
+      propeller_diameter: 2.6
+      nozzle: false
+      variable_pitch: true
+      variable_rpm: true
+      thrust_power_data {
+        max_positive_thrust: 244.0
+        max_negative_thrust: -244.0
+        max_power_positive_thrust: 1700.0
+        max_power_negative_thrust: 1700.0
+        max_zero_thrust_power: 0.0
+      }
+    }
+  }
+  dp_interface {
+    control_signal: ThrustControl
+    redundant_nmea_serial {
+      main_controller_name: "io-a"
+      main_com_port_index: 10
+      backup_controller_name: "io-b"
+      backup_com_port_index: 10
+    }
+  }
+}
+propulsor {
+  name: "Bow Tunnel Thruster 2"
+  short_name: "BT2"
+  position {
+    x_position: 38.612
+    y_position: 0.0
+    z_position: 4.2
+  }
+  tunnel {
+    details {
+      propeller_diameter: 2.6
+      nozzle: false
+      variable_pitch: true
+      variable_rpm: true
+      thrust_power_data {
+        max_positive_thrust: 244.0
+        max_negative_thrust: -244.0
+        max_power_positive_thrust: 1700.0
+        max_power_negative_thrust: 1700.0
+        max_zero_thrust_power: 0.0
+      }
+    }
+  }
+  dp_interface {
+    control_signal: ThrustControl
+    redundant_nmea_serial {
+      main_controller_name: "io-b"
+      main_com_port_index: 11
+      backup_controller_name: "io-a"
+      backup_com_port_index: 11
+    }
+  }
+}
+propulsor {
+  name: "Bow Retractable Thruster"
+  short_name: "BR"
+  position {
+    x_position: 33.99
+    y_position: 0.0
+    z_position: 8.66 # From CSOV: guess based on travel length and draft
+  }
+  azimuth {
+    details {
+      propeller_diameter: 2.4
+      nozzle: true
+      variable_pitch: false
+      variable_rpm: true
+      thrust_power_data {
+        max_positive_thrust: 307.0
+        max_negative_thrust: 0.0
+        max_power_positive_thrust: 1600.0
+        max_power_negative_thrust: 1600.0
+        max_zero_thrust_power: 0.0
+      }
+    }
+  }
+  dp_interface {
+    control_signal: ThrustControl
+    redundant_nmea_serial {
+      main_controller_name: "io-a"
+      main_com_port_index: 12
+      backup_controller_name: "io-b"
+      backup_com_port_index: 12
+    }
+  }
+}
+# Stern tunnels: 1500 kW on D1.5 m is ~850 kW/m2 - very high loading, verify with maker.
+propulsor {
+  name: "Stern Tunnel Thruster 1"
+  short_name: "ST1"
+  position {
+    x_position: -38.65
+    y_position: 0.0
+    z_position: 4.2
+  }
+  tunnel {
+    details {
+      propeller_diameter: 1.5
+      nozzle: false
+      variable_pitch: true
+      variable_rpm: true
+      thrust_power_data {
+        max_positive_thrust: 100.8 # Stern tube blockage: 35% loss on 155 kN unblocked
+        max_negative_thrust: -100.8
+        max_power_positive_thrust: 1500.0
+        max_power_negative_thrust: 1500.0
+        max_zero_thrust_power: 0.0
+      }
+    }
+  }
+  dp_interface {
+    control_signal: ThrustControl
+    redundant_nmea_serial {
+      main_controller_name: "io-a"
+      main_com_port_index: 15
+      backup_controller_name: "io-b"
+      backup_com_port_index: 15
+    }
+  }
+}
+propulsor {
+  name: "Stern Tunnel Thruster 2"
+  short_name: "ST2"
+  position {
+    x_position: -41.45
+    y_position: 0.0
+    z_position: 4.2
+  }
+  tunnel {
+    details {
+      propeller_diameter: 1.5
+      nozzle: false
+      variable_pitch: true
+      variable_rpm: true
+      thrust_power_data {
+        max_positive_thrust: 100.8 # Stern tube blockage: 35% loss on 155 kN unblocked
+        max_negative_thrust: -100.8
+        max_power_positive_thrust: 1500.0
+        max_power_negative_thrust: 1500.0
+        max_zero_thrust_power: 0.0
+      }
+    }
+  }
+  dp_interface {
+    control_signal: ThrustControl
+    redundant_nmea_serial {
+      main_controller_name: "io-b"
+      main_com_port_index: 16
+      backup_controller_name: "io-a"
+      backup_com_port_index: 16
+    }
+  }
+}
+propulsor {
+  name: "Port Main Propeller"
+  short_name: "MP1"
+  position {
+    x_position: -46.0
+    y_position: -4.5
+    z_position: 4.2
+  }
+  main_propeller {
+    details {
+      propeller_diameter: 3.0
+      nozzle: true
+      variable_pitch: false # Fixed pitch, variable speed electric drive
+      variable_rpm: true
+      thrust_power_data { # Fixed pitch D-series design A: 540 kN gross x (1 - t 0.15) = 459 kN net. Astern 60% of ahead (reversing motor, to be confirmed).
+        max_positive_thrust: 459.0
+        max_negative_thrust: -275.0
+        max_power_positive_thrust: 3000.0
+        max_power_negative_thrust: 3000.0
+        max_zero_thrust_power: 0.0
+      }
+    }
+  }
+  dp_interface {
+    control_signal: PitchRpmControl
+    redundant_nmea_serial {
+      main_controller_name: "io-a"
+      main_com_port_index: 13
+      backup_controller_name: "io-b"
+      backup_com_port_index: 13
+    }
+  }
+}
+propulsor {
+  name: "Starboard Main Propeller"
+  short_name: "MP2"
+  position {
+    x_position: -46.0
+    y_position: 4.5
+    z_position: 4.2
+  }
+  main_propeller {
+    details {
+      propeller_diameter: 3.0
+      nozzle: true
+      variable_pitch: false # Fixed pitch, variable speed electric drive
+      variable_rpm: true
+      thrust_power_data { # Fixed pitch D-series design A: 540 kN gross x (1 - t 0.15) = 459 kN net. Astern 60% of ahead (reversing motor, to be confirmed).
+        max_positive_thrust: 459.0
+        max_negative_thrust: -275.0
+        max_power_positive_thrust: 3000.0
+        max_power_negative_thrust: 3000.0
+        max_zero_thrust_power: 0.0
+      }
+    }
+  }
+  dp_interface {
+    control_signal: PitchRpmControl
+    redundant_nmea_serial {
+      main_controller_name: "io-b"
+      main_com_port_index: 14
+      backup_controller_name: "io-a"
+      backup_com_port_index: 14
+    }
+  }
+}
+propulsor {
+  name: "Port Rudder"
+  short_name: "RD1"
+  position {
+    x_position: -48.5
+    y_position: -4.5
+    z_position: 4.2
+  }
+  rudder {
+    type: FLAP
+    area: 6.9 # Scaled from config_ahts (8.05 m2 behind D3.5)
+    height: 3.2
+    max_rudder_angle: 45.0
+  }
+  dp_interface {
+    controller_name: "io-a"
+    hardwired_rudder {
+      di {
+        in_dp_command: "A1.4.2.2"
+      }
+      ai {
+        rudder_angle: "A1.1.2.2"
+      }
+      ao {
+        rudder_setpoint: "A1.3.1.0"
+      }
+    }
+  }
+}
+propulsor {
+  name: "Starboard Rudder"
+  short_name: "RD2"
+  position {
+    x_position: -48.5
+    y_position: 4.5
+    z_position: 4.2
+  }
+  rudder {
+    type: FLAP
+    area: 6.9 # Scaled from config_ahts (8.05 m2 behind D3.5)
+    height: 3.2
+    max_rudder_angle: 45.0
+  }
+  dp_interface {
+    controller_name: "io-b"
+    hardwired_rudder {
+      di {
+        in_dp_command: "A2.4.2.2"
+      }
+      ai {
+        rudder_angle: "A2.1.2.2"
+      }
+      ao {
+        rudder_setpoint: "A2.3.1.0"
+      }
+    }
+  }
+}

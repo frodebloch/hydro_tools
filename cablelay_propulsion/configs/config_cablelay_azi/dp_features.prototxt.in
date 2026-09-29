@@ -1,0 +1,10 @@
+operation_modes{
+    operation_mode {type: Joystick}
+    operation_mode {type: AutoHeading}
+    operation_mode {type: AutoSwayHeading}
+    operation_mode {type: AutoSurgeHeading}
+    operation_mode {type: StationKeeping}
+    operation_mode {type: TargetFollowing}
+    operation_mode {type: HeadingControl}
+    operation_mode {type: TrackFollowing}
+}

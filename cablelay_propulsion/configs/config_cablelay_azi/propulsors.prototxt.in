@@ -1,0 +1,178 @@
+# Cable lay vessel propulsion study - Option 1: Azimuth thruster option
+# Hull, positions and system setup from config_csov (Norwind SOV hull used for both options).
+# ESTIMATES - replace with maker data:
+#  - Low speed thrust scaled with T ~ (P*D)^(2/3) from reference thrusters.
+#  - Wake fraction / thrust deduction are typical values, not model test data.
+# Order matters: power_system.prototxt thruster_index refers to this order.
+
+propulsor {
+  name: "Bow Tunnel Thruster 1"
+  short_name: "BT1"
+  position {
+    x_position: 42.813
+    y_position: 0.0
+    z_position: 4.2
+  }
+  tunnel {
+    details {
+      propeller_diameter: 2.6
+      nozzle: false
+      variable_pitch: true
+      variable_rpm: true
+      thrust_power_data {
+        max_positive_thrust: 244.0
+        max_negative_thrust: -244.0
+        max_power_positive_thrust: 1700.0
+        max_power_negative_thrust: 1700.0
+        max_zero_thrust_power: 0.0
+      }
+    }
+  }
+  dp_interface {
+    control_signal: ThrustControl
+    redundant_nmea_serial {
+      main_controller_name: "io-a"
+      main_com_port_index: 10
+      backup_controller_name: "io-b"
+      backup_com_port_index: 10
+    }
+  }
+}
+propulsor {
+  name: "Bow Tunnel Thruster 2"
+  short_name: "BT2"
+  position {
+    x_position: 38.612
+    y_position: 0.0
+    z_position: 4.2
+  }
+  tunnel {
+    details {
+      propeller_diameter: 2.6
+      nozzle: false
+      variable_pitch: true
+      variable_rpm: true
+      thrust_power_data {
+        max_positive_thrust: 244.0
+        max_negative_thrust: -244.0
+        max_power_positive_thrust: 1700.0
+        max_power_negative_thrust: 1700.0
+        max_zero_thrust_power: 0.0
+      }
+    }
+  }
+  dp_interface {
+    control_signal: ThrustControl
+    redundant_nmea_serial {
+      main_controller_name: "io-b"
+      main_com_port_index: 11
+      backup_controller_name: "io-a"
+      backup_com_port_index: 11
+    }
+  }
+}
+propulsor {
+  name: "Bow Retractable Thruster"
+  short_name: "BR"
+  position {
+    x_position: 33.99
+    y_position: 0.0
+    z_position: 8.66 # From CSOV: guess based on travel length and draft
+  }
+  azimuth {
+    details {
+      propeller_diameter: 2.4
+      nozzle: true
+      variable_pitch: false
+      variable_rpm: true
+      thrust_power_data {
+        max_positive_thrust: 307.0
+        max_negative_thrust: 0.0
+        max_power_positive_thrust: 1600.0
+        max_power_negative_thrust: 1600.0
+        max_zero_thrust_power: 0.0
+      }
+    }
+  }
+  dp_interface {
+    control_signal: ThrustControl
+    redundant_nmea_serial {
+      main_controller_name: "io-a"
+      main_com_port_index: 12
+      backup_controller_name: "io-b"
+      backup_com_port_index: 12
+    }
+  }
+}
+propulsor {
+  name: "Port Main Azimuth"
+  short_name: "AZ1"
+  position {
+    x_position: -48.09
+    y_position: -5.4
+    z_position: 4.2
+  }
+  azimuth {
+    details {
+      propeller_diameter: 3.3
+      nozzle: true # Ducted (standard for CLVs)
+      variable_pitch: false # Fixed pitch, variable speed electric drive
+      variable_rpm: true
+      thrust_power_data { # Fixed pitch, net bollard thrust (equal to shaft line, incl. housing / interaction loss). No reverse: azimuth rotates.
+        max_positive_thrust: 459.0
+        max_negative_thrust: 0.0
+        max_power_positive_thrust: 3000.0
+        max_power_negative_thrust: 3000.0
+        max_zero_thrust_power: 0.0
+      }
+    }
+    azimuth_details {
+      pulling: false
+    }
+  }
+  dp_interface {
+    control_signal: RpmControl
+    redundant_nmea_serial {
+      main_controller_name: "io-a"
+      main_com_port_index: 13
+      backup_controller_name: "io-b"
+      backup_com_port_index: 13
+    }
+  }
+}
+propulsor {
+  name: "Starboard Main Azimuth"
+  short_name: "AZ2"
+  position {
+    x_position: -48.09
+    y_position: 5.4
+    z_position: 4.2
+  }
+  azimuth {
+    details {
+      propeller_diameter: 3.3
+      nozzle: true # Ducted (standard for CLVs)
+      variable_pitch: false # Fixed pitch, variable speed electric drive
+      variable_rpm: true
+      thrust_power_data { # Fixed pitch, net bollard thrust (equal to shaft line, incl. housing / interaction loss). No reverse: azimuth rotates.
+        max_positive_thrust: 459.0
+        max_negative_thrust: 0.0
+        max_power_positive_thrust: 3000.0
+        max_power_negative_thrust: 3000.0
+        max_zero_thrust_power: 0.0
+      }
+    }
+    azimuth_details {
+      pulling: false
+    }
+  }
+  dp_interface {
+    control_signal: RpmControl
+    redundant_nmea_serial {
+      main_controller_name: "io-b"
+      main_com_port_index: 14
+      backup_controller_name: "io-a"
+      backup_com_port_index: 14
+    }
+  }
+}

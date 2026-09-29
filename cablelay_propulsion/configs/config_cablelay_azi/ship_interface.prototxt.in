@@ -1,0 +1,21 @@
+rtz {
+  dp_interface {
+    ip_address: "239.192.0.25"
+    port: 60025
+    interface: ""
+  }
+}
+tecdis {
+  transit_direction: Ahead
+  dp_interface {
+    controller_name: "io-a"
+    com_port_index: 3
+  }
+}
+tecdis {
+  transit_direction: Astern
+  dp_interface {
+    controller_name: "io-a"
+    com_port_index: 4
+  }
+}

@@ -1,0 +1,5 @@
+project_number: "37011"
+products {
+    dp: true
+    auto_speed: true
+}

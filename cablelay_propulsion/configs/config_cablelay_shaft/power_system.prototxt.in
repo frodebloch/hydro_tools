@@ -1,0 +1,275 @@
+# proto-file: power.proto
+# proto-message: PowerSystem
+#
+# Cable lay study: 3-split power system based on config_csov
+# (Port / Centre / Stbd main switchboards, bus ties, ESS on centre bus).
+# Generators scaled to 4x 3600 kW (14.4 MW) + 2.9 MW ESS, identical for both options.
+# Thruster index = order in propulsors.prototxt.
+#   Port bus  : 0 BT1, 3 ST1, 5 MP1
+#   Centre bus: 2 BR
+#   Stbd bus  : 1 BT2, 4 ST2, 6 MP2
+#   (rudders 7, 8 are not electrical consumers here)
+
+power_feature_enabled: true
+
+# Interfaces are TBD
+
+bus {
+  name: "Main SWBD Port"
+  short_name: "MSB PS"
+  mimic {
+    y: 292
+  }
+}
+bus_tie_breaker {
+  name: "Port Bus Tie"
+  fast_acting: true
+  mimic {
+    x: 336
+    y: 288
+    orientation: Right
+  }
+  interface {
+    closed: "A1_4_0_2"
+    redundant_closed: "A2_4_0_2"
+  }
+  bus_index_1: 0
+  bus_index_2: 1
+}
+bus {
+  name: "Main SWBD Center"
+  short_name: "MSB C"
+  mimic {
+    x: 400
+    y: 292
+  }
+}
+bus_tie_breaker {
+  name: "Starboard Bus Tie"
+  fast_acting: true
+  mimic {
+    x: 736
+    y: 288
+    orientation: Right
+  }
+  interface {
+    closed: "A1_4_0_3"
+    redundant_closed: "A2_4_0_3"
+  }
+  bus_index_1: 1
+  bus_index_2: 2
+}
+bus {
+  name: "Main SWBD STBD"
+  short_name: "MSB SB"
+  mimic {
+    x: 800
+    y: 292
+  }
+}
+generator {
+  name: "Generator 1"
+  short_name: "G1"
+  nominal_power: 3600
+  power_rate: 1000
+  mimic { x: 32 }
+  interface { power: "A1_1_0_0" }
+  breaker {
+    name: "Generator breaker 1"
+    mimic {
+      x: 48
+      y: 176
+    }
+    interface { closed: "A1_4_0_0" }
+  }
+}
+generator {
+  name: "Generator 2"
+  short_name: "G2"
+  nominal_power: 3600
+  power_rate: 1000
+  mimic { x: 208 }
+  interface { power: "A1_1_0_1" }
+  breaker {
+    name: "Generator breaker 2"
+    mimic {
+      x: 224
+      y: 176
+    }
+    interface { closed: "A1_4_0_1" }
+  }
+}
+ess_ac {
+  name: "ESS"
+  short_name: "ESS"
+  nominal_power: 2900
+  power_rate: 1500
+  nominal_energy: 994
+  lowest_acceptable_remaining_time: 12.0
+  mimic { x: 520 }
+  interface {
+    dischargeable_energy: "A1_1_1_2"
+    dischargeable_power: "A1_1_1_3"
+    power: "A1_1_1_0"
+    ready_for_dp: "A1_4_1_0"
+    state_of_charge: "A1_1_1_1"
+  }
+  breaker {
+    name: "ESS Breaker"
+    short_name: "ESSB"
+    interface {
+      closed: "A1_4_1_1"
+    }
+    mimic {
+      x: 536
+      y: 176
+    }
+    bus_index: 1
+  }
+}
+generator {
+  name: "Generator 3"
+  short_name: "G3"
+  nominal_power: 3600
+  power_rate: 1000
+  mimic { x: 832 }
+  interface { power: "A2_1_0_0" }
+  breaker {
+    name: "Generator breaker 3"
+    mimic {
+      x: 848
+      y: 176
+    }
+    interface { closed: "A2_4_0_0" }
+    bus_index: 2
+  }
+}
+generator {
+  name: "Generator 4"
+  short_name: "G4"
+  nominal_power: 3600
+  power_rate: 1000
+  mimic { x: 1008 }
+  interface { power: "A2_1_0_1" }
+  breaker {
+    name: "Generator breaker 4"
+    mimic {
+      x: 1024
+      y: 176
+    }
+    interface { closed: "A2_4_0_1" }
+    bus_index: 2
+  }
+}
+thruster {
+  mimic {
+    x: 32
+    y: 528
+  }
+  thruster_index: 0
+  breaker {
+    name: "Thruster breaker 1"
+    mimic {
+      x: 48
+      y: 400
+    }
+    interface { closed: "A1_4_0_6" }
+    bus_index: 0
+  }
+}
+thruster {
+  mimic {
+    x: 1008
+    y: 528
+  }
+  thruster_index: 1
+  breaker {
+    name: "Thruster breaker 2"
+    mimic {
+      x: 1024
+      y: 400
+    }
+    interface { closed: "A2_4_0_6" }
+    bus_index: 2
+  }
+}
+thruster {
+  mimic {
+    x: 520
+    y: 528
+  }
+  thruster_index: 2
+  breaker {
+    name: "Thruster breaker 3"
+    mimic {
+      x: 536
+      y: 400
+    }
+    interface { closed: "A1_4_0_7" }
+    bus_index: 1
+  }
+}
+thruster {
+  mimic {
+    x: 208
+    y: 528
+  }
+  thruster_index: 3
+  breaker {
+    name: "Thruster breaker 4"
+    mimic {
+      x: 224
+      y: 400
+    }
+    interface { closed: "A1_4_0_5" }
+    bus_index: 0
+  }
+}
+thruster {
+  mimic {
+    x: 832
+    y: 528
+  }
+  thruster_index: 4
+  breaker {
+    name: "Thruster breaker 5"
+    mimic {
+      x: 848
+      y: 400
+    }
+    interface { closed: "A2_4_0_5" }
+    bus_index: 2
+  }
+}
+thruster {
+  mimic {
+    x: 384
+    y: 528
+  }
+  thruster_index: 5
+  breaker {
+    name: "Thruster breaker 6"
+    mimic {
+      x: 400
+      y: 400
+    }
+    interface { closed: "A1_4_0_8" }
+    bus_index: 0
+  }
+}
+thruster {
+  mimic {
+    x: 656
+    y: 528
+  }
+  thruster_index: 6
+  breaker {
+    name: "Thruster breaker 7"
+    mimic {
+      x: 672
+      y: 400
+    }
+    interface { closed: "A2_4_0_8" }
+    bus_index: 2
+  }
+}

@@ -1,0 +1,3 @@
+design	P/D	nominal_rpm	bollard_T_per_prop(kN)	bollard_P_per_prop(kW)	bollard_limit	top_speed_calm(kn)	top_speed_bf5(kn)
+A_bollard	1.07	173.134	574.933	2999.99	power	15.8915	14.8085
+B_transit	1.4	162.199	506.351	2538.67	torque	16.0028	14.9313

@@ -1,0 +1,6 @@
+dp {
+  planning_station_interface {
+    controller_name: "ps-pc"
+    com_port_index: 0
+  }
+}

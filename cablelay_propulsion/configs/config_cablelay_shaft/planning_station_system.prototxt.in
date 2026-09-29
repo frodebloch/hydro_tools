@@ -1,0 +1,5 @@
+hardware {
+  controller {
+    name: "ps-pc"
+  }
+}

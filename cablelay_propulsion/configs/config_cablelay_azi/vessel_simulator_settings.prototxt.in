@@ -1,0 +1,17 @@
+# Vessel initial position and heading
+start_position {
+  start_latitude: 62.688944
+  start_longitude: 6.982926
+  start_heading: 0.0
+}
+
+# Simulated FPSO - Commented out atm
+#fpso {
+#  latitude: 62.677
+#  longitude: 7.01
+#  heading: 0.0
+#  hull_length: 220.0
+#  hull_beam: 45.0
+#  hull_draft: 20.0
+#  turret_offset_from_bow: 50
+#}

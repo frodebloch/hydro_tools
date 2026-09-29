@@ -1,0 +1,24 @@
+menu_1920x1080 {
+  item { type: Main }
+  item { type: Thrusters }
+  item { type: References }
+  item { type: Sensors }
+  item { type: Power }
+  item { type: Alerts }
+  item { type: Capability }
+  item { type: ConsequenceAnalysis }
+  item { type: Trends }
+  item { type: Settings }
+  item { type: System }
+}
+
+menu_1280x800 {
+  item { type: Main }
+  item { type: Thrusters }
+  item { type: References }
+  item { type: Sensors }
+  item { type: Alerts }
+  item { type: Trends }
+  item { type: Settings }
+  item { type: System }
+}

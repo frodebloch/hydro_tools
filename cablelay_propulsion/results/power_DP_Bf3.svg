@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="580" height="620" font-family="sans-serif">
+<rect width="580" height="620" fill="white"/>
+<text x="290.0" y="24" text-anchor="middle" font-size="16">DP station keeping - Bf 3, intact</text>
+<circle cx="290.0" cy="290" r="120.0" fill="none" stroke="#ccc"/>
+<text x="293.0" y="182.0" font-size="10" fill="#888">500 kW</text>
+<circle cx="290.0" cy="290" r="240.0" fill="none" stroke="#ccc"/>
+<text x="293.0" y="62.0" font-size="10" fill="#888">1000 kW</text>
+<line x1="290.0" y1="290" x2="290.0" y2="50.0" stroke="#ddd"/>
+<text x="290.0" y="38.0" text-anchor="middle" font-size="11">0</text>
+<line x1="290.0" y1="290" x2="410.0" y2="82.2" stroke="#ddd"/>
+<text x="418.0" y="72.3" text-anchor="middle" font-size="11">30</text>
+<line x1="290.0" y1="290" x2="497.8" y2="170.0" stroke="#ddd"/>
+<text x="511.7" y="166.0" text-anchor="middle" font-size="11">60</text>
+<line x1="290.0" y1="290" x2="530.0" y2="290.0" stroke="#ddd"/>
+<text x="546.0" y="294.0" text-anchor="middle" font-size="11">90</text>
+<line x1="290.0" y1="290" x2="497.8" y2="410.0" stroke="#ddd"/>
+<text x="511.7" y="422.0" text-anchor="middle" font-size="11">120</text>
+<line x1="290.0" y1="290" x2="410.0" y2="497.8" stroke="#ddd"/>
+<text x="418.0" y="515.7" text-anchor="middle" font-size="11">150</text>
+<line x1="290.0" y1="290" x2="290.0" y2="530.0" stroke="#ddd"/>
+<text x="290.0" y="550.0" text-anchor="middle" font-size="11">180</text>
+<line x1="290.0" y1="290" x2="170.0" y2="497.8" stroke="#ddd"/>
+<text x="162.0" y="515.7" text-anchor="middle" font-size="11">210</text>
+<line x1="290.0" y1="290" x2="82.2" y2="410.0" stroke="#ddd"/>
+<text x="68.3" y="422.0" text-anchor="middle" font-size="11">240</text>
+<line x1="290.0" y1="290" x2="50.0" y2="290.0" stroke="#ddd"/>
+<text x="34.0" y="294.0" text-anchor="middle" font-size="11">270</text>
+<line x1="290.0" y1="290" x2="82.2" y2="170.0" stroke="#ddd"/>
+<text x="68.3" y="166.0" text-anchor="middle" font-size="11">300</text>
+<line x1="290.0" y1="290" x2="170.0" y2="82.2" stroke="#ddd"/>
+<text x="162.0" y="72.3" text-anchor="middle" font-size="11">330</text>
+<polyline points="290.0,288.7 290.9,284.6 295.3,275.5 305.0,264.1 320.3,253.9 338.7,249.1 356.0,251.9 368.1,261.6 372.6,275.4 369.0,290.0 371.2,304.3 365.3,317.4 352.3,326.0 335.1,327.8 317.5,322.8 303.4,313.2 294.7,302.9 291.0,295.5 290.0,293.0 289.0,295.5 285.3,302.9 276.6,313.2 262.5,322.8 244.9,327.8 227.7,326.0 214.7,317.4 208.8,304.3 211.0,290.0 207.4,275.4 211.9,261.6 224.0,251.9 241.3,249.1 259.7,253.9 275.0,264.1 284.7,275.5 289.1,284.6 290.0,288.7" fill="#1f77b4" fill-opacity="0.12" stroke="#1f77b4" stroke-width="2"/>
+<rect x="20" y="550" width="14" height="10" fill="#1f77b4"/>
+<text x="40" y="559" font-size="12">Azimuth option, bias off: mean 201 kW, max 350 kW at 280 deg</text>
+<polyline points="290.0,288.7 291.0,284.3 296.3,272.8 309.6,256.1 333.1,238.6 365.6,226.6 402.2,225.2 417.0,243.8 426.3,266.0 425.1,290.0 432.4,315.1 428.0,340.2 411.0,359.9 384.6,369.4 356.1,368.8 331.7,362.1 305.3,332.1 293.1,307.6 290.0,295.1 286.9,307.6 274.7,332.1 248.3,362.1 223.9,368.8 195.4,369.4 169.0,359.9 152.0,340.2 147.6,315.1 154.9,290.0 153.7,266.0 163.0,243.8 177.8,225.2 214.4,226.6 246.9,238.6 270.4,256.1 283.7,272.8 289.0,284.3 290.0,288.7" fill="#d62728" fill-opacity="0.12" stroke="#d62728" stroke-width="2"/>
+<rect x="20" y="570" width="14" height="10" fill="#d62728"/>
+<text x="40" y="579" font-size="12">Shaft line option: mean 364 kW, max 612 kW at 250 deg</text>
+<polyline points="290.0,267.5 294.8,263.0 303.3,253.5 317.7,242.0 338.1,232.6 361.9,229.6 384.3,235.6 400.6,249.7 407.8,269.2 405.0,290.0 408.3,310.9 400.9,330.4 383.9,344.2 360.8,349.4 336.3,345.2 315.6,334.3 301.4,321.2 293.6,310.2 290.0,304.5 286.4,310.2 278.6,321.2 264.4,334.3 243.7,345.2 219.2,349.4 196.0,344.2 179.1,330.4 171.7,310.9 175.0,290.0 172.2,269.2 179.4,249.7 195.7,235.6 218.1,229.6 241.9,232.6 262.3,242.0 276.7,253.5 285.2,263.0 290.0,267.5" fill="#2ca02c" fill-opacity="0.12" stroke="#2ca02c" stroke-width="2"/>
+<rect x="20" y="590" width="14" height="10" fill="#2ca02c"/>
+<text x="40" y="599" font-size="12">Azimuth option, bias on: mean 321 kW, max 500 kW at 260 deg</text>
+</svg>

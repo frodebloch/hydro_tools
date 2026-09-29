@@ -1,0 +1,120 @@
+# Positions are TODO
+# Interfaces are TBD
+
+gps {
+  name: "GNSS 1"
+  position {
+    x_position: 16.20
+    y_position: -0.42
+    z_position: -24.23
+  }
+  dp_interface {
+    controller_name: "io-a"
+    com_port_index: 4
+  }
+}
+gps {
+  name: "GNSS 2"
+  position {
+    x_position: 16.20
+    y_position: 0.33
+    z_position: -24.23
+  }
+  dp_interface {
+    controller_name: "io-b"
+    com_port_index: 2
+  }
+}
+radius {
+  name: "Radar 1"
+  interrogator {
+    id: 1
+    position {
+      x_position: 15.00
+      y_position: -2.00
+      z_position: -16.39
+    }
+    mounting_direction: 216.40
+  }
+  interrogator {
+    id: 2
+    position {
+      x_position: 15.90
+      y_position: 3.60
+      z_position: -16.07
+    }
+    mounting_direction: 145.70
+  }
+  dp_interface {
+    controller_name: "io-a"
+    com_port_index: 6
+  }
+}
+hydro_acoustic {
+  name: "Hydro acoustic 1"
+  position {
+    x_position: 0.0
+    y_position: 0.0
+    z_position: 0.0
+  }
+  dp_interface {
+    controller_name: "io-a"
+    com_port_index: 7
+  }
+}
+hydro_acoustic {
+  name: "Hydro acoustic 2"
+  position {
+    x_position: 0.0
+    y_position: 0.0
+    z_position: 0.0
+  }
+  dp_interface {
+    controller_name: "io-b"
+    com_port_index: 3
+  }
+}
+
+laser {
+  name: "Laser 1"
+  message_type: PSXST
+  position {
+    x_position: 14.10
+    y_position: 0.0
+    z_position: -16.39
+  }
+  dp_interface {
+    controller_name: "io-a"
+    com_port_index: 5
+  }
+}
+
+laser {
+  name: "Laser 2"
+  message_type: PSXST
+  position {
+    x_position: 14.10
+    y_position: 0.0
+    z_position: -16.39
+  }
+  dp_interface {
+    controller_name: "io-b"
+    com_port_index: 3
+  }
+}
+
+gangway {
+  name: "Gangway"
+  position {
+    x_position: 5.0
+    y_position: -9.0
+    z_position: -8.0
+  }
+  max_height: 25
+  min_length: 18
+  max_length: 32
+  dp_interface {
+    controller_name: "io-b"
+    com_port_index: 5
+  }
+}

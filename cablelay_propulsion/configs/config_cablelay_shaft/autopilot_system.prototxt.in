@@ -1,0 +1,41 @@
+ahead_chart {
+  source_id: "EI0001"
+}
+astern_chart {
+  source_id: "EI0002"
+}
+control_parameters {
+    auto_crossing {
+        emergency_stop_distance: 185.0
+        emergency_stop_warning_distance: 50.0
+        min_speed_to_enter_mode: 2.0576
+        max_diff_course_and_heading_to_enter_mode: 30.0
+    }
+    course_control {
+        min_speed_to_enter_high_speed_mode: 2.0576
+        max_diff_course_and_heading_to_enter_mode: 30.0
+        default_turn_radius_ebl: 555.0
+        default_turn_radius_ebl_enabled: false
+        minimum_distance_pop_to_wop_to_last_ebl_waypoint: 370.0
+        minimum_ebl_distance: 500
+    }
+    acceleration_scale_heading_feedforward: 2.0
+}
+
+speed_profile_parameters {
+  name: "Port Main Propulsion"
+  acceleration_power: 2000.0
+  slow_down_power: 0.0
+  delta_power: 100.0
+  max_nominal_ship_speed: 7
+  min_acceleration_limit: 0.02
+}
+
+speed_profile_parameters {
+  name: "Starboard Main Propulsion"
+  acceleration_power: 2000.0
+  slow_down_power: 0.0
+  delta_power: 100.0
+  max_nominal_ship_speed: 7
+  min_acceleration_limit: 0.02
+}

@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="580" height="620" font-family="sans-serif">
+<rect width="580" height="620" fill="white"/>
+<text x="290.0" y="24" text-anchor="middle" font-size="16">DP station keeping - Bf 6, intact</text>
+<circle cx="290.0" cy="290" r="60.0" fill="none" stroke="#ccc"/>
+<text x="293.0" y="242.0" font-size="10" fill="#888">1000 kW</text>
+<circle cx="290.0" cy="290" r="120.0" fill="none" stroke="#ccc"/>
+<text x="293.0" y="182.0" font-size="10" fill="#888">2000 kW</text>
+<circle cx="290.0" cy="290" r="180.0" fill="none" stroke="#ccc"/>
+<text x="293.0" y="122.0" font-size="10" fill="#888">3000 kW</text>
+<circle cx="290.0" cy="290" r="240.0" fill="none" stroke="#ccc"/>
+<text x="293.0" y="62.0" font-size="10" fill="#888">4000 kW</text>
+<line x1="290.0" y1="290" x2="290.0" y2="50.0" stroke="#ddd"/>
+<text x="290.0" y="38.0" text-anchor="middle" font-size="11">0</text>
+<line x1="290.0" y1="290" x2="410.0" y2="82.2" stroke="#ddd"/>
+<text x="418.0" y="72.3" text-anchor="middle" font-size="11">30</text>
+<line x1="290.0" y1="290" x2="497.8" y2="170.0" stroke="#ddd"/>
+<text x="511.7" y="166.0" text-anchor="middle" font-size="11">60</text>
+<line x1="290.0" y1="290" x2="530.0" y2="290.0" stroke="#ddd"/>
+<text x="546.0" y="294.0" text-anchor="middle" font-size="11">90</text>
+<line x1="290.0" y1="290" x2="497.8" y2="410.0" stroke="#ddd"/>
+<text x="511.7" y="422.0" text-anchor="middle" font-size="11">120</text>
+<line x1="290.0" y1="290" x2="410.0" y2="497.8" stroke="#ddd"/>
+<text x="418.0" y="515.7" text-anchor="middle" font-size="11">150</text>
+<line x1="290.0" y1="290" x2="290.0" y2="530.0" stroke="#ddd"/>
+<text x="290.0" y="550.0" text-anchor="middle" font-size="11">180</text>
+<line x1="290.0" y1="290" x2="170.0" y2="497.8" stroke="#ddd"/>
+<text x="162.0" y="515.7" text-anchor="middle" font-size="11">210</text>
+<line x1="290.0" y1="290" x2="82.2" y2="410.0" stroke="#ddd"/>
+<text x="68.3" y="422.0" text-anchor="middle" font-size="11">240</text>
+<line x1="290.0" y1="290" x2="50.0" y2="290.0" stroke="#ddd"/>
+<text x="34.0" y="294.0" text-anchor="middle" font-size="11">270</text>
+<line x1="290.0" y1="290" x2="82.2" y2="170.0" stroke="#ddd"/>
+<text x="68.3" y="166.0" text-anchor="middle" font-size="11">300</text>
+<line x1="290.0" y1="290" x2="170.0" y2="82.2" stroke="#ddd"/>
+<text x="162.0" y="72.3" text-anchor="middle" font-size="11">330</text>
+<polyline points="290.0,278.6 293.1,272.1 301.0,259.7 315.9,245.1 337.4,233.5 361.0,230.5 379.9,238.1 390.9,253.3 394.1,271.6 390.8,290.0 388.0,307.3 379.5,322.6 365.5,333.6 347.3,338.0 327.8,335.0 311.2,326.6 299.8,316.9 293.4,309.5 290.0,306.6 286.6,309.5 280.2,316.9 268.8,326.6 252.2,335.0 232.7,338.0 214.5,333.6 200.5,322.6 191.9,307.3 189.2,290.0 185.9,271.6 189.1,253.3 200.1,238.1 219.0,230.5 242.6,233.5 264.1,245.1 279.0,259.7 286.9,272.1 290.0,278.6" fill="#1f77b4" fill-opacity="0.12" stroke="#1f77b4" stroke-width="2"/>
+<rect x="20" y="550" width="14" height="10" fill="#1f77b4"/>
+<text x="40" y="559" font-size="12">Azimuth option, bias off: mean 1117 kW, max 1790 kW at 290 deg</text>
+<polyline points="290.0,278.6 293.4,270.9 302.8,254.8 322.3,234.1 345.4,224.0 369.3,223.5 396.0,228.8 420.5,242.5 440.0,263.5 447.1,290.0 459.7,319.9 460.2,352.0 447.5,380.9 421.0,399.9 383.0,400.8 344.4,384.2 315.0,358.8 298.0,335.6 290.0,318.4 282.0,335.6 265.0,358.8 235.6,384.2 197.0,400.8 159.0,399.9 132.5,380.9 119.8,352.0 120.3,319.9 132.9,290.0 139.9,263.5 159.5,242.5 184.0,228.8 210.7,223.5 234.6,224.0 257.7,234.1 277.2,254.8 286.6,270.9 290.0,278.6" fill="#d62728" fill-opacity="0.12" stroke="#d62728" stroke-width="2"/>
+<rect x="20" y="570" width="14" height="10" fill="#d62728"/>
+<text x="40" y="579" font-size="12">Shaft line option: mean 1834 kW, max 3031 kW at 240 deg</text>
+<polyline points="290.0,265.2 295.8,257.4 306.9,243.5 325.7,228.1 351.3,216.9 375.4,218.3 394.5,229.7 406.3,247.7 410.4,268.8 407.8,290.0 405.5,310.4 397.1,329.0 382.3,343.3 362.1,350.5 339.1,348.6 318.5,339.4 303.8,327.8 295.0,318.4 290.0,314.6 285.0,318.4 276.2,327.8 261.5,339.4 240.9,348.6 217.9,350.5 197.7,343.3 182.9,329.0 174.5,310.4 172.2,290.0 169.6,268.8 173.7,247.7 185.5,229.7 204.6,218.3 228.7,216.9 254.3,228.1 273.1,243.5 284.2,257.4 290.0,265.2" fill="#2ca02c" fill-opacity="0.12" stroke="#2ca02c" stroke-width="2"/>
+<rect x="20" y="590" width="14" height="10" fill="#2ca02c"/>
+<text x="40" y="599" font-size="12">Azimuth option, bias on: mean 1393 kW, max 2062 kW at 290 deg</text>
+</svg>

@@ -1,0 +1,554 @@
+# proto-file: launcher_configuration.proto
+# proto-message: Configuration
+
+profiles {
+  profile_name: "default"
+}
+
+profiles {
+  profile_name: "dp"
+  processes {
+    path: "./DpCoreService"
+    args: "-r0"
+    args: "-n2"
+  }
+  processes {
+    path: "./DpCoreService"
+    args: "-r1"
+    args: "-n2"
+  }
+  processes {
+    path: "./CabinetIoService"
+    args: "A1"
+  }
+  processes {
+    path: "./CabinetIoService"
+    args: "A2"
+  }
+  processes {
+    path: "./PowerInterfaceService"
+    args: "A1"
+  }
+  processes {
+    path: "./PowerInterfaceService"
+    args: "A2"
+  }
+  processes {
+    path: "./SensorsInterfaceService"
+    args: "io-a"
+  }
+  processes {
+    path: "./SensorsInterfaceService"
+    args: "io-b"
+  }
+  processes {
+    path: "./SensorsInterfaceService"
+    args: "dp-a"
+  }
+  processes {
+    path: "./SensorsInterfaceService"
+    args: "dp-b"
+  }
+  processes {
+    path: "./PropulsorsInterfaceService"
+    args: "io-a"
+  }
+  processes {
+    path: "./PropulsorsInterfaceService"
+    args: "io-b"
+  }
+  processes {
+    path: "./ControllerStatusService"
+    args: "--all"
+  }
+  processes {
+    path: "./DpSimulatorService"
+    args: "-r"
+    args: "csov_pdstrip.dat"
+    args: "--platform-response-data-file"
+    args: "hywind_spar.dat"
+  }
+  processes {
+    path: "./DpOnboardTrainerService"
+    args: "-r"
+    args: "csov_pdstrip.dat"
+  }
+  processes {
+    path: "./PowerSimulatorInterfaceService"
+  }
+  processes {
+    path: "./SensorSimulatorService"
+  }
+  processes {
+    path: "./IoLayerSimulatorService"
+  }
+  processes {
+    path: "./CabinetIoSimulatorService"
+  }
+  processes {
+    path: "./DpSimulatorGui"
+  }
+  processes {
+    path: "./dp_gui"
+    args: "--window-size"
+    args: "1920x1080"
+  }
+  processes {
+    path: "./NavigationInterfaceService"
+  }
+  processes {
+    path: "./DpServiceInterfaceService"
+  }
+  processes {
+    path: "./JoystickInterfaceService"
+    args: "-i"
+    args: "vcan0"
+  }
+  processes {
+    path: "./JoystickSimulator"
+    args: "0"
+    args: "-i"
+    args: "vcan0"
+  }
+  processes {
+    path: "./JoystickSimulator"
+    args: "1"
+    args: "-i"
+    args: "vcan0"
+  }
+  processes {
+    path: "./JoystickSimulator"
+    args: "2"
+    args: "-i"
+    args: "vcan0"
+  }
+  processes {
+    path: "./JoystickSimulator"
+    args: "3"
+    args: "-i"
+    args: "vcan0"
+  }
+  processes {
+    path: "./ChartSimulator"
+  }
+  processes {
+    path: "./WaypointSimulatorService"
+  }
+  processes {
+    path: "./DpPlaybackService"
+  }
+  processes {
+    path: "./DpPlanningStationBridgeService"
+    args: "dp"
+  }
+}
+
+profiles {
+  profile_name: "planning-station"
+  processes {
+    path: "./DpPlanningStationBridgeService"
+    args: "planning-station"
+  }
+  processes {
+    path: "./ForecastCollectorService"
+  }
+  processes {
+    path: "./SerialBridge"
+    args: "--rx-domain=1"
+    args: "--tx-domain=20"
+    args: "--rx-controller=io-b"
+    args: "--rx-com-port=7"
+    args: "--tx-controller=ps-pc"
+    args: "--tx-com-port=0"
+  }
+  processes {
+    path: "./SerialBridge"
+    args: "--rx-domain=20"
+    args: "--tx-domain=1"
+    args: "--rx-controller=ps-pc"
+    args: "--rx-com-port=0"
+    args: "--tx-controller=io-b"
+    args: "--tx-com-port=7"
+  }
+}
+
+profiles {
+  profile_name: "hw"
+  processes {
+    path: "./DpCoreService"
+    args: "-r0"
+    args: "-n2"
+  }
+  processes {
+    path: "./DpCoreService"
+    args: "-r1"
+    args: "-n2"
+  }
+  processes {
+    path: "./PowerInterfaceService"
+    args: "A1"
+  }
+  processes {
+    path: "./PowerInterfaceService"
+    args: "A2"
+  }
+  processes {
+    path: "./SensorsInterfaceService"
+    args: "io-a"
+  }
+  processes {
+    path: "./SensorsInterfaceService"
+    args: "io-b"
+  }
+  processes {
+    path: "./SensorsInterfaceService"
+    args: "dp-a"
+  }
+  processes {
+    path: "./SensorsInterfaceService"
+    args: "dp-b"
+  }
+  processes {
+    path: "./PropulsorsInterfaceService"
+    args: "io-a"
+  }
+  processes {
+    path: "./PropulsorsInterfaceService"
+    args: "io-b"
+  }
+  processes {
+    path: "./ControllerStatusService"
+    args: "--all"
+  }
+  processes {
+    path: "./DpSimulatorService"
+    args: "-r"
+    args: "csov_pdstrip.dat"
+    args: "--platform-response-data-file"
+    args: "hywind_spar.dat"
+  }
+  processes {
+    path: "./DpOnboardTrainerService"
+    args: "-r"
+    args: "csov_pdstrip.dat"
+  }
+  processes {
+    path: "./PowerSimulatorInterfaceService"
+  }
+  processes {
+    path: "./SensorSimulatorService"
+  }
+  processes {
+    path: "./IoLayerSimulatorService"
+  }
+  processes {
+    path: "./CabinetIoSimulatorService"
+  }
+  processes {
+    path: "./DpSimulatorGui"
+  }
+  processes {
+    path: "./dp_gui"
+    args: "--window-size"
+    args: "1920x1080"
+  }
+  processes {
+    path: "./DpServiceInterfaceService"
+  }
+  processes {
+    path: "./JoystickInterfaceService"
+  }
+}
+
+profiles {
+  profile_name: "io-a"
+  processes {
+    path: "./JoystickInterfaceService"
+    args: "io-a"
+  }
+  processes {
+    path: "./ControllerStatusService"
+    args: "io-a"
+  }
+  processes {
+    path: "./ClockAdjusterService"
+  }
+  processes {
+    path: "./UControlIOService"
+    args: "--disable-variable"
+    args: "1"
+    args: "--sysbus-file"
+    args: "sysbus_io_a.prototxt"
+  }
+  processes {
+    path: "./PowerInterfaceService"
+    args: "A1"
+  }
+  processes {
+    path: "./JoystickInterfaceService"
+    args: "io-a"
+  }
+}
+
+profiles {
+  profile_name: "io-b"
+  processes {
+    path: "./JoystickInterfaceService"
+    args: "io-b"
+  }
+  processes {
+    path: "./ControllerStatusService"
+    args: "io-b"
+  }
+  processes {
+    path: "./ClockAdjusterService"
+  }
+  processes {
+    path: "./UControlIOService"
+    args: "--disable-variable"
+    args: "2"
+    args: "--sysbus-file"
+    args: "sysbus_io_b.prototxt"
+  }
+  processes {
+    path: "./PowerInterfaceService"
+    args: "A2"
+  }
+  processes {
+    path: "./JoystickInterfaceService"
+    args: "io-b"
+  }
+}
+
+profiles {
+  profile_name: "dp-a"
+  processes {
+    path: "./ControllerStatusService"
+    args: "dp-a"
+  }
+  processes {
+    path: "./ClockAdjusterService"
+  }
+  processes {
+    path: "./DpCoreService"
+    args: "-r0"
+    args: "-n2"
+  }
+  processes {
+    path: "./PropulsorsInterfaceService"
+    args: "io-a"
+  }
+  processes {
+    path: "./SensorsInterfaceService"
+    args: "io-a"
+  }
+  processes {
+    path: "./CabinetIoService"
+    args: "A1"
+  }
+  processes {
+    path: "./SerialIo"
+    args: "-b9600"
+    args: "-p/dev/ttyS0"
+    args: "rx"
+    args: "3"
+    args: "0"
+  }
+  processes {
+    path: "./SerialIo"
+    args: "-b4800"
+    args: "-p/dev/ttyS1"
+    args: "rx"
+    args: "3"
+    args: "1"
+  }
+  processes {
+    path: "./DpCmsInterfaceService"
+  }
+  processes {
+    path: "./PanelManagerService"
+    args: "0"
+    args: "--dp"
+    args: "--skip-alerts"
+  }
+}
+
+profiles {
+  profile_name: "dp-b"
+  processes {
+    path: "./ControllerStatusService"
+    args: "dp-b"
+  }
+  processes {
+    path: "./ClockAdjusterService"
+  }
+  processes {
+    path: "./DpCoreService"
+    args: "-r1"
+    args: "-n2"
+  }
+  processes {
+    path: "./PropulsorsInterfaceService"
+    args: "io-b"
+  }
+  processes {
+    path: "./SensorsInterfaceService"
+    args: "io-b"
+  }
+  processes {
+    path: "./CabinetIoService"
+    args: "A2"
+  }
+  processes {
+    path: "./SerialIo"
+    args: "-b9600"
+    args: "-p/dev/ttyS0"
+    args: "rx"
+    args: "4"
+    args: "0"
+  }
+  processes {
+    path: "./SerialIo"
+    args: "-b4800"
+    args: "-p/dev/ttyS1"
+    args: "rx"
+    args: "4"
+    args: "1"
+  }
+}
+
+profiles {
+  profile_name: "os-1-pc-1"
+  processes {
+    path: "./dp_gui"
+    args: "-platform"
+    args: "wayland-egl"
+    args: "--window-size=1920x1080"
+    args: "--control-position-id=0"
+    args: "--brightness-control=ht-scom-brt"
+    args: "--brightness-control-port=/dev/ttyS0"
+    args: "--minimum-brightness=5"
+  }
+  processes {
+    path: "./ControllerStatusService"
+    args: "os-1-pc"
+  }
+  processes {
+    path: "./ClockAdjusterService"
+  }
+  processes {
+    path: "./AlertLoggerService"
+  }
+  processes {
+    path: "./DpServiceInterfaceService"
+  }
+}
+
+profiles {
+  profile_name: "os-2-pc-1"
+  processes {
+    path: "./dp_gui"
+    args: "-platform"
+    args: "wayland-egl"
+    args: "--window-size=1920x1080"
+    args: "--control-position-id=1"
+    args: "--brightness-control=ht-scom-brt"
+    args: "--brightness-control-port=/dev/ttyS0"
+    args: "--minimum-brightness=5"
+  }
+  processes {
+    path: "./ControllerStatusService"
+    args: "os-2-pc"
+  }
+  processes {
+    path: "./ClockAdjusterService"
+  }
+  processes {
+    path: "./AlertLoggerService"
+  }
+  processes {
+    path: "./DpServiceInterfaceService"
+  }
+}
+
+profiles {
+  profile_name: "os-3-panel-pc"
+  processes {
+    path: "./dp_gui"
+    args: "-platform"
+    args: "wayland-egl"
+    args: "--window-size=1280x800"
+    args: "--control-position-id=2"
+    args: "--brightness-control=acpi-intel"
+    args: "--minimum-brightness=10"
+  }
+  processes {
+    path: "./ControllerStatusService"
+    args: "os-3-panel-pc"
+  }
+  processes {
+    path: "./ClockAdjusterService"
+  }
+  processes {
+    path: "./AlertLoggerService"
+  }
+}
+
+profiles {
+  profile_name: "os-4-panel-pc"
+  processes {
+    path: "./dp_gui"
+    args: "-platform"
+    args: "wayland-egl"
+    args: "--window-size=1280x800"
+    args: "--control-position-id=3"
+    args: "--brightness-control=acpi-intel"
+    args: "--minimum-brightness=10"
+  }
+  processes {
+    path: "./ControllerStatusService"
+    args: "os-4-panel-pc"
+  }
+  processes {
+    path: "./ClockAdjusterService"
+  }
+  processes {
+    path: "./AlertLoggerService"
+  }
+}
+
+profiles {
+  profile_name: "sim-io-a"
+  processes {
+    path: "./DpSimulatorService"
+    args: "--platform-response-data-file"
+    args: "hywind_spar.dat"
+  }
+  processes {
+    path: "./PowerSimulatorInterfaceService"
+    args: "1"
+  }
+  processes {
+    path: "./SensorSimulatorService"
+  }
+  processes {
+    path: "./UControlIOService"
+    args: "--disable-variable"
+    args: "-d5"
+    args: "1"
+    args: "--sysbus-file"
+    args: "sysbus_sim_io_a.prototxt"
+  }
+}
+
+profiles {
+  profile_name: "sim-io-b"
+  processes {
+    path: "./UControlIOService"
+    args: "--disable-variable"
+    args: "-d5"
+    args: "2"
+    args: "--sysbus-file"
+    args: "sysbus_sim_io_b.prototxt"
+  }
+}

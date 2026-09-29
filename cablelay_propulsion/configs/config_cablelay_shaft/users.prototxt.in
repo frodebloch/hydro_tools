@@ -1,0 +1,20 @@
+user {
+	name: "alpha"
+	hash: "6a300a3cb173b3a8a6810e2bda9b226334964f8b99ede26333041d95cfdf4cf5"
+	userlevel: 0
+}
+user {
+	name: "crew"
+	hash: "1f02ff3802bbb2904c53c275cbc9eeb8140a19c47a079cae7a31f151ac8e14df"
+	userlevel: 1
+}
+user {
+	name: "service"
+	hash: "486f7218973e142c9d106c93b64156a109c62f578059462c1f3f542fa9098478"
+	userlevel: 2
+}
+user {
+	name: "elektro"
+	hash: "cc161cb84c308e47f2a038837e5d8a720c5997e4d834180ef6543d8cbad98b1f"
+	userlevel: 3
+}

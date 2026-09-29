@@ -1,0 +1,19 @@
+# proto-file: launcher_configuration.proto
+# proto-message: Configuration
+
+# Valid log level values
+# TRACE     /// Extreme detail
+# DEBUG     /// Useful when debugging
+# INFO      /// Normal output
+# WARNING   /// Little or no consequence
+# ERROR     /// Serious or unknown consequence
+# FATAL     /// Will cause termination
+
+#service {
+#  key: "Default"
+#  value: INFO
+#}
+#service {
+#  key: "DpSimulatorService"
+#  value: TRACE
+#}

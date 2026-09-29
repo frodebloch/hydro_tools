@@ -1,0 +1,208 @@
+# proto-file: system_simulator.proto
+# proto-message: Configuration
+#
+# Standalone system simulator configuration: group -> controller -> service.
+# Failing a group simulates the loss of that side's controllers.
+
+group {
+  name: "A"
+  controller {
+    name: "dp-a"
+    service {
+      path: "./ControllerStatusService"
+      args: "dp-a"
+    }
+    service {
+      path: "./DpCoreService"
+      args: "-r0"
+      args: "-n2"
+    }
+    service {
+      path: "./PropulsorsInterfaceService"
+      args: "io-a"
+    }
+    service {
+      path: "./SensorsInterfaceService"
+      args: "io-a"
+    }
+    service {
+      path: "./CabinetIoService"
+      args: "A1"
+    }
+    service {
+      path: "./PowerInterfaceService"
+      args: "A1"
+    }
+  }
+  controller {
+    name: "io-a"
+    service {
+      path: "./JoystickInterfaceService"
+      args: "io-a"
+      args: "-i"
+      args: "vcan1"
+    }
+    service {
+      path: "./ControllerStatusService"
+      args: "io-a"
+    }
+  }
+  controller {
+    name: "os-1-pc-1"
+    service {
+      path: "./dp_gui"
+      args: "-platform"
+      args: "wayland-egl"
+      args: "--window-size=1920x1080"
+      args: "--control-position-id=0"
+      args: "--brightness-control=ht-scom-brt"
+      args: "--brightness-control-port=/dev/ttyS0"
+      args: "--minimum-brightness=5"
+    }
+    service {
+      path: "./ControllerStatusService"
+      args: "os-1-pc"
+    }
+    service {
+      path: "./JoystickSimulator"
+      args: "0"
+      args: "-i"
+      args: "vcan1"
+    }
+    service {
+      path: "./AlertLoggerService"
+    }
+  }
+  controller {
+    name: "os-3-panel-pc"
+    service {
+      path: "./dp_gui"
+      args: "--window-size=1280x800"
+      args: "--control-position-id=2"
+    }
+    service {
+      path: "./ControllerStatusService"
+      args: "os-3-panel-pc"
+    }
+    service {
+      path: "./JoystickSimulator"
+      args: "2"
+      args: "-i"
+      args: "vcan1"
+    }
+    service {
+      path: "./DpServiceInterfaceService"
+    }
+    service {
+      path: "./DpCapabilityService"
+    }
+  }
+}
+
+group {
+  name: "B"
+  controller {
+    name: "dp-b"
+    service {
+      path: "./ControllerStatusService"
+      args: "dp-b"
+    }
+    service {
+      path: "./DpCoreService"
+      args: "-r1"
+      args: "-n2"
+    }
+    service {
+      path: "./PropulsorsInterfaceService"
+      args: "io-b"
+    }
+    service {
+      path: "./SensorsInterfaceService"
+      args: "io-b"
+    }
+    service {
+      path: "./CabinetIoService"
+      args: "A2"
+    }
+    service {
+      path: "./PowerInterfaceService"
+      args: "A2"
+    }
+  }
+  controller {
+    name: "io-b"
+    service {
+      path: "./JoystickInterfaceService"
+      args: "io-b"
+      args: "-i"
+      args: "vcan2"
+    }
+    service {
+      path: "./ControllerStatusService"
+      args: "io-b"
+    }
+  }
+  controller {
+    name: "os-2-pc-1"
+    service {
+      path: "./dp_gui"
+      args: "--window-size=1920x1080"
+      args: "--control-position-id=1"
+    }
+    service {
+      path: "./ControllerStatusService"
+      args: "os-2-pc"
+    }
+    service {
+      path: "./JoystickSimulator"
+      args: "1"
+      args: "-i"
+      args: "vcan2"
+    }
+  }
+  controller {
+    name: "os-4-panel-pc"
+    service {
+      path: "./dp_gui"
+      args: "--window-size=1280x800"
+      args: "--control-position-id=3"
+    }
+    service {
+      path: "./ControllerStatusService"
+      args: "os-4-panel-pc"
+    }
+    service {
+      path: "./JoystickSimulator"
+      args: "3"
+      args: "-i"
+      args: "vcan2"
+    }
+  }
+}
+
+group {
+  name: "SIM"
+  controller {
+    name: "sim"
+    service {
+      path: "./DpSimulatorService"
+      args: "--platform-response-data-file"
+      args: "hywind_spar.dat"
+    }
+    service {
+      path: "./DpSimulatorGui"
+    }
+    service {
+      path: "./PowerSimulatorInterfaceService"
+    }
+    service {
+      path: "./SensorSimulatorService"
+    }
+    service {
+      path: "./IoLayerSimulatorService"
+    }
+    service {
+      path: "./CabinetIoSimulatorService"
+    }
+  }
+}

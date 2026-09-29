@@ -1,0 +1,49 @@
+diff --git a/libs/common/configuration/CMakeLists.txt b/libs/common/configuration/CMakeLists.txt
+index 62718b7832..0b16f01bd4 100644
+--- a/libs/common/configuration/CMakeLists.txt
++++ b/libs/common/configuration/CMakeLists.txt
+@@ -125,6 +125,10 @@ configure_directory("${BRUCON_MODULE_DIR}/config_aas2202STDE" "${CMAKE_RUNTIME_O
+ # Config for Nexans Aurora
+ configure_directory("${BRUCON_MODULE_DIR}/config_nexans" "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/config_nexans")
+ 
++# Cable lay vessel propulsion study (Nexans hull): azimuth option and shaft line option
++configure_directory("${BRUCON_MODULE_DIR}/config_cablelay_azi" "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/config_cablelay_azi")
++configure_directory("${BRUCON_MODULE_DIR}/config_cablelay_shaft" "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/config_cablelay_shaft")
++
+ # Config for Stril Mariner
+ configure_directory("${BRUCON_MODULE_DIR}/config_dp2" "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/config_dp2")
+ 
+diff --git a/libs/dp/thrust_allocation/test/CMakeLists.txt b/libs/dp/thrust_allocation/test/CMakeLists.txt
+index 1a1a5e3e1b..29cab4d723 100644
+--- a/libs/dp/thrust_allocation/test/CMakeLists.txt
++++ b/libs/dp/thrust_allocation/test/CMakeLists.txt
+@@ -40,6 +40,29 @@ target_link_libraries( ${TEST_NAME}
+ 
+ add_test( NAME ${TEST_NAME} COMMAND ${TEST_NAME} WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY} )
+ 
++# Study driver (not a test): static DP capability for the cable lay propulsion comparison
++add_executable( CablelayCapabilityStudy cablelay_capability_study.cpp )
++target_link_libraries( CablelayCapabilityStudy
++                       PRIVATE
++                       BruCon5::thrust_allocation
++                       BruCon5::utils
++                       BruCon5::configuration
++                       BruCon5::proto_utils
++                       BruCon5::vessel_model
++                       BruCon5::propulsor_configuration
++                       )
++
++# Study driver (not a test): transit propulsion power for the cable lay propulsion comparison
++add_executable( CablelayTransitStudy cablelay_transit_study.cpp )
++target_link_libraries( CablelayTransitStudy
++                       PRIVATE
++                       BruCon5::configuration
++                       BruCon5::proto_utils
++                       BruCon5::vessel_model
++                       BruCon5::dp_thruster_model
++                       BruCon5::propulsion_optimiser_simulator
++                       )
++
+ configure_file( config/Propulsors_MultipleTunnels.prototxt
+                 ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/thrust_allocation_config_tests/Propulsors_MultipleTunnels.prototxt COPYONLY )
+ configure_file( config/Propulsors_TheWorld.prototxt

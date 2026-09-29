@@ -1,0 +1,205 @@
+# Offshore structures for CSOV wind farm operations
+# Values based on Hollandse Kust Noord wind farm reference data
+#
+# 3x4 grid of wind turbines, ~400m spacing
+# Base position: lat 62.688913, lon 6.982234
+# At lat ~62.7: 400m north ~ 0.003593 deg, 400m east ~ 0.007834 deg
+# Random position offsets ~20m, random azimuth offsets ~5 deg
+#
+# Landing point positions are relative to the structure rotation point (tower center).
+
+wind_turbine_types {
+  id: 1
+  name: "HKN"
+  safety_zone_radius: 150
+  tower_diameter: 7.1
+  geometry {
+    length: 12.6
+    width: 9.199
+    bounding_box_x_offset: -1.7
+    bounding_box_y_offset: 0.0
+    outline_name: "hollandse_kust_noord_wind_turbine"
+  }
+  landing_points {
+    name: "LP1"
+    position {
+      x_position: 3.889
+      y_position: -4.5995
+    }
+    normal_angle: 270
+  }
+  landing_points {
+    name: "LP2"
+    position {
+      x_position: 8.0
+      y_position: 0
+    }
+    normal_angle: 0
+  }
+  landing_points {
+    name: "LP3"
+    position {
+      x_position: 4.059
+      y_position: 4.5995
+    }
+    normal_angle: 90
+  }
+}
+
+offshore_structures {
+  name: "SF A01"
+  position {
+    latitude: 62.688913
+    longitude: 6.982234
+  }
+  as_built_azimuth: 63.2
+  wind_turbine {
+    wind_turbine_type_id: 1
+  }
+}
+
+offshore_structures {
+  name: "SF A02"
+  position {
+    latitude: 62.688949
+    longitude: 6.990122
+  }
+  as_built_azimuth: 67.4
+  wind_turbine {
+    wind_turbine_type_id: 1
+  }
+}
+
+offshore_structures {
+  name: "SF A03"
+  position {
+    latitude: 62.688877
+    longitude: 6.998024
+  }
+  as_built_azimuth: 61.8
+  wind_turbine {
+    wind_turbine_type_id: 1
+  }
+}
+
+offshore_structures {
+  name: "SF B01"
+  position {
+    latitude: 62.692469
+    longitude: 6.982416
+  }
+  as_built_azimuth: 66.1
+  wind_turbine {
+    wind_turbine_type_id: 1
+  }
+}
+
+offshore_structures {
+  name: "SF B02"
+  position {
+    latitude: 62.692544
+    longitude: 6.989996
+  }
+  as_built_azimuth: 62.7
+  wind_turbine {
+    wind_turbine_type_id: 1
+  }
+}
+
+offshore_structures {
+  name: "SF B03"
+  position {
+    latitude: 62.692415
+    longitude: 6.997852
+  }
+  as_built_azimuth: 68.9
+  wind_turbine {
+    wind_turbine_type_id: 1
+  }
+}
+
+offshore_structures {
+  name: "SF C01"
+  position {
+    latitude: 62.696101
+    longitude: 6.982058
+  }
+  as_built_azimuth: 64.3
+  wind_turbine {
+    wind_turbine_type_id: 1
+  }
+}
+
+offshore_structures {
+  name: "SF C02"
+  position {
+    latitude: 62.696043
+    longitude: 6.990290
+  }
+  as_built_azimuth: 60.5
+  wind_turbine {
+    wind_turbine_type_id: 1
+  }
+}
+
+offshore_structures {
+  name: "SF C03"
+  position {
+    latitude: 62.696178
+    longitude: 6.997780
+  }
+  as_built_azimuth: 67.8
+  wind_turbine {
+    wind_turbine_type_id: 1
+  }
+}
+
+offshore_structures {
+  name: "SF D01"
+  position {
+    latitude: 62.699630
+    longitude: 6.982379
+  }
+  as_built_azimuth: 62.1
+  wind_turbine {
+    wind_turbine_type_id: 1
+  }
+}
+
+offshore_structures {
+  name: "SF D02"
+  position {
+    latitude: 62.699554
+    longitude: 6.989870
+  }
+  as_built_azimuth: 69.2
+  wind_turbine {
+    wind_turbine_type_id: 1
+  }
+}
+
+offshore_structures {
+  name: "SF D03"
+  position {
+    latitude: 62.699708
+    longitude: 6.998166
+  }
+  as_built_azimuth: 65.6
+  wind_turbine {
+    wind_turbine_type_id: 1
+  }
+}
+
+# Floating wind turbine ~200m north of vessel start position (62.688944, 6.982926)
+offshore_structures {
+  name: "FWT 01"
+  floating: true
+  position {
+    latitude: 62.690741
+    longitude: 6.982926
+  }
+  as_built_azimuth: 63.0
+  wind_turbine {
+    wind_turbine_type_id: 1
+  }
+}

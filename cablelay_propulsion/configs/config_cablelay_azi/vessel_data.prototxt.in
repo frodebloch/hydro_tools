@@ -1,0 +1,242 @@
+name: "Cable Lay Study - Azimuth Option" # Hull: Norwind SOV (config_csov)
+breadth: 22.4
+loa: 111.5
+lpp: 101.1
+design_draft: 6.50
+block_coefficient: 0.7369815
+sections {
+  section {
+    offset: -52.65
+    breadth: 17.16
+    draft:  1.83
+    area: 16.50
+  }
+  section {
+    offset: -49.85
+    breadth: 19.67
+    draft:  2.32
+    area: 27.02
+  }
+  section {
+    offset: -47.05
+    breadth: 20.98
+    draft:  2.85
+    area: 39.12
+  }
+  section {
+    offset: -44.25
+    breadth: 21.71
+    draft:  4.84
+    area: 52.46
+  }
+  section {
+    offset: -41.45
+    breadth: 22.12
+    draft:  6.11
+    area: 67.73
+  }
+  section {
+    offset: -38.65
+    breadth: 22.33
+    draft:  6.31
+    area: 81.16
+  }
+  section {
+    offset: -35.85
+    breadth: 22.40
+    draft:  6.35
+    area: 93.74
+  }
+  section {
+    offset: -33.05
+    breadth: 22.40
+    draft:  6.35
+    area: 106.04
+  }
+  section {
+    offset: -30.25
+    breadth: 22.40
+    draft:  6.37
+    area: 116.97
+  }
+  section {
+    offset: -27.45
+    breadth: 22.40
+    draft:  6.43
+    area: 125.99
+  }
+  section {
+    offset: -24.65
+    breadth: 22.40
+    draft:  6.49
+    area: 132.39
+  }
+  section {
+    offset: -21.85
+    breadth: 22.40
+    draft:  6.50
+    area: 136.75
+  }
+  section {
+    offset: -19.05
+    breadth: 22.40
+    draft:  6.50
+    area: 139.93
+  }
+  section {
+    offset: -16.25
+    breadth: 22.40
+    draft:  6.50
+    area: 141.91
+  }
+  section {
+    offset: -13.45
+    breadth: 22.40
+    draft:  6.50
+    area: 142.68
+  }
+  section {
+    offset: -10.65
+    breadth: 22.40
+    draft:  6.50
+    area: 142.74
+  }
+  section {
+    offset: -7.85
+    breadth: 22.40
+    draft:  6.50
+    area: 142.74
+  }
+  section {
+    offset: -5.05
+    breadth: 22.40
+    draft:  6.50
+    area: 142.74
+  }
+  section {
+    offset: -2.25
+    breadth: 22.40
+    draft:  6.50
+    area: 142.74
+  }
+  section {
+    offset:  0.55
+    breadth: 22.40
+    draft:  6.50
+    area: 142.74
+  }
+  section {
+    offset:  3.35
+    breadth: 22.40
+    draft:  6.50
+    area: 142.74
+  }
+  section {
+    offset:  6.15
+    breadth: 22.40
+    draft:  6.50
+    area: 142.72
+  }
+  section {
+    offset:  8.95
+    breadth: 22.40
+    draft:  6.50
+    area: 142.37
+  }
+  section {
+    offset: 11.75
+    breadth: 22.40
+    draft:  6.50
+    area: 141.57
+  }
+  section {
+    offset: 14.55
+    breadth: 22.40
+    draft:  6.50
+    area: 140.10
+  }
+  section {
+    offset: 17.35
+    breadth: 22.40
+    draft:  6.50
+    area: 137.64
+  }
+  section {
+    offset: 20.15
+    breadth: 22.39
+    draft:  6.50
+    area: 133.74
+  }
+  section {
+    offset: 22.95
+    breadth: 22.26
+    draft:  6.50
+    area: 127.93
+  }
+  section {
+    offset: 25.75
+    breadth: 21.82
+    draft:  6.50
+    area: 119.88
+  }
+  section {
+    offset: 28.55
+    breadth: 20.87
+    draft:  6.50
+    area: 109.53
+  }
+  section {
+    offset: 31.35
+    breadth: 19.23
+    draft:  6.50
+    area: 97.20
+  }
+  section {
+    offset: 34.15
+    breadth: 17.19
+    draft:  6.50
+    area: 83.88
+  }
+  section {
+    offset: 36.95
+    breadth: 14.49
+    draft:  6.50
+    area: 69.26
+  }
+  section {
+    offset: 39.75
+    breadth: 11.27
+    draft:  6.50
+    area: 55.13
+  }
+  section {
+    offset: 42.55
+    breadth:  7.88
+    draft:  6.50
+    area: 42.25
+  }
+  section {
+    offset: 45.35
+    breadth:  5.30
+    draft:  6.50
+    area: 29.97
+  }
+  section {
+    offset: 48.15
+    breadth:  3.89
+    draft:  6.24
+    area: 19.54
+  }
+  section {
+    offset: 50.95
+    breadth:  2.69
+    draft:  5.44
+    area: 11.07
+  }
+  section {
+    offset: 53.75
+    breadth:  1.43
+    draft:  4.05
+    area:  4.15
+  }
+}

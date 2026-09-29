@@ -1,0 +1,28 @@
+use_tau_feedback: false
+observer_gains_surge {
+  bias_gain_position: 0.0012
+  bias_gain_velocity: 0.0
+  bias_time_constant: 1000.0
+  acceleration_gain_position: 0.12
+  acceleration_gain_velocity: 0.0
+  position_wave_filter_cutoff_freq: 1.04
+  velocity_wave_filter_cutoff_freq: 1.04
+}
+observer_gains_sway {
+  bias_gain_position: 0.0012
+  bias_gain_velocity: 0.0
+  bias_time_constant: 1000.0
+  acceleration_gain_position: 0.12
+  acceleration_gain_velocity: 0.0
+  position_wave_filter_cutoff_freq: 1.04
+  velocity_wave_filter_cutoff_freq: 1.04
+}
+observer_gains_heading {
+  bias_gain_position: 0.002
+  bias_gain_velocity: 0.0
+  bias_time_constant: 1000.0
+  acceleration_gain_position: 0.2
+  acceleration_gain_velocity: 0.0
+  position_wave_filter_cutoff_freq: 1.04
+  velocity_wave_filter_cutoff_freq: 1.04
+}

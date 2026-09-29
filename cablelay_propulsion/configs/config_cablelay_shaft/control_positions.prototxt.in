@@ -1,0 +1,24 @@
+control_position {
+    name: "Aft Bridge 1"
+    orientation: FacingAft
+    joystick_controller_name: "io-a"
+    command_transfer_type: Take
+}
+control_position {
+    name: "Aft Bridge 2"
+    orientation: FacingAft
+    joystick_controller_name: "io-b"
+    command_transfer_type: Take
+}
+control_position {
+    name: "Port Wing"
+    orientation: FacingAft
+    joystick_controller_name: "io-a"
+    command_transfer_type: GiveTake
+}
+control_position {
+    name: "Stbd Wing"
+    orientation: FacingAft
+    joystick_controller_name: "io-b"
+    command_transfer_type: GiveTake
+}
