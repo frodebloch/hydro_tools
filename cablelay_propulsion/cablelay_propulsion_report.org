@@ -231,7 +231,7 @@ The transit power is calculated with a separate model: calm water resistance
 tunnel opening drag, and for Beaufort 5 head weather the wind force (Blendermann) and
 wave drift (strip theory).
 The main propellers are modelled as ducted fixed pitch propellers (D-series at design
-pitch), with two design philosophies, as the ship designer has not specified this:
+pitch), with two design philosophies:
 
 - *A, bollard design*: pitch for maximum bollard thrust at 3000 kW; in transit the
   propeller is light, and motor overspeed (20 per cent) is allowed.
