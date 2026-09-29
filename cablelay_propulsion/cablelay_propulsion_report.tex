@@ -1,4 +1,4 @@
-% Created 2026-09-29 Tue 08:40
+% Created 2026-09-29 Tue 10:56
 % Intended LaTeX compiler: pdflatex
 \documentclass[a4paper,11pt]{article}
 \usepackage[utf8]{inputenc}
@@ -44,14 +44,10 @@
 \newpage
 
 \section{Introduction}
-\label{sec:org956b8f8}
+\label{sec:org1068a0c}
 
-A ship designer has asked for a comparison of two propulsion configurations for a
-6000 t DP class 2 cable lay vessel (CLV), for both transit and operation.  The
-background is that the ship operator is not fully convinced that azimuth thrusters
-are the right choice for the main propulsion.
-
-The two configurations are:
+This report compares two propulsion configurations for a 6000 t DP class 2 cable lay
+vessel (CLV), in operation and in transit.  The two configurations are:
 
 \begin{center}
 \begin{tabular}{lll}
@@ -67,9 +63,8 @@ Bow retractable thruster & 1 x 1600 kW, D 2.4 m & 1 x 1600 kW, D 2.4 m\\[0pt]
 \end{tabular}
 \end{center}
 
-The specification lists the shaft line propellers as CPP.  Following the ship
-designer's intent of electric drive, both main propulsion options are here modelled
-as \textbf{fixed pitch propellers with variable speed electric motors}.
+Both main propulsion options are modelled as \textbf{fixed pitch propellers with variable
+speed electric motors}.
 
 The comparison covers:
 \begin{enumerate}
@@ -83,10 +78,10 @@ All calculations are made with the BruCon DP models (thrust allocation, vessel
 model, wave drift) and study drivers written for this comparison.
 
 \section{Models and assumptions}
-\label{sec:org7128972}
+\label{sec:orgc44912c}
 
 \subsection{Vessel and power system}
-\label{sec:org60074b4}
+\label{sec:orgf35dc25}
 \begin{itemize}
 \item Reference hull of an existing offshore vessel of similar size:
 \end{itemize}
@@ -134,7 +129,7 @@ Starboard & Bow tunnel 2, azimuth 2 & Bow tunnel 2, stern tunnel 2, main prop 2\
 \end{center}
 
 \subsection{Thrusters (DP and ploughing)}
-\label{sec:orgc27f2a6}
+\label{sec:org28aba69}
 \begin{itemize}
 \item Main propulsors: simple fixed pitch thrust / power model at low speed.  Net bollard
 thrust 459 kN per unit at 3000 kW for \textbf{both} options.  This assumes the ship designer
@@ -152,7 +147,7 @@ azimuths are not reversed; they rotate.
 \end{itemize}
 
 \subsection{Environment (DNV-ST-0111)}
-\label{sec:org000f427}
+\label{sec:org2ea5dd6}
 \begin{itemize}
 \item Wind, wave and current relation from DNV-ST-0111 Table 2-1, collinear.  Beaufort
 values between the table points are interpolated linearly in wind speed.
@@ -166,7 +161,7 @@ thrust allocation are vessel specific (BruCon allocator).
 \end{itemize}
 
 \subsection{Operation modes and failure cases}
-\label{sec:org93f06d1}
+\label{sec:orgc0e3d31}
 \begin{itemize}
 \item \textbf{DP station keeping}: zero speed.
 \item \textbf{Ploughing / cable lay}: 0.8 kn ahead through the water and an 80 t (785 kN) pull
@@ -177,21 +172,21 @@ their own generators.  The WCF curve is, per heading, the lowest of the three bu
 \end{itemize}
 
 \section{DP capability}
-\label{sec:orga7d4d9e}
+\label{sec:orgad7e2e7}
 
-Figure \ref{fig:org3726120} shows the maximum mean wind speed that can be held as a
+Figure \ref{fig:org6da7e38} shows the maximum mean wind speed that can be held as a
 function of the weather direction relative to the bow, with the Beaufort upper limits
-from DNV-ST-0111 as rings.  Table \ref{tab:org25451bb} summarises the results.  The search
+from DNV-ST-0111 as rings.  Table \ref{tab:org47297d5} summarises the results.  The search
 is limited to 40 m/s.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=\textwidth]{results/capability_overview.png}
-\caption{\label{fig:org3726120}DP capability, maximum mean wind speed held versus weather direction (0 deg = head weather).  Top: DP station keeping.  Bottom: ploughing / cable lay, 0.8 kn and 80 t pull.  Left: intact.  Right: worst case failure.}
+\caption{\label{fig:org6da7e38}DP capability, maximum mean wind speed held versus weather direction (0 deg = head weather).  Top: DP station keeping.  Bottom: ploughing / cable lay, 0.8 kn and 80 t pull.  Left: intact.  Right: worst case failure.}
 \end{figure}
 
 \begin{table}[H]
-\caption{\label{tab:org25451bb}DP capability, wind speed in m/s (interpolated Beaufort in brackets).  Stern sector = lowest value with weather from 120--240 deg.}
+\caption{\label{tab:org47297d5}DP capability, wind speed in m/s (interpolated Beaufort in brackets).  Stern sector = lowest value with weather from 120--240 deg.}
 \centering
 \begin{tabular}{llrrrr}
 \toprule
@@ -224,21 +219,21 @@ mainly illustrates the missing thrust reserve.
 \end{itemize}
 
 \section{Power consumption in operation}
-\label{sec:orga679805}
+\label{sec:org35fafb9}
 
-Figure \ref{fig:org17b5c33} shows the propulsion power (propeller shaft power, all thrusters)
+Figure \ref{fig:org7d89bc7} shows the propulsion power (propeller shaft power, all thrusters)
 at fixed weather, Beaufort 3 and 6, as a function of the weather direction.  The
-azimuth option is shown with thrust bias off and on.  Table \ref{tab:orgd0394f0} gives the mean
+azimuth option is shown with thrust bias off and on.  Table \ref{tab:org7392629} gives the mean
 over all headings.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=\textwidth]{results/power_overview.png}
-\caption{\label{fig:org17b5c33}Propulsion power versus weather direction, intact.  Top: DP station keeping.  Bottom: ploughing / cable lay.  Left: Beaufort 3.  Right: Beaufort 6.}
+\caption{\label{fig:org7d89bc7}Propulsion power versus weather direction, intact.  Top: DP station keeping.  Bottom: ploughing / cable lay.  Left: Beaufort 3.  Right: Beaufort 6.}
 \end{figure}
 
 \begin{table}[H]
-\caption{\label{tab:orgd0394f0}Propulsion power, intact, mean over all headings (max in brackets), kW.}
+\caption{\label{tab:org7392629}Propulsion power, intact, mean over all headings (max in brackets), kW.}
 \centering
 \begin{tabular}{llrrr}
 \toprule
@@ -267,7 +262,7 @@ a simple relation.  The relative differences are more reliable than absolute val
 \end{itemize}
 
 \section{Transit power}
-\label{sec:orgf19ac87}
+\label{sec:orge51c13b}
 
 The transit power is calculated with a separate model: calm water resistance
 (ITTC-57 friction, form factor 1.3, Holtrop--Mennen wave making), appendage and
@@ -326,7 +321,7 @@ design (A), at the cost of about 10 per cent bollard thrust.  Top speed is about
 \end{itemize}
 
 \section{Conclusions}
-\label{sec:org3bcc5f1}
+\label{sec:orgdee8b13}
 
 \begin{itemize}
 \item With equal bollard pull, the two options are close in the headline numbers: lowest
@@ -348,7 +343,7 @@ cost and maintenance aspects is a question for the operator.
 \end{itemize}
 
 \section{Open points and inputs needed}
-\label{sec:orgcc21424}
+\label{sec:org0361b0f}
 
 \begin{itemize}
 \item Net bollard thrust of the azimuths including gear housing, strut and hull
@@ -363,7 +358,7 @@ to express the difference as operability and annual energy.
 \end{itemize}
 
 \section{Notes on the calculation tools}
-\label{sec:org0a9b935}
+\label{sec:org632f1b1}
 
 During the study an error was found in the BruCon thrust allocation: for a twin main
 propeller / rudder vessel with one main propeller lost, the side force given to the

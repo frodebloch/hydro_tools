@@ -26,12 +26,8 @@
 
 * Introduction
 
-A ship designer has asked for a comparison of two propulsion configurations for a
-6000 t DP class 2 cable lay vessel (CLV), for both transit and operation.  The
-background is that the ship operator is not fully convinced that azimuth thrusters
-are the right choice for the main propulsion.
-
-The two configurations are:
+This report compares two propulsion configurations for a 6000 t DP class 2 cable lay
+vessel (CLV), in operation and in transit.  The two configurations are:
 
 #+ATTR_LATEX: :booktabs t :align lll
 | Unit                     | Option 1: Azimuth                     | Option 2: Shaft line                         |
@@ -42,9 +38,8 @@ The two configurations are:
 | Bow tunnel thrusters     | 2 x 1700 kW, D 2.6 m                 | 2 x 1700 kW, D 2.6 m                         |
 | Bow retractable thruster | 1 x 1600 kW, D 2.4 m                 | 1 x 1600 kW, D 2.4 m                         |
 
-The specification lists the shaft line propellers as CPP.  Following the ship
-designer's intent of electric drive, both main propulsion options are here modelled
-as *fixed pitch propellers with variable speed electric motors*.
+Both main propulsion options are modelled as *fixed pitch propellers with variable
+speed electric motors*.
 
 The comparison covers:
 1. Static DP capability (DNV-ST-0111 environment), intact and after worst case
