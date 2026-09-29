@@ -284,8 +284,6 @@ Observations:
 - Effects not captured by a static analysis, such as faster thrust response, no
   dependence of side force on propeller thrust, and thrust losses of the stern
   tunnels in current, all favour the azimuth option in practice.
-- Whether the stern-wise capability and lower DP power outweigh the transit power,
-  cost and maintenance aspects is a question for the operator.
 
 * Open points and inputs needed
 
