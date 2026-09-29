@@ -163,14 +163,13 @@ is limited to 40 m/s.
 | Ploughing     | WCF    | not feasible  | not feasible   | --                   | --                      |
 
 Observations:
-- The lowest capability is similar for both options.  For the azimuth option it is
-  set by the bow thrusters at about 60 deg off the bow; for the shaft line option by
-  the stern side force with weather aft of the beam.
-- The main difference is with weather from the stern quarters (120--240 deg).  Intact,
-  the azimuth option holds about 5 m/s more wind, and after WCF about 4.7 m/s more
-  (Bf 7.3 against 5.9).  After a bus loss the azimuth option keeps a full azimuth at
-  the stern, while the shaft line option has one propeller with rudder and one small,
-  partly blocked stern tunnel.
+- For weather from ahead and forward of the beam the capability is similar for both
+  options, limited by the bow thrusters at about 60 deg off the bow.
+- For weather from aft of the beam and the stern quarters (120--240 deg) the azimuth
+  option is significantly better.  Intact it holds about 5 m/s more wind, and after
+  WCF about 4.7 m/s more (Bf 7.3 against 5.9).  After a bus loss the azimuth option
+  keeps a full azimuth at the stern, while the shaft line option has one propeller with
+  rudder and one small, partly blocked stern tunnel.
 - Ploughing intact is limited by the forward thrust needed for the 80 t pull and is
   equal for both options (equal bollard pull by assumption).
 - Ploughing after WCF is not feasible for either option: after a bus loss about 78 t
