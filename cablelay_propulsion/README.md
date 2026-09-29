@@ -57,7 +57,7 @@ pdflatex -interaction=nonstopmode cablelay_propulsion_report.tex
 
 ## Key assumptions (see report for details)
 
-- CSOV hull for both options; 3-split power system, 4 x 3600 kW + 2.9 MW ESS.
+- Reference hull (from BruCon `config_csov`) for both options; 3-split power system, 4 x 3600 kW + 2.9 MW ESS.
 - Fixed pitch main propellers, equal net bollard thrust 459 kN per unit; shaft line astern 60 %.
 - Stern tunnels 35 % loss (stern tube blockage).
 - DNV-ST-0111 Table 2-1, PM spectrum with cos² spreading, dynamic allowance 1.25.

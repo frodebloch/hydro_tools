@@ -58,10 +58,23 @@ model, wave drift) and study drivers written for this comparison.
 * Models and assumptions
 
 ** Vessel and power system
-- Hull, wind areas and wave drift (PdStrip) from the Norwind CSOV ($L_{pp}$ = 101.1 m,
-  $B$ = 22.4 m, $T$ = 6.5 m, about 11000 t displacement).  The same hull is used for both
-  options, so the comparison isolates the propulsion.  In reality a shaft line
-  hull would have a somewhat finer stern.
+- Reference hull of an existing offshore vessel of similar size:
+
+#+ATTR_LATEX: :booktabs t :align lr
+| Main dimension                   | Value        |
+|----------------------------------+--------------|
+| Length between perpendiculars    | 101.1 m      |
+| Length overall                   | 111.5 m      |
+| Breadth                          | 22.4 m       |
+| Draft                            | 6.5 m        |
+| Block coefficient                | 0.74         |
+| Displacement                     | about 11100 t |
+| Lateral / frontal wind area      | 1755 / 700 m^2 |
+
+- Wave drift forces from strip theory (PdStrip) response functions, mean drift by
+  Newman's approximation.  Current forces from the section based hull model.
+- The same hull is used for both options, so the comparison isolates the propulsion.
+  In reality a shaft line hull would have a somewhat finer stern.
 - Three-split power system (port / centre / starboard switchboard, bus ties),
   4 x 3600 kW generators on port and starboard buses, 2.9 MW ESS on the centre bus.
   Identical for both options.
@@ -249,7 +262,7 @@ Observations:
 - Astern thrust of the reversing fixed pitch shaft line propellers (here 60 per cent),
   and four-quadrant data for ducted fixed pitch propellers.
 - Stern tunnel thrust including stern tube blockage.
-- Hull lines of the actual vessel (CSOV hull used here).
+- Hull lines and strip theory data of the actual vessel (reference hull used here).
 - Operating profile (time in transit / DP / ploughing) and site weather statistics,
   to express the difference as operability and annual energy.
 

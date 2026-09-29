@@ -1,5 +1,5 @@
 # Cable lay vessel propulsion study - Option 2: Shaft line option
-# Hull, positions and system setup from config_csov (Norwind SOV hull used for both options).
+# Hull, positions and system setup from config_csov (same reference hull used for both options).
 # ESTIMATES - replace with maker data:
 #  - Low speed thrust scaled with T ~ (P*D)^(2/3) from reference thrusters.
 #  - Wake fraction / thrust deduction are typical values, not model test data.

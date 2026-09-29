@@ -1,4 +1,4 @@
-name: "Cable Lay Study - Shaft Line Option" # Hull: Norwind SOV (config_csov)
+name: "Cable Lay Study - Shaft Line Option" # Hull: reference hull (config_csov)
 breadth: 22.4
 loa: 111.5
 lpp: 101.1
