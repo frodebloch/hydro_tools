@@ -10,7 +10,7 @@
 #+LATEX_HEADER: \newcommand{\bvType}{Technical Report}
 #+LATEX_HEADER: \newcommand{\bvAuthor}{Frode Bloch}
 #+LATEX_HEADER: \newcommand{\bvCompany}{Brunvoll AS}
-#+LATEX_HEADER: \newcommand{\bvClassification}{INTERNAL}
+#+LATEX_HEADER: \newcommand{\bvClassification}{COMMERCIAL IN CONFIDENCE}
 #+LATEX_HEADER: \usepackage{/home/blofro/src/rdt_analysis/bv}
 #+LATEX_HEADER: \usepackage{siunitx}
 #+LATEX_HEADER: \sisetup{per-mode=symbol, inter-unit-product=\ensuremath{\cdot}}
