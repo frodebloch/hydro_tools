@@ -218,8 +218,11 @@ Observations:
   with weather on the bow and beam the shaft line needs 3--6 per cent more, as the
   azimuths take the side forces by angling the thrust while pushing.  Bias has no
   effect in ploughing.
-- Motor, converter and gear losses are not included, and the thrust / power model is
-  a simple relation.  The relative differences are more reliable than absolute values.
+- The power is the sum of the modelled shaft power of all thrusters and propellers.
+  Losses in gears, electric motors, frequency converters, switchboards and power
+  generation are not included, nor is any hotel or cable lay equipment load.  The
+  thrust / power model is a simple relation, so the relative differences between the
+  options are more reliable than the absolute values.
 
 * Transit power
 
