@@ -296,13 +296,3 @@ Observations:
 - Hull lines and strip theory data of the actual vessel (reference hull used here).
 - Operating profile (time in transit / DP / ploughing) and site weather statistics,
   to express the difference as operability and annual energy.
-
-* Notes on the calculation tools
-
-During the study an error was found in the BruCon thrust allocation: for a twin main
-propeller / rudder vessel with one main propeller lost, the side force given to the
-remaining propeller and rudder was not realised when a bow azimuth was present.  This
-is fixed in BruCon issue 13044 (branch =13044-dp-allocation-for-twin-main-...=), and the results in this report are made with the fix.
-
-The configurations, study drivers, plot script and results are stored in
-=hydro_tools/cablelay_propulsion=, see =README.md= there for how to reproduce.
