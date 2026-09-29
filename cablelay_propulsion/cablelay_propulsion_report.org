@@ -71,6 +71,9 @@ model, wave drift) and study drivers written for this comparison.
 | Displacement                     | about 11100 t |
 | Lateral / frontal wind area      | 1755 / 700 m^2 |
 
+- Wind forces by Blendermann's method (Blendermann 1994, 2013) with the coefficients
+  for an offshore supply vessel (transverse drag 0.90, longitudinal drag 0.55 head /
+  0.80 stern, cross-force parameter 0.55), lateral and frontal wind areas as above.
 - Wave drift forces from strip theory (PdStrip) response functions, mean drift by
   Newman's approximation.  Current forces from the section based hull model.
 - The same hull is used for both options, so the comparison isolates the propulsion.
@@ -197,7 +200,8 @@ Observations:
 
 The transit power is calculated with a separate model: calm water resistance
 (ITTC-57 friction, form factor 1.3, Holtrop--Mennen wave making), appendage and
-tunnel opening drag, and for Beaufort 5 head weather the wind force and wave drift.
+tunnel opening drag, and for Beaufort 5 head weather the wind force (Blendermann) and
+wave drift (strip theory).
 The main propellers are modelled as ducted fixed pitch propellers (D-series at design
 pitch), with two design philosophies, as the ship designer has not specified this:
 
