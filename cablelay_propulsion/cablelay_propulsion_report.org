@@ -33,7 +33,7 @@ vessel (CLV), in operation and in transit.  The two configurations are:
 | Unit                     | Option 1: Azimuth                     | Option 2: Shaft line                         |
 |--------------------------+---------------------------------------+----------------------------------------------|
 | Main propulsion          | 2 x 3000 kW azimuth, D 3.3 m, ducted | 2 x 3000 kW shaft line, D 3.0 m, ducted      |
-| Steering                 | (azimuth)                             | 2 x flap rudder, 6.9 m^2                     |
+| Steering                 | (azimuth)                             | 2 x flap rudder, 6.9 m$^2$                     |
 | Stern tunnel thrusters   | --                                    | 2 x 1500 kW, D 1.5 m                         |
 | Bow tunnel thrusters     | 2 x 1700 kW, D 2.6 m                 | 2 x 1700 kW, D 2.6 m                         |
 | Bow retractable thruster | 1 x 1600 kW, D 2.4 m                 | 1 x 1600 kW, D 2.4 m                         |
@@ -64,7 +64,7 @@ model, wave drift) and study drivers written for this comparison.
 | Draft                            | 6.5 m        |
 | Block coefficient                | 0.74         |
 | Displacement                     | about 11100 t |
-| Lateral / frontal wind area      | 1755 / 700 m^2 |
+| Lateral / frontal wind area      | 1755 / 700 m$^2$ |
 
 - Wind forces by Blendermann's method (Blendermann 1994, 2013) with the coefficients
   for an offshore supply vessel (transverse drag 0.90, longitudinal drag 0.55 head /
@@ -86,6 +86,27 @@ model, wave drift) and study drivers written for this comparison.
 | Starboard | Bow tunnel 2, azimuth 2  | Bow tunnel 2, stern tunnel 2, main prop 2 |
 
 ** Thrusters (DP and ploughing)
+
+Table [[tab:thrusters]] lists the thrusters with the assumed net bollard thrust used in
+the DP and ploughing calculations, and their positions: $x$ from midship ($L_{pp}/2$),
+positive forward; $y$ from the centre line, positive to starboard.
+
+#+NAME: tab:thrusters
+#+CAPTION: Thrusters, assumed net bollard thrust and positions.  $T_+$: ahead (tunnels: to starboard).  $T_-$: astern (tunnels: to port).  Azimuths give $T_+$ in any direction.
+#+ATTR_LATEX: :booktabs t :align lllrrrrrr :placement [H] :font \small
+| Option     | Unit                  | Type            | D [m] | P [kW] | $T_+$ [kN] | $T_-$ [kN] | x [m] | y [m] |
+|------------+-----------------------+-----------------+-------+------------+--------------------------+---------------------------+-------+-------|
+| Both       | Bow tunnel 1          | Tunnel          |   2.6 |       1700 |                      244 |                       244 |  42.8 |   0.0 |
+| Both       | Bow tunnel 2          | Tunnel          |   2.6 |       1700 |                      244 |                       244 |  38.6 |   0.0 |
+| Both       | Bow retractable       | Azimuth, ducted |   2.4 |       1600 |                      307 |                        -- |  34.0 |   0.0 |
+| Azimuth    | Port azimuth          | Azimuth, ducted |   3.3 |       3000 |                      459 |                        -- | -48.1 |  -5.4 |
+| Azimuth    | Stbd azimuth          | Azimuth, ducted |   3.3 |       3000 |                      459 |                        -- | -48.1 |   5.4 |
+| Shaft line | Stern tunnel 1        | Tunnel          |   1.5 |       1500 |                      101 |                       101 | -38.7 |   0.0 |
+| Shaft line | Stern tunnel 2        | Tunnel          |   1.5 |       1500 |                      101 |                       101 | -41.5 |   0.0 |
+| Shaft line | Port main propeller   | FPP, ducted     |   3.0 |       3000 |                      459 |                       275 | -46.0 |  -4.5 |
+| Shaft line | Stbd main propeller   | FPP, ducted     |   3.0 |       3000 |                      459 |                       275 | -46.0 |   4.5 |
+| Shaft line | Port / stbd rudder    | Flap, 6.9 m$^2$   |    -- |         -- |                       -- |                        -- | -48.5 | $\mp$ 4.5 |
+
 - Main propulsors: simple fixed pitch thrust / power model at low speed.  Net bollard
   thrust 459 kN per unit at 3000 kW for *both* options.  This assumes the ship designer
   has aimed for equal bollard pull, the larger azimuth propeller compensating for gear
@@ -96,8 +117,10 @@ model, wave drift) and study drivers written for this comparison.
 - Azimuth thruster--thruster forbidden sectors of 60 deg (wash onto the other azimuth).
 - Stern tunnels: 35 per cent thrust loss due to stern tube blockage, 101 kN per unit
   (30--40 per cent is typical; the result is insensitive within that range).
-- Bow tunnels 244 kN, retractable 307 kN (estimates scaled from reference thrusters).
-- Rudder side force from the BruCon rudder / slipstream model.
+- Bow tunnels and retractable: estimates scaled from reference thrusters by power and
+  diameter.
+- Rudder side force from the BruCon rudder / slipstream model (flap rudders, 45 deg
+  max angle, 3.2 m height).
 - Thrust bias (azimuth pair pushing against each other) off, unless stated.
 
 ** Environment (DNV-ST-0111)
