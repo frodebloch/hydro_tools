@@ -89,7 +89,7 @@ model, wave drift) and study drivers written for this comparison.
 
 Table [[tab:thrusters]] lists the thrusters with the assumed net bollard thrust used in
 the DP and ploughing calculations, and their positions: $x$ from midship ($L_{pp}/2$),
-positive forward; $y$ from the centre line, positive to starboard.
+positive forward; $y$ from the centre line, positive to starboard ($\mp$: port / starboard unit).
 
 #+NAME: tab:thrusters
 #+CAPTION: Thrusters, assumed net bollard thrust and positions.  $T_+$: ahead (tunnels: to starboard).  $T_-$: astern (tunnels: to port).  Azimuths give $T_+$ in any direction.
@@ -99,12 +99,10 @@ positive forward; $y$ from the centre line, positive to starboard.
 | Both       | Bow tunnel 1          | Tunnel          |   2.6 |       1700 |                      244 |                       244 |  42.8 |   0.0 |
 | Both       | Bow tunnel 2          | Tunnel          |   2.6 |       1700 |                      244 |                       244 |  38.6 |   0.0 |
 | Both       | Bow retractable       | Azimuth, ducted |   2.4 |       1600 |                      307 |                        -- |  34.0 |   0.0 |
-| Azimuth    | Port azimuth          | Azimuth, ducted |   3.3 |       3000 |                      459 |                        -- | -48.1 |  -5.4 |
-| Azimuth    | Stbd azimuth          | Azimuth, ducted |   3.3 |       3000 |                      459 |                        -- | -48.1 |   5.4 |
+| Azimuth    | Port / stbd azimuth   | Azimuth, ducted |   3.3 |       3000 |                      459 |                        -- | -48.1 | $\mp$ 5.4 |
 | Shaft line | Stern tunnel 1        | Tunnel          |   1.5 |       1500 |                      101 |                       101 | -38.7 |   0.0 |
 | Shaft line | Stern tunnel 2        | Tunnel          |   1.5 |       1500 |                      101 |                       101 | -41.5 |   0.0 |
-| Shaft line | Port main propeller   | FPP, ducted     |   3.0 |       3000 |                      459 |                       275 | -46.0 |  -4.5 |
-| Shaft line | Stbd main propeller   | FPP, ducted     |   3.0 |       3000 |                      459 |                       275 | -46.0 |   4.5 |
+| Shaft line | Port / stbd main prop. | FPP, ducted    |   3.0 |       3000 |                      459 |                       275 | -46.0 | $\mp$ 4.5 |
 | Shaft line | Port / stbd rudder    | Flap, 6.9 m$^2$   |    -- |         -- |                       -- |                        -- | -48.5 | $\mp$ 4.5 |
 
 - Main propulsors: simple fixed pitch thrust / power model at low speed.  Net bollard
