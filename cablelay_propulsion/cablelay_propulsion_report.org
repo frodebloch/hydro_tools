@@ -301,14 +301,20 @@ Observations:
   dependence of side force on propeller thrust, and thrust losses of the stern
   tunnels in current, all favour the azimuth option in practice.
 
-* Open points and inputs needed
+* Open points
 
-- Net bollard thrust of the azimuths including gear housing, strut and hull
-  interaction losses (here set equal to the shaft line).
-- Wake fraction, thrust deduction and gear efficiency for both options.
-- Astern thrust of the reversing fixed pitch shaft line propellers (here 60 per cent),
-  and four-quadrant data for ducted fixed pitch propellers.
-- Stern tunnel thrust including stern tube blockage.
-- Hull lines and strip theory data of the actual vessel (reference hull used here).
-- Operating profile (time in transit / DP / ploughing) and site weather statistics,
-  to express the difference as operability and annual energy.
+Table [[tab:open]] lists the main assumptions that should be confirmed, with the
+expected impact on the comparison between the options.
+
+#+NAME: tab:open
+#+CAPTION: Open points and expected impact on the comparison.
+#+ATTR_LATEX: :environment longtable :booktabs t :align >{\raggedright\arraybackslash}p{3.6cm}>{\raggedright\arraybackslash}p{3.2cm}>{\raggedright\arraybackslash}p{2.6cm}>{\raggedright\arraybackslash}p{5.6cm}
+| *Open point*                                                   | *Assumed here*                        | *Affects*                          | *Expected impact on the comparison*                                                                                                                  |
+|----------------------------------------------------------------+---------------------------------------+------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Net bollard thrust of the azimuths (housing, strut, hull losses) | Equal to shaft line, 459 kN           | Capability, ploughing              | High.  Sets the ploughing capability and the reserve after WCF directly; 10 per cent change in azimuth thrust changes the available pull by about 9 t intact. |
+| Wake fraction, thrust deduction, gear efficiency              | Az: 0.10 / 0.10 / 0.97; SL: 0.20 / 0.15 / 0.99 | Transit power                      | High for transit.  The calm water difference between the options (10--12 per cent) is of the same order as the uncertainty.  Small for DP.      |
+| Astern thrust of reversing fixed pitch shaft line propellers   | 60 per cent of ahead                  | Shaft line capability and DP power | Medium.  Affects yaw control and side force balance with rudders, mainly after WCF.  No effect on ploughing.                                        |
+| Stern tunnel thrust incl. stern tube blockage                  | 35 per cent loss, 101 kN              | Shaft line stern capability, DP power | Medium.  Within 30--40 per cent loss the result changes little; a larger deviation changes the stern sector capability of the shaft line option. |
+| Bow tunnel and retractable thrust                              | Scaled from reference thrusters       | Capability                         | Low for the comparison (same for both options).  Sets the absolute capability for weather forward of the beam.                                      |
+| Hull lines and strip theory data of the actual vessel          | Reference hull of similar size        | Absolute values                    | Low for the comparison (same hull for both).  A shaft line hull with a finer stern would favour the shaft line option somewhat in transit.          |
+| Operating profile and site weather statistics                  | Not included                          | Operability, annual energy         | No effect on the present results.  Needed to express the difference as operability and annual energy.                                               |

@@ -1,4 +1,4 @@
-% Created 2026-09-29 Tue 11:33
+% Created 2026-09-29 Tue 13:30
 % Intended LaTeX compiler: pdflatex
 \documentclass[a4paper,11pt]{article}
 \usepackage[utf8]{inputenc}
@@ -43,7 +43,7 @@
 \tableofcontents
 
 \section*{Change History}
-\label{sec:org91e3022}
+\label{sec:orga0a310d}
 \begin{longtable}{|l|l|l|l|p{8.5cm}|}
 \hline
 \textbf{Version} & \textbf{Date} & \textbf{Sign} & \textbf{Approved} & \textbf{Description}\\[0pt]
@@ -71,7 +71,7 @@ Pre & 2026-09-29 & FB &  & Draft for review by hydrodynamic department\\[0pt]
 \newpage
 
 \section{Introduction}
-\label{sec:org77e42b6}
+\label{sec:org26d02d9}
 
 This report compares two propulsion configurations for a 6000 t DP class 2 cable lay
 vessel (CLV), in operation and in transit.  The two configurations are:
@@ -105,10 +105,10 @@ All calculations are made with the BruCon DP models (thrust allocation, vessel
 model, wave drift) and study drivers written for this comparison.
 
 \section{Models and assumptions}
-\label{sec:orge1a75ef}
+\label{sec:org3e066b8}
 
 \subsection{Vessel and power system}
-\label{sec:orge92bd8a}
+\label{sec:org5623f0c}
 \begin{itemize}
 \item Reference hull of an existing offshore vessel of similar size:
 \end{itemize}
@@ -156,14 +156,14 @@ Starboard & Bow tunnel 2, azimuth 2 & Bow tunnel 2, stern tunnel 2, main prop 2\
 \end{center}
 
 \subsection{Thrusters (DP and ploughing)}
-\label{sec:org2817f88}
+\label{sec:org0862940}
 
-Table \ref{tab:orge18e707} lists the thrusters with the assumed net bollard thrust used in
+Table \ref{tab:org125da9b} lists the thrusters with the assumed net bollard thrust used in
 the DP and ploughing calculations, and their positions: \(x\) from midship (\(L_{pp}/2\)),
 positive forward; \(y\) from the centre line, positive to starboard (\(\mp\): port / starboard unit).
 
 \begin{table}[H]
-\caption{\label{tab:orge18e707}Thrusters, assumed net bollard thrust and positions.  \(T_+\): ahead (tunnels: to starboard).  \(T_-\): astern (tunnels: to port).  Azimuths give \(T_+\) in any direction.}
+\caption{\label{tab:org125da9b}Thrusters, assumed net bollard thrust and positions.  \(T_+\): ahead (tunnels: to starboard).  \(T_-\): astern (tunnels: to port).  Azimuths give \(T_+\) in any direction.}
 \centering
 \small
 \begin{tabular}{lllrrrrrr}
@@ -201,7 +201,7 @@ max angle, 3.2 m height).
 \end{itemize}
 
 \subsection{Environment (DNV-ST-0111)}
-\label{sec:org4c0b029}
+\label{sec:orgec2a0f8}
 \begin{itemize}
 \item Wind, wave and current relation from DNV-ST-0111 Table 2-1, collinear.  Beaufort
 values between the table points are interpolated linearly in wind speed.
@@ -215,7 +215,7 @@ thrust allocation are vessel specific (BruCon allocator).
 \end{itemize}
 
 \subsection{Operation modes and failure cases}
-\label{sec:orge656d26}
+\label{sec:orge8b1322}
 \begin{itemize}
 \item \textbf{DP station keeping}: zero speed.
 \item \textbf{Ploughing / cable lay}: 0.8 kn ahead through the water and an 80 t (785 kN) pull
@@ -226,21 +226,21 @@ their own generators.  The WCF curve is, per heading, the lowest of the three bu
 \end{itemize}
 
 \section{DP capability}
-\label{sec:org186d738}
+\label{sec:orgfdc6ef9}
 
-Figure \ref{fig:org4633ee4} shows the maximum mean wind speed that can be held as a
+Figure \ref{fig:orgc5a5691} shows the maximum mean wind speed that can be held as a
 function of the weather direction relative to the bow, with the Beaufort upper limits
-from DNV-ST-0111 as rings.  Table \ref{tab:orgcf909dc} summarises the results.  The search
+from DNV-ST-0111 as rings.  Table \ref{tab:orga91d2b0} summarises the results.  The search
 is limited to 40 m/s.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=\textwidth]{results/capability_overview.png}
-\caption{\label{fig:org4633ee4}DP capability, maximum mean wind speed held versus weather direction (0 deg = head weather).  Top: DP station keeping.  Bottom: ploughing / cable lay, 0.8 kn and 80 t pull.  Left: intact.  Right: worst case failure.}
+\caption{\label{fig:orgc5a5691}DP capability, maximum mean wind speed held versus weather direction (0 deg = head weather).  Top: DP station keeping.  Bottom: ploughing / cable lay, 0.8 kn and 80 t pull.  Left: intact.  Right: worst case failure.}
 \end{figure}
 
 \begin{table}[H]
-\caption{\label{tab:orgcf909dc}DP capability, wind speed in m/s (interpolated Beaufort in brackets).  Stern sector = lowest value with weather from 120--240 deg.}
+\caption{\label{tab:orga91d2b0}DP capability, wind speed in m/s (interpolated Beaufort in brackets).  Stern sector = lowest value with weather from 120--240 deg.}
 \centering
 \begin{tabular}{llrrrr}
 \toprule
@@ -272,21 +272,21 @@ mainly illustrates the missing thrust reserve.
 \end{itemize}
 
 \section{Power consumption in operation}
-\label{sec:org5b734f8}
+\label{sec:orgdc1696b}
 
-Figure \ref{fig:org9e80d18} shows the propulsion power (propeller shaft power, all thrusters)
+Figure \ref{fig:org013cbbb} shows the propulsion power (propeller shaft power, all thrusters)
 at fixed weather, Beaufort 3 and 6, as a function of the weather direction.  The
-azimuth option is shown with thrust bias off and on.  Table \ref{tab:orgb9888ce} gives the power
+azimuth option is shown with thrust bias off and on.  Table \ref{tab:org1989fcc} gives the power
 for selected weather directions.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=\textwidth]{results/power_overview.png}
-\caption{\label{fig:org9e80d18}Propulsion power versus weather direction, intact.  Top: DP station keeping.  Bottom: ploughing / cable lay.  Left: Beaufort 3.  Right: Beaufort 6.}
+\caption{\label{fig:org013cbbb}Propulsion power versus weather direction, intact.  Top: DP station keeping.  Bottom: ploughing / cable lay.  Left: Beaufort 3.  Right: Beaufort 6.}
 \end{figure}
 
 \begin{table}[H]
-\caption{\label{tab:orgb9888ce}Propulsion power, intact, kW, for selected weather directions relative to the bow (results are symmetric port / starboard).}
+\caption{\label{tab:org1989fcc}Propulsion power, intact, kW, for selected weather directions relative to the bow (results are symmetric port / starboard).}
 \centering
 \begin{tabular}{lllrrrrr}
 \toprule
@@ -328,7 +328,7 @@ options are more reliable than the absolute values.
 \end{itemize}
 
 \section{Transit power}
-\label{sec:org5a4bf65}
+\label{sec:org5b391f4}
 
 The transit power is calculated with a separate model: calm water resistance
 (ITTC-57 friction, form factor 1.3, Holtrop--Mennen wave making), appendage and
@@ -387,7 +387,7 @@ design (A), at the cost of about 10 per cent bollard thrust.  Top speed is about
 \end{itemize}
 
 \section{Conclusions}
-\label{sec:orga94f659}
+\label{sec:org0e656b5}
 
 \begin{itemize}
 \item With equal bollard pull, the two options are close in the headline numbers: lowest
@@ -407,18 +407,36 @@ dependence of side force on propeller thrust, and thrust losses of the stern
 tunnels in current, all favour the azimuth option in practice.
 \end{itemize}
 
-\section{Open points and inputs needed}
-\label{sec:orgaaf6b9c}
+\section{Open points}
+\label{sec:orgbd24a88}
 
-\begin{itemize}
-\item Net bollard thrust of the azimuths including gear housing, strut and hull
-interaction losses (here set equal to the shaft line).
-\item Wake fraction, thrust deduction and gear efficiency for both options.
-\item Astern thrust of the reversing fixed pitch shaft line propellers (here 60 per cent),
-and four-quadrant data for ducted fixed pitch propellers.
-\item Stern tunnel thrust including stern tube blockage.
-\item Hull lines and strip theory data of the actual vessel (reference hull used here).
-\item Operating profile (time in transit / DP / ploughing) and site weather statistics,
-to express the difference as operability and annual energy.
-\end{itemize}
+Table \ref{tab:org6589897} lists the main assumptions that should be confirmed, with the
+expected impact on the comparison between the options.
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{3.6cm}>{\raggedright\arraybackslash}p{3.2cm}>{\raggedright\arraybackslash}p{2.6cm}>{\raggedright\arraybackslash}p{5.6cm}}
+\caption{\label{tab:org6589897}Open points and expected impact on the comparison.}
+\\[0pt]
+\toprule
+\textbf{Open point} & \textbf{Assumed here} & \textbf{Affects} & \textbf{Expected impact on the comparison}\\[0pt]
+\midrule
+\endfirsthead
+\multicolumn{4}{l}{Continued from previous page} \\[0pt]
+\toprule
+
+\textbf{Open point} & \textbf{Assumed here} & \textbf{Affects} & \textbf{Expected impact on the comparison} \\[0pt]
+
+\midrule
+\endhead
+\midrule\multicolumn{4}{r}{Continued on next page} \\
+\endfoot
+\endlastfoot
+Net bollard thrust of the azimuths (housing, strut, hull losses) & Equal to shaft line, 459 kN & Capability, ploughing & High.  Sets the ploughing capability and the reserve after WCF directly; 10 per cent change in azimuth thrust changes the available pull by about 9 t intact.\\[0pt]
+Wake fraction, thrust deduction, gear efficiency & Az: 0.10 / 0.10 / 0.97; SL: 0.20 / 0.15 / 0.99 & Transit power & High for transit.  The calm water difference between the options (10--12 per cent) is of the same order as the uncertainty.  Small for DP.\\[0pt]
+Astern thrust of reversing fixed pitch shaft line propellers & 60 per cent of ahead & Shaft line capability and DP power & Medium.  Affects yaw control and side force balance with rudders, mainly after WCF.  No effect on ploughing.\\[0pt]
+Stern tunnel thrust incl. stern tube blockage & 35 per cent loss, 101 kN & Shaft line stern capability, DP power & Medium.  Within 30--40 per cent loss the result changes little; a larger deviation changes the stern sector capability of the shaft line option.\\[0pt]
+Bow tunnel and retractable thrust & Scaled from reference thrusters & Capability & Low for the comparison (same for both options).  Sets the absolute capability for weather forward of the beam.\\[0pt]
+Hull lines and strip theory data of the actual vessel & Reference hull of similar size & Absolute values & Low for the comparison (same hull for both).  A shaft line hull with a finer stern would favour the shaft line option somewhat in transit.\\[0pt]
+Operating profile and site weather statistics & Not included & Operability, annual energy & No effect on the present results.  Needed to express the difference as operability and annual energy.\\[0pt]
+\bottomrule
+\end{longtable}
 \end{document}
