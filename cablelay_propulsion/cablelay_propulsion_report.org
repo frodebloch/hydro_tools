@@ -181,8 +181,8 @@ Observations:
 
 Figure [[fig:power]] shows the propulsion power (propeller shaft power, all thrusters)
 at fixed weather, Beaufort 3 and 6, as a function of the weather direction.  The
-azimuth option is shown with thrust bias off and on.  Table [[tab:power]] gives the mean
-over all headings.
+azimuth option is shown with thrust bias off and on.  Table [[tab:power]] gives the power
+for selected weather directions.
 
 #+NAME: fig:power
 #+CAPTION: Propulsion power versus weather direction, intact.  Top: DP station keeping.  Bottom: ploughing / cable lay.  Left: Beaufort 3.  Right: Beaufort 6.
@@ -190,24 +190,34 @@ over all headings.
 [[file:results/power_overview.png]]
 
 #+NAME: tab:power
-#+CAPTION: Propulsion power, intact, mean over all headings (max in brackets), kW.
-#+ATTR_LATEX: :booktabs t :align llrrr :placement [H]
-| Mode          | Weather | Azimuth, bias off | Azimuth, bias on | Shaft line    |
-|---------------+---------+-------------------+------------------+---------------|
-| Station keep. | Bf 3    | 201 (350)         | 321 (500)        | 364 (612)     |
-| Station keep. | Bf 6    | 1117 (1790)       | 1393 (2062)      | 1834 (3031)   |
-| Ploughing     | Bf 3    | 4038 (4244)       | 4039 (4244)      | 4185 (4492)   |
-| Ploughing     | Bf 6    | 4683 (5922)       | 4688 (5922)      | 4853 (6090)   |
+#+CAPTION: Propulsion power, intact, kW, for selected weather directions relative to the bow (results are symmetric port / starboard).
+#+ATTR_LATEX: :booktabs t :align lllrrrrr :placement [H]
+| Mode          | Weather | Option             | 0 deg | 60 deg | 90 deg | 120 deg | 180 deg |
+|---------------+---------+--------------------+-------+--------+--------+---------+---------|
+| Station keep. | Bf 3    | Azimuth, bias off  |     5 |    317 |    329 |     300 |      13 |
+|               |         | Azimuth, bias on   |    94 |    454 |    479 |     452 |      61 |
+|               |         | Shaft line         |     5 |    540 |    563 |     582 |      21 |
+| Station keep. | Bf 6    | Azimuth, bias off  |   189 |   1730 |   1680 |    1453 |     277 |
+|               |         | Azimuth, bias on   |   414 |   2011 |   1964 |    1777 |     410 |
+|               |         | Shaft line         |   189 |   2039 |   2618 |    3031 |     473 |
+| Ploughing     | Bf 3    | Azimuth            |  3998 |   4244 |   4173 |    3969 |    3796 |
+|               |         | Shaft line         |  3998 |   4492 |   4373 |    4210 |    3796 |
+| Ploughing     | Bf 6    | Azimuth            |  4782 |   5922 |   5302 |    4249 |    3016 |
+|               |         | Shaft line         |  4782 |   6090 |   5511 |    4465 |    3016 |
 
 Observations:
-- Station keeping: little power is needed with head or stern weather for either
-  option; beam and quartering weather dominate.  The shaft line option needs clearly
-  more power with weather aft of the beam, where it must combine propeller, rudder and
-  the small stern tunnels.  At Bf 6 the azimuth option uses about 40 per cent less
-  power with bias off and about 24 per cent less with bias on.
-- Thrust bias costs the azimuth option 120--280 kW, but it stays below the shaft line.
-- Ploughing: the 80 t pull dominates.  The azimuth option uses 3--4 per cent less,
-  as the azimuths can take the side forces by angling the thrust while pushing.
+- Station keeping: with head and stern weather little power is needed and the options
+  are similar.  With beam weather and weather aft of the beam the shaft line option
+  needs clearly more power, as it must combine propeller, rudder and the small stern
+  tunnels.  At Bf 6 with weather from 120 deg the shaft line needs about 3000 kW,
+  against about 1450 kW (bias off) and 1780 kW (bias on) for the azimuth option.
+- Thrust bias costs the azimuth option up to about 300 kW.  With bias on it is still
+  below the shaft line, except with head weather and with stern weather at Bf 3 where
+  the power is low anyway.
+- Ploughing: the 80 t pull dominates.  With head and stern weather the power is equal;
+  with weather on the bow and beam the shaft line needs 3--6 per cent more, as the
+  azimuths take the side forces by angling the thrust while pushing.  Bias has no
+  effect in ploughing.
 - Motor, converter and gear losses are not included, and the thrust / power model is
   a simple relation.  The relative differences are more reliable than absolute values.
 
@@ -263,8 +273,9 @@ Observations:
   quarters the azimuth option holds about 5 m/s more wind, both intact and after worst
   case failure (after WCF Bf 7.3 against 5.9).  For a CLV, which has to follow the
   cable route and cannot freely choose heading, this gives a larger operating window.
-- The azimuth option uses less power in DP station keeping (about 25--40 per cent at
-  Bf 6) and slightly less in ploughing (3--4 per cent).
+- The azimuth option uses less power in DP station keeping with beam and stern quarter
+  weather (at Bf 6 about 35--50 per cent less with bias off, 25--40 per cent with bias
+  on), and slightly less in ploughing (up to about 6 per cent).
 - The shaft line option needs about 10 per cent less power in calm water transit,
   less in weather; this depends mainly on uncertain propulsive coefficients.
 - Effects not captured by a static analysis, such as faster thrust response, no
