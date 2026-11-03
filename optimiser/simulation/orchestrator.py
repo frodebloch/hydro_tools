@@ -46,6 +46,14 @@ from .engine import _voyage_worker
 from .results import SpeedSweepResult, VoyageResult
 
 
+def _as_commissioned_pitch_map():
+    """Vessel-specific pitch % -> P/D map, if the constants overlay has one."""
+    import models.constants as _mc
+    pct = getattr(_mc, "PITCH_PCT_TO_PD_PCT", None)
+    pd_ = getattr(_mc, "PITCH_PCT_TO_PD_PD", None)
+    return (pct, pd_) if pct is not None and pd_ is not None else None
+
+
 def _days_in_year(year: int) -> int:
     """Number of days in a given year."""
     return 366 if (year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)) else 365
@@ -190,6 +198,7 @@ def run_annual_comparison(
             engine, prop,
             prototxt_path=as_commissioned_prototxt,
             block=as_commissioned_block,
+            pitch_map=_as_commissioned_pitch_map(),
             sg_allowance_kw=sg_factory_allowance_kw,
             sg_load_kw=sg_load_kw,
             engine_rpm_min=engine_rpm_min_sg,

@@ -103,6 +103,7 @@ class AsCommissionedCombinator(FactoryCombinator):
                  prototxt_path: str | Path,
                  block: str = "harbor",
                  max_engine_rpm: float | None = None,
+                 pitch_map: tuple[list[float], list[float]] | None = None,
                  **kwargs):
         super().__init__(engine, prop, **kwargs)
 
@@ -113,8 +114,14 @@ class AsCommissionedCombinator(FactoryCombinator):
         max_eng_rpm = max_engine_rpm or engine.max_rpm()
         max_shaft_rpm = max_eng_rpm / GEAR_RATIO
 
-        pitch_pd = np.array(pitch_pct) / 100.0 * PROP_DESIGN_PITCH
-        shaft_rpm = np.array(rpm_pct) / 100.0 * max_shaft_rpm
+        if pitch_map is not None:
+            pitch_pd = np.interp(pitch_pct, pitch_map[0], pitch_map[1])
+        else:
+            pitch_pd = np.array(pitch_pct) / 100.0 * PROP_DESIGN_PITCH
+        # gear_control never runs the engine below its minimum (or the
+        # shaft-generator minimum when engine_rpm_min is given).
+        shaft_rpm = np.maximum(np.array(rpm_pct) / 100.0 * max_shaft_rpm,
+                               self._eng_rpm_min / GEAR_RATIO)
 
         # Lever axis: 0..100 over the table's index range (uniform).
         n = len(pitch_pd)

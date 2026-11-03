@@ -67,6 +67,16 @@ GEAR_RATIO = 6.26174            # engine rpm / shaft rpm
 SHAFT_EFF = 0.97                # shaft line efficiency
 GENSET_SFOC = 215.0             # g/kWh (aux/harbour genset placeholder)
 
+# Pitch command [%] -> P/D used by the onboard optimiser (sin-linkage
+# transform derived in brucon's config factory), read from the
+# commissioning log V2597 (PitchOrder vs PitchPdRatio, Oct/Nov 2026).
+# Used by AsCommissionedCombinator instead of a linear pct * design P/D.
+PITCH_PCT_TO_PD_PCT = [0.0, 52.5, 57.5, 62.5, 67.5, 72.5, 77.5, 82.5, 87.5, 92.5, 97.5, 100.0]
+PITCH_PCT_TO_PD_PD = [0.0, 0.577, 0.631, 0.696, 0.763, 0.832, 0.877, 0.969, 1.029, 1.114, 1.175, 1.21]
+
+# Shaft generator: gear_control generator.min_speed = 69 % of 720 rpm.
+SG_MIN_SPEED_PCT = 69.0
+
 
 # ============================================================
 # Calm-water resistance and hull efficiency (V2597 DWL, Tm ~4.5 m)
@@ -122,5 +132,5 @@ VESSEL_LOA_M = HULL_LOA
 # ============================================================
 # simulation.orchestrator uses ENGINE_FACTORY to instantiate the engine.
 # For Link Galaxy this is the Wartsila Vasa 32D 16V (derated 4000 kW),
-# anchored to the Marine Project Guide 2/1997 three-point SFOC data.
+# anchored to the Wartsila 16V32LN @ 720 rpm approval curve.
 from optimiser import make_wartsila_vasa32_16v as ENGINE_FACTORY  # noqa: E402

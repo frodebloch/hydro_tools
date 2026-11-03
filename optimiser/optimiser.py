@@ -342,56 +342,43 @@ def make_man_l27_38() -> MuzzleDiagramEngine:
 
 
 def make_wartsila_vasa32_16v() -> MuzzleDiagramEngine:
-    """Create engine model for Wartsila Vasa 32D 16V, MV Link Galaxy.
+    """Create engine model for Wartsila Vasa 32 16V (16V32LN), MV Link Galaxy.
 
     Port of brucon/modules/config_link_galaxy/
-    propulsion_optimiser_engine_4.prototxt.in.
+    propulsion_optimiser_engine_4.prototxt.in (keep the two in sync).
 
-    Nameplate: 370 kW/cyl x 16 = 5920 kW @ 720 RPM.
-    Derated  : 4000 kW usable (per operator; matches
-               gear_control_parameters_4.max_propeller_load = 4000).
-    Single CP-propeller via ACG1080PF gear (~6.26:1).
+    Nameplate 5920 kW @ 720 rpm, derated to 4000 kW (gear/shaft cap).
+    Envelope: constant torque P = 4000 * n / 720 kW, 475 <= n <= 720 rpm.
 
-    SFOC anchored to Wartsila Vasa 32 Marine Project Guide 2/1997, sec.3.6,
-    "Wartsila Vasa 16V32 D" @ 720 RPM three-point data:
-        100 % load (5920 kW) : 184 g/kWh
-         75 % load (4440 kW) : 188 g/kWh
-         50 % load (2960 kW) : 194 g/kWh
-    (Basis: ISO 3046/l, LCV 42 700 kJ/kg, constant speed, engine-driven
-    pumps, without margins. Tolerance +5 %.)
-
-    Off-rated RPM shape derived from the MAN L27/38 published muzzle
-    (Vessel 206), axes normalised & re-dimensionalised onto the Vasa
-    envelope; Wartsila 3-point anchors preserved exactly at 720 rpm.
-    See hydro_tools/optimiser/link_galaxy/plot_muzzle_scaled.py.
-
-    Power limit envelope: constant-torque P(n) = P_MCR * n / n_nom below
-    nominal, matching the Vasa 32 Project Guide sec.1.4 fuel-rack limit.
+    720-rpm SFOC row: exact Willans-type fit SFOC = a + b/P + c*P + d*P^2
+    through the Wartsila approval curve "16V32LN @ 720rpm" (LCV 42.7 MJ/kg):
+        25 % (1480 kW) 224.5,  50 % (2960 kW) 207.0,
+        75 % (4440 kW) 204.5, 100 % (5920 kW) 212.5 g/kWh.
+    Below 1480 kW the row is extrapolated (no data below 25 % load).
+    Off-rated RPM shape: per-column delta from the MAN L27/38 muzzle
+    (shape template only, not anchored on Link Galaxy data).
     """
-    # Power limit envelope (constant torque, capped at derated 4000 kW).
     power_limit_rpm = [475, 510, 550, 600, 650, 680, 700, 710, 720]
     power_limit_kw = [2639, 2833, 3056, 3333, 3611, 3778, 3889, 3944, 4000]
 
-    # Suggested propeller layout curve (through 85 % MCR @ 720 RPM).
-    prop_curve_rpm = [475, 520, 575, 620, 660, 690, 710, 720]
-    prop_curve_kw = [400, 650, 1050, 1550, 2100, 2650, 3100, 3400]
+    # Nominal propeller curve (informational only).
+    prop_curve_rpm = [475, 520, 575, 620, 660, 690, 720]
+    prop_curve_kw = [450, 600, 900, 1200, 1550, 1800, 2100]
 
-    # SFOC grid [g/kWh], rows = RPM (480..720), cols = power (400..4000).
-    # Hybrid: Wartsila 720-row quadratic + MAN L27/38 off-rated delta.
     sfoc_rpm = [480, 520, 560, 600, 640, 680, 720]
     sfoc_power = [400, 800, 1200, 1600, 2000, 2400, 2800, 3200, 3600, 4000]
     sfoc_table = [
-        [207.1, 205.3, 202.7, 200.3, 198.9, 196.8, 194.8, 192.9, 192.0, 190.6],  # 480 RPM
-        [205.8, 204.0, 201.4, 198.9, 197.5, 195.4, 193.4, 191.5, 189.8, 188.2],  # 520 RPM
-        [205.1, 202.7, 200.7, 197.6, 196.2, 194.1, 192.1, 190.2, 188.5, 186.9],  # 560 RPM
-        [205.1, 202.3, 200.7, 197.3, 195.9, 193.8, 191.8, 189.9, 188.1, 186.6],  # 600 RPM
-        [206.4, 203.7, 201.1, 198.6, 196.3, 194.1, 192.7, 190.3, 189.1, 187.0],  # 640 RPM
-        [207.8, 205.0, 202.4, 199.9, 197.6, 195.4, 193.4, 191.5, 189.8, 188.2],  # 680 RPM
-        [209.1, 206.3, 203.7, 201.3, 198.9, 196.8, 194.8, 192.9, 191.1, 189.6],  # 720 RPM (Wartsila quad)
+        [283.0, 245.7, 230.3, 221.1, 215.8, 211.3, 208.0, 205.8, 205.4, 205.1],  # 480 RPM
+        [281.7, 244.4, 229.0, 219.7, 214.4, 209.9, 206.6, 204.4, 203.2, 202.7],  # 520 RPM
+        [281.0, 243.1, 228.3, 218.4, 213.1, 208.6, 205.3, 203.1, 201.9, 201.4],  # 560 RPM
+        [281.0, 242.7, 228.3, 218.1, 212.8, 208.3, 205.0, 202.8, 201.5, 201.1],  # 600 RPM
+        [282.3, 244.1, 228.7, 219.4, 213.2, 208.6, 205.9, 203.2, 202.5, 201.5],  # 640 RPM
+        [283.7, 245.4, 230.0, 220.7, 214.5, 209.9, 206.6, 204.4, 203.2, 202.7],  # 680 RPM
+        [285.0, 246.7, 231.3, 222.1, 215.8, 211.3, 208.0, 205.8, 204.5, 204.1],  # 720 RPM
     ]
 
     return MuzzleDiagramEngine(
-        name="Wartsila Vasa 32D 16V - Link Galaxy (derated 4000 kW)",
+        name="Wartsila Vasa 32 16V (16V32LN) - Link Galaxy (derated 4000 kW)",
         max_power_kw=4000.0,
         max_engine_rpm=720.0,
         min_engine_rpm=475.0,

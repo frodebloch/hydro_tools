@@ -74,8 +74,14 @@ def main() -> None:
                    help="Use operator combinator table from a brucon "
                         "gear_control_tables_4.prototxt.in as baseline "
                         "(instead of synthesised design combinator).")
-    p.add_argument("--as-commissioned-block", default="harbor",
-                   help="Block name inside the prototxt (default: harbor).")
+    p.add_argument("--as-commissioned-block", default="main",
+                   help="Block name inside the prototxt (default: main; "
+                        "first combinator table = main.combinator.positive).")
+    p.add_argument("--sg-load", type=float, default=200.0,
+                   help="Shaft-generator electrical load [kW] (default 200).")
+    p.add_argument("--no-sg-floor", action="store_true",
+                   help="Do not apply the SG minimum engine speed "
+                        "(gear_control generator.min_speed, 69 %% of 720 rpm).")
     args = p.parse_args()
 
     print("Link Galaxy annual voyage comparison")
@@ -98,12 +104,8 @@ def main() -> None:
     # Delayed imports: everything below transitively depends on
     # models.constants, which we swapped for the LG overlay above.
     #
-    # CAVEAT: simulation.orchestrator currently hardcodes the engine via
-    # ``make_man_l27_38()`` (MAN L27/38, the Aas206 engine).  For LG the
-    # right engine is the Wartsila Vasa 32D 16V (4000 kW derated @ 720
-    # RPM).  Until we add an engine factory for it, absolute fuel
-    # numbers will be biased by the SFOC/MCR difference; the
-    # factory-vs-optimiser *ratio* (savings %) is much less sensitive.
+    # Engine: models.constants.ENGINE_FACTORY -> make_wartsila_vasa32_16v
+    # (port of the brucon Link Galaxy engine config).
     from simulation.orchestrator import run_annual_comparison  # noqa: E402
     from reporting.summary import print_summary                # noqa: E402
 
@@ -114,6 +116,13 @@ def main() -> None:
         data_dir=_c.NORA3_DATA_DIR,
         pdstrip_path=_c.PDSTRIP_DAT,
         flettner_enabled=False,     # no rotor fitted on LG
+        sg_load_kw=args.sg_load,
+        sg_factory_allowance_kw=args.sg_load,
+        # gear_control holds the engine at >= generator.min_speed (69 %
+        # of 720 rpm = 497 rpm) while the SG is engaged -- confirmed by the
+        # commissioning log (shaft floor 79.1 rpm).  Applies to both sides.
+        sg_freq_min=0.0 if args.no_sg_floor else _c.SG_MIN_SPEED_PCT,
+        sg_freq_max=0.0 if args.no_sg_floor else 100.0,
         verbose=not args.quiet,
         round_trip=False,           # LG route already returns to origin
         as_commissioned_prototxt=args.as_commissioned,
