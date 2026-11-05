@@ -1,29 +1,28 @@
-# What it takes: 300 MNOK/yr retrofit on advanced units
+# What it takes: 300 MNOK/yr retrofit on advanced (DP2) projects
 
-Target: **30 advanced units (packages) per year in years 3–5** (= 300 MNOK advanced; 372 MNOK incl. the 8 simple units per package). Today: 20 per year from ~46 package opportunities.
+Target: **30 retrofit DP2 projects per year in years 3–5** (= 300 MNOK). Today: 3 DP2 per year in total, ≈ 1.2 retrofit (retrofit share 40%, placeholder), from ≈ 3.3 opportunities.
 
-Market growth: package opportunities × M, reached linearly by year 3. 60 runs per point, **without learning** (today's hours and comment rate). Single / quad retrofit and bundled volumes unchanged.
+Assumptions: DP2 = 3.5 × a simple project in own hours; traded sensors 75% of the price (180 MNOK/yr of sensor purchases at the target), 9–13 weeks lead time. **Without learning.** DP2 market × M reached linearly by year 3; other volumes unchanged. 40 runs per point.
 
-## Packages won per year (years 3–5) vs market growth
+## Retrofit DP2 won per year (years 3–5) vs market growth
 
-| Lever set | M = 1.0 | M = 1.25 | M = 1.5 | M = 1.75 | M = 2.0 | M = 2.5 |
+| Lever set | M = 1 | M = 5 | M = 10 | M = 20 | M = 30 | M = 40 |
 |---|---:|---:|---:|---:|---:|---:|
-| A baseline | 20.2 | 22.3 | 24.4 | 26.0 | 26.9 | 28.7 |
-| B pull bundled fwd | 24.5 | 26.2 | 27.4 | 27.9 | 28.4 | 29.8 |
-| C B + TA DNV | 24.6 | 25.9 | 27.0 | 27.8 | 28.3 | 29.6 |
-| D C + 2 adv. stock sets | 24.6 | 25.9 | 27.1 | 27.8 | 28.3 | 29.7 |
-| E D + 25% FAT | 30.3 | 34.0 | 35.2 | 35.4 | 35.4 | 36.8 |
-| F D + 10% production | 24.8 | 26.1 | 27.2 | 27.9 | 28.4 | 29.7 |
-| G D + FAT + production | 31.1 | 37.4 | 41.5 | 42.4 | 43.0 | 44.0 |
+| A baseline | 1.2 | 4.7 | 8.0 | 11.5 | 14.2 | 15.7 |
+| B pull bundled fwd | 1.8 | 6.7 | 10.0 | 12.7 | 14.6 | 16.1 |
+| C B + TA DNV | 1.8 | 6.5 | 9.4 | 12.4 | 14.4 | 16.1 |
+| D C + 4 sensor stock sets | 1.8 | 6.5 | 9.4 | 12.5 | 14.3 | 16.0 |
+| E D + 25% FAT | 2.2 | 9.7 | 14.6 | 17.7 | 19.7 | 21.5 |
+| F D + 25% production | 1.8 | 6.6 | 9.4 | 12.5 | 14.5 | 16.0 |
+| G D + 25% FAT + 25% production | 2.2 | 10.5 | 18.2 | 22.5 | 25.1 | 26.9 |
+| H G + 50% FAT + 50% production | 2.2 | 10.6 | 20.1 | 26.6 | 28.3 | 29.3 |
 
 ## At the market needed to reach the target
 
-| Lever set | Market M | Package opps/yr | Win rate | Package quote [wk] | Quad quote [wk] | Load eng / prod / FAT | Simple+quad retrofit won/yr | Bundled late | ΔNPV vs baseline at same market [MNOK] |
+| Lever set | Market M | DP2 opps/yr | Win rate | DP2 quote [wk] | Medium quote [wk] | Load eng / prod / FAT | Simple+medium retrofit won/yr | Bundled late | ΔNPV vs baseline at same market [MNOK] |
 |---|---:|---:|---:|---:|---:|---|---:|---:|---:|
-| E D + 25% FAT | 1.00 | 46 | 66% | 20 | 18 | 92% / 100% / 88% | 54 (today-level 40) | 0.0% | 176 |
-| G D + FAT + production | 1.00 | 46 | 68% | 19 | 16 | 93% / 97% / 95% | 55 (today-level 40) | 0.0% | 178 |
 
-Not reached within M ≤ 2.5: A baseline, B pull bundled fwd, C B + TA DNV, D C + 2 adv. stock sets, F D + 10% production.
+Not reached within M ≤ 40: A baseline, B pull bundled fwd, C B + TA DNV, D C + 4 sensor stock sets, E D + 25% FAT, F D + 25% production, G D + 25% FAT + 25% production, H G + 50% FAT + 50% production.
 
-⚠ = quoted package lead time above 6 months (win rate falls steeply).
-ΔNPV compares each lever set with the baseline **at the same market**, so it is the value of the levers given that the market has been grown. The cost of growing the market (sales effort) is not included.
+⚠ = quoted DP2 lead time above 6 months (win rate falls steeply).
+ΔNPV compares each lever set with the baseline **at the same market**: the value of the levers given that the market has been grown. The cost of growing the market (sales effort) is not included.

@@ -33,9 +33,10 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from config import (CASE_BY_CASE, CLASS_SHARE, ORDER_TYPES, TYPE_APPROVED, Config, comment_probability,
-                    cs_price, eng_capacity_per_week, eng_weeks, fat_capacity_per_week, learning_factor,
-                    prod_capacity_per_week, prod_simple_hours)
+from config import (CASE_BY_CASE, CLASS_SHARE, ORDER_TYPES, TYPE_APPROVED, Config, bundled_per_year,
+                    comment_probability, contribution, cs_price, eng_capacity_per_week, eng_weeks,
+                    fat_capacity_per_week, learning_factor, prod_capacity_per_week, prod_hours,
+                    retrofit_won_target, traded_cost)
 
 DRAIN_WEEKS = 170
 SOCIETIES = list(CLASS_SHARE)
@@ -61,6 +62,7 @@ class Task:
     appr_end: float = None
     rebooked: bool = False
     fat_rebooks: int = 0
+    wc: float = 0.0
 
 
 class Calendar:
@@ -153,7 +155,7 @@ def generate_arrivals(cfg: Config, seed: int, n_weeks: int, retro_rates: dict):
     out = []
     for w in range(n_weeks):
         b, r = [], []
-        for t, n in cfg.bundled_per_year.items():
+        for t, n in bundled_per_year(cfg).items():
             for _ in range(rng.poisson(n / 52.0)):
                 b.append(dict(otype=t, lead=int(round(rng.uniform(*cfg.bundled_lead_weeks))),
                               u=rng.random(4), z=rng.standard_normal(MAX_UNITS)))
@@ -165,12 +167,10 @@ def generate_arrivals(cfg: Config, seed: int, n_weeks: int, retro_rates: dict):
     return out
 
 
-def unit_hours(cfg, ot, z, simple_hours):
-    """Hours for all units in an order: lognormal spread per unit, advanced = ratio x simple."""
+def unit_hours(cfg, mean_hours, z):
+    """Hours for one project: mean x lognormal factor (same draw for production and FAT)."""
     s = math.sqrt(math.log(1 + cfg.unit_cv ** 2))
-    f = np.exp(s * z - s * s / 2)
-    n = ot.n_simple
-    return float(simple_hours * (f[:n].sum() + cfg.advanced_to_simple * f[n:n + ot.n_advanced].sum()))
+    return float(mean_hours * math.exp(s * z[0] - s * s / 2))
 
 
 def society(u):
@@ -183,12 +183,11 @@ def simulate(cfg: Config, seed: int, retro_rates: dict):
     E = Calendar(n, eng_capacity_per_week(cfg))
     P = Calendar(n, prod_capacity_per_week(cfg))
     F = Calendar(n, fat_capacity_per_week(cfg))
-    psh = prod_simple_hours(cfg)
     arrivals = generate_arrivals(cfg, seed, t1 + DRAIN_WEEKS, retro_rates)
     ta_ready = t0 + cfg.type_approval_ready_week
     ship = cfg.shipping_weeks
     stock = [0.0] * cfg.advanced_stock_sets
-    lo, hi = cfg.advanced_hw_weeks
+    lo, hi = cfg.sensor_hw_weeks
 
     for i, _ in enumerate(cfg.type_approved_societies):
         E.commit(E.forward(t0 + 8 * i, cfg.type_approval_eng_weeks, 0.5))
@@ -231,10 +230,10 @@ def simulate(cfg: Config, seed: int, retro_rates: dict):
             ot, u = ORDER_TYPES[a["otype"]], a["u"]
             due = w + a["lead"]
             appr = approval_for(u[0], w)
-            hw = w + (lo + u[3] * (hi - lo) if ot.n_advanced else cfg.simple_hw_weeks)
+            hw = w + (lo + u[3] * (hi - lo) if ot.long_lead else cfg.stock_hw_weeks)
             ew = eng_weeks(cfg, ot)
-            ph = unit_hours(cfg, ot, a["z"], psh)
-            fh = unit_hours(cfg, ot, a["z"], cfg.fat_simple_hours)
+            ph = unit_hours(cfg, prod_hours(cfg, ot), a["z"])
+            fh = ph * cfg.fat_to_prod
             plans = None
             if cfg.bundled_policy == "alap":
                 fp = F.backward(due - ship - 1, w + 2, fh, ot.fat_max_rate)
@@ -266,16 +265,16 @@ def simulate(cfg: Config, seed: int, retro_rates: dict):
             ot, u = ORDER_TYPES[a["otype"]], a["u"]
             appr = approval_for(u[0], w)
             stock_idx = None
-            hw = w + cfg.simple_hw_weeks
-            if ot.n_advanced:
+            hw = w + cfg.stock_hw_weeks
+            if ot.long_lead:
                 avail = [k for k, t_av in enumerate(stock) if t_av <= w]
                 if avail:
                     stock_idx = avail[0]
                 else:
                     hw = w + lo + u[3] * (hi - lo)
             ew = eng_weeks(cfg, ot)
-            ph = unit_hours(cfg, ot, a["z"], psh)
-            fh = unit_hours(cfg, ot, a["z"], cfg.fat_simple_hours)
+            ph = unit_hours(cfg, prod_hours(cfg, ot), a["z"])
+            fh = ph * cfg.fat_to_prod
             appr_q = appr.nominal_weeks + (appr.comment_weeks if cfg.quote_comment_allowance else 0.0)
             ep, pp, fp = forward_chain(ot, w + 1, hw, ew, ph, fh, appr_q)
             L = math.ceil(end_of(fp) + ship - w + cfg.quote_safety_weeks)
@@ -335,10 +334,14 @@ def simulate(cfg: Config, seed: int, retro_rates: dict):
             if max(t.fat) <= w and t.appr_end is not None:
                 t.ready = end_of(t.fat) + ship
                 t.late = max(0.0, t.ready - t.due)
+                # working capital: traded sensors paid on arrival (bundled: just in time for
+                # production), invoiced at delivery
+                ot = ORDER_TYPES[t.otype]
+                start = min(t.prod) if t.kind == "bundled" else min(t.hw_ready, min(t.prod))
+                t.wc = traded_cost(cfg, ot) * cfg.discount_rate * max(t.ready - start, 0.0) / 52.0
                 finished.append(t)
                 if w >= t0:
-                    ot = ORDER_TYPES[t.otype]
-                    n_units += ot.n_simple + cfg.advanced_to_simple * ot.n_advanced
+                    n_units += cfg.class_weight[ot.name]
             else:
                 still.append(t)
         active = still
@@ -381,6 +384,8 @@ def simulate(cfg: Config, seed: int, retro_rates: dict):
     r["fat_rebook_share"] = float(np.mean([t.fat_rebooks > 0 for t in retro + bund])) if finished else 0.0
     r["ld_retrofit"] = sum(ld(cfg, t.late, t.contract_value) for t in retro) / years
     r["ld_bundled"] = sum(ld(cfg, t.late, t.contract_value) for t in bund) / years
+    r["wc_cost"] = sum(t.wc for t in retro + bund) / years
+    r["revenue"] = sum(t.price for t in retro + bund) / years
     for name, cal in (("eng", E), ("prod", P), ("fat", F)):
         r[f"{name}_load"] = cal.used[t0:t1].sum() / cal.cap[t0:t1].sum()
     r["eng_hours"] = E.used[t0:t1].sum() * 37.5 / years
@@ -388,19 +393,20 @@ def simulate(cfg: Config, seed: int, retro_rates: dict):
     r["comment_rate_end"] = c_end
     r["prod_hours"] = P.used[t0:t1].sum() / years
 
-    # NPV: contribution at award (20 % margin + premium/discount), LDs at delivery, lever costs
+    # NPV: contribution at award (own + traded margin, + premium/discount), LDs and working
+    # capital at delivery, lever costs yearly
     npv = 0.0
     for t in retro + bund:
-        base = cs_price(cfg, ORDER_TYPES[t.otype])
-        npv += (cfg.margin * base + (t.price - base)) * disc(t.arrival)
-        npv -= ld(cfg, t.late, t.contract_value) * disc(t.ready)
+        ot = ORDER_TYPES[t.otype]
+        npv += (contribution(cfg, ot) + (t.price - cs_price(cfg, ot))) * disc(t.arrival)
+        npv -= (ld(cfg, t.late, t.contract_value) + t.wc) * disc(t.ready)
     n_ta = len(cfg.type_approved_societies)
     if n_ta:
         npv -= cfg.ta_cost_first + cfg.ta_cost_additional * (n_ta - 1)
     if cfg.fat_capacity_factor > 1.0:
         npv -= cfg.fat_extra_cost_upfront
-    stock_value = cfg.advanced_stock_sets * cfg.price_advanced * (1 - cfg.margin) * cfg.long_lead_share_of_cost
-    extra_prod_h = (cfg.prod_capacity_factor - 1.0) * cfg.prod_hours_reported / cfg.prod_load
+    stock_value = cfg.advanced_stock_sets * traded_cost(cfg, ORDER_TYPES["advanced"])
+    extra_prod_h = (cfg.prod_capacity_factor - 1.0) * prod_capacity_per_week(cfg) * 52 / cfg.prod_capacity_factor
     for y in range(int(years)):
         wk = t0 + 52 * y
         yearly = stock_value * cfg.stock_carrying_rate + extra_prod_h * cfg.prod_cost_per_hour
@@ -415,11 +421,12 @@ def simulate(cfg: Config, seed: int, retro_rates: dict):
 
 def calibrate_retrofit(cfg: Config, n_runs=40, iters=5, verbose=True):
     """Retrofit opportunities per type so that `cfg` wins `retrofit_won_target` per type."""
-    rates = {t: n / 0.6 for t, n in cfg.retrofit_won_target.items()}
+    target = retrofit_won_target(cfg)
+    rates = {t: n / 0.6 for t, n in target.items()}
     for it in range(iters):
         runs = [simulate(cfg, 9_000_000 + i, rates) for i in range(n_runs)]
         won = {t: np.mean([r[f"won_{t}"] for r in runs]) for t in rates}
-        rates = {t: rates[t] * cfg.retrofit_won_target[t] / max(won[t], 0.1) for t in rates}
+        rates = {t: rates[t] * target[t] / max(won[t], 0.05) for t in rates}
         if verbose:
             print(f"  calibration {it}: won " + ", ".join(f"{t} {won[t]:.1f}" for t in won)
                   + " -> opportunities " + ", ".join(f"{t} {rates[t]:.1f}" for t in rates), flush=True)

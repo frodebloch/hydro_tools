@@ -30,9 +30,9 @@ import math
 from dataclasses import replace
 from pathlib import Path
 
-from config import (CASE_BY_CASE, CLASS_SHARE, ORDER_TYPES, SCENARIOS, TYPE_APPROVED, cs_price,
-                    eng_capacity_per_week, eng_weeks, fat_capacity_per_week, learning_factor,
-                    prod_capacity_per_week, prod_simple_hours)
+from config import (CASE_BY_CASE, CLASS_SHARE, ORDER_TYPES, SCENARIOS, TYPE_APPROVED, bundled_per_year,
+                    contribution, cs_price, eng_capacity_per_week, eng_weeks, fat_capacity_per_week, fat_hours,
+                    learning_factor, prod_capacity_per_week, prod_hours, retrofit_won_target, traded_cost)
 from sim import win_probability
 
 OUT = Path(__file__).parent / "results"
@@ -41,8 +41,9 @@ MARK_BEGIN = "<!-- hand-check:begin"
 MARK_END = "<!-- hand-check:end -->"
 L_SPREAD = 3.0      # weeks: spread of actual quotes around the average, for express / long shares
 RHO_MAX = 0.98      # practical maximum load of a resource
-TOL = (0.67, 1.5)   # hand / model ratio regarded as "ballpark agreement"
-CHECKED = ["1 baseline", "2 +pull bundled fwd", "3 +TA DNV", "4 +1 adv. stock set", "5 +TA ABS",
+SMALL = 3.0         # MNOK: absolute tolerance on a lever's value
+STEP_TOL = 0.5      # relative tolerance on a lever's value
+CHECKED = ["1 baseline", "2 +pull bundled fwd", "3 +TA DNV", "4 +1 sensor stock set", "5 +TA ABS",
            "5b +10% prod. (not FAT)", "6 +25% FAT capacity", "7 +FAT +production"]
 
 
@@ -58,7 +59,22 @@ def class_shares(cfg, L):
 
 
 def simple_equiv(cfg, ot):
-    return ot.n_simple + cfg.advanced_to_simple * ot.n_advanced
+    return cfg.class_weight[ot.name]
+
+
+def hw_weeks(cfg, ot, from_stock=False):
+    if ot.long_lead and not from_stock:
+        return sum(cfg.sensor_hw_weeks) / 2
+    return cfg.stock_hw_weeks
+
+
+def anchor_l_min(base):
+    ot = ORDER_TYPES[base.anchor_type]
+    return l_min(base, base.anchor_type, CASE_BY_CASE, hw_weeks(base, ot))
+
+
+def today_queue(base):
+    return base.today_quote_weeks - anchor_l_min(base) - base.quote_safety_weeks - 0.5
 
 
 def resources(cfg):
@@ -66,9 +82,9 @@ def resources(cfg):
     return [
         ("engineering", {t: eng_weeks(cfg, ot) for t, ot in ORDER_TYPES.items()},
          eng_capacity_per_week(cfg), {t: ot.eng_max_rate for t, ot in ORDER_TYPES.items()}),
-        ("production", {t: simple_equiv(cfg, ot) * prod_simple_hours(cfg) for t, ot in ORDER_TYPES.items()},
+        ("production", {t: prod_hours(cfg, ot) for t, ot in ORDER_TYPES.items()},
          prod_capacity_per_week(cfg), {t: ot.prod_max_rate for t, ot in ORDER_TYPES.items()}),
-        ("FAT", {t: simple_equiv(cfg, ot) * cfg.fat_simple_hours for t, ot in ORDER_TYPES.items()},
+        ("FAT", {t: fat_hours(cfg, ot) for t, ot in ORDER_TYPES.items()},
          fat_capacity_per_week(cfg), {t: ot.fat_max_rate for t, ot in ORDER_TYPES.items()}),
     ]
 
@@ -84,7 +100,8 @@ def loads(cfg, won):
     """Formula 1 per resource: total load, retrofit load, and weight k = E[S^2] / (2 E[S])."""
     out = {}
     for name, job, cap, _ in resources(cfg):
-        lam = {t: (cfg.bundled_per_year[t] + won[t]) / 52.0 for t in ORDER_TYPES}
+        bpy = bundled_per_year(cfg)
+        lam = {t: (bpy[t] + won[t]) / 52.0 for t in ORDER_TYPES}
         s = {t: job[t] / cap for t in ORDER_TYPES}            # weeks of the whole resource
         rho = sum(lam[t] * s[t] for t in ORDER_TYPES)
         rho_r = sum(won[t] / 52.0 * s[t] for t in ORDER_TYPES)
@@ -104,47 +121,49 @@ def queue_factor(ld, pull):
 
 def queue_weeks(cfg, won, base):
     """Formula 3: today's queue scaled by the change in the queueing factor."""
-    w_today = base.today_quote_quad_weeks - l_min(base, "quad", CASE_BY_CASE, base.simple_hw_weeks) \
-        - base.quote_safety_weeks
-    f_today = queue_factor(loads(base, base.retrofit_won_target), pull=False)
+    w_today = today_queue(base)
+    f_today = queue_factor(loads(base, retrofit_won_target(base)), pull=False)
     return max(w_today, 0.0) * queue_factor(loads(cfg, won), cfg.pull_forward) / f_today
 
 
 def steady_state(cfg, opps, ta_active=True, base=None):
     """Formulas 1-5 iterated to a consistent volume / lead time."""
     ta_share = sum(CLASS_SHARE[s] for s in cfg.type_approved_societies) if ta_active else 0.0
-    hw_adv = sum(cfg.advanced_hw_weeks) / 2
+    hw_adv = sum(cfg.sensor_hw_weeks) / 2
     base = base or SCENARIOS["1 baseline"]
-    won = dict(cfg.retrofit_won_target)
+    won = dict(retrofit_won_target(cfg))
     for _ in range(40):
         Wq = queue_weeks(cfg, won, base)
         new_won, contrib, express, detail = {}, 0.0, 0.0, {}
         for t, ot in ORDER_TYPES.items():
             cases = []   # (share of opportunities, approval, hardware weeks)
             stock_share = 0.0
-            if ot.n_advanced:
+            if ot.long_lead:
                 if cfg.advanced_stock_sets:
                     per_year = cfg.advanced_stock_sets * 52.0 / hw_adv
                     stock_share = min(1.0, per_year / max(won[t], 1e-9))
             for a_share, appr in ((ta_share, TYPE_APPROVED), (1 - ta_share, CASE_BY_CASE)):
                 if a_share <= 0:
                     continue
-                if ot.n_advanced:
-                    cases.append((a_share * stock_share, appr, cfg.simple_hw_weeks))
+                if ot.long_lead:
+                    cases.append((a_share * stock_share, appr, cfg.stock_hw_weeks))
                     cases.append((a_share * (1 - stock_share), appr, hw_adv))
                 else:
-                    cases.append((a_share, appr, cfg.simple_hw_weeks))
+                    cases.append((a_share, appr, cfg.stock_hw_weeks))
             w_t = 0.0
             Ls = []
             for share, appr, hw in cases:
                 if share <= 0:
                     continue
-                L = l_min(cfg, t, appr, hw) + Wq + cfg.quote_safety_weeks
+                L = l_min(cfg, t, appr, hw) + Wq + cfg.quote_safety_weeks + 0.5   # +0.5: quotes in whole weeks
                 n = opps[t] * share * win_probability(cfg, L)
                 w_t += n
                 ex, lg = class_shares(cfg, L)
-                contrib += n * cs_price(cfg, ot) * (cfg.margin + ex * cfg.express_price_premium
-                                                    - lg * cfg.long_price_discount)
+                # contribution + express premium / long discount - working capital on traded sensors
+                # (held from arrival to delivery: about L minus engineering)
+                wc = traded_cost(cfg, ot) * cfg.discount_rate * max(L - eng_weeks(cfg, ot) / ot.eng_max_rate, 0) / 52
+                contrib += n * (contribution(cfg, ot) + cs_price(cfg, ot) * (ex * cfg.express_price_premium
+                                                                          - lg * cfg.long_price_discount) - wc)
                 express += n * ex
                 Ls.append((share, L))
             new_won[t] = w_t
@@ -166,7 +185,8 @@ def steady_state(cfg, opps, ta_active=True, base=None):
 
 
 def units_per_year(cfg, won):
-    return sum((cfg.bundled_per_year[t] + won[t]) * simple_equiv(cfg, ot) for t, ot in ORDER_TYPES.items())
+    bpy = bundled_per_year(cfg)
+    return sum((bpy[t] + won[t]) * simple_equiv(cfg, ot) for t, ot in ORDER_TYPES.items())
 
 
 def year_factors(cfg, units_rate, years):
@@ -191,8 +211,8 @@ def npv(cfg, opps):
     first = steady_state(cfg, opps, ta_active=False)
     factors = year_factors(cfg, units_per_year(cfg, first["won"]), years)
     n_ta = len(cfg.type_approved_societies)
-    stock_value = cfg.advanced_stock_sets * cfg.price_advanced * (1 - cfg.margin) * cfg.long_lead_share_of_cost
-    extra_prod_h = (cfg.prod_capacity_factor - 1.0) * cfg.prod_hours_reported / cfg.prod_load
+    stock_value = cfg.advanced_stock_sets * traded_cost(cfg, ORDER_TYPES["advanced"])
+    extra_prod_h = (cfg.prod_capacity_factor - 1.0) * prod_capacity_per_week(cfg) * 52 / cfg.prod_capacity_factor
     total, states = 0.0, []
     for y in range(years):
         d = (1 + cfg.discount_rate) ** -(y + 0.5)
@@ -222,11 +242,8 @@ def hand_opportunities(base):
     """Opportunities that give today's wins at today's quoted lead time (by hand: won / p(L))."""
     opps = {}
     for t, ot in ORDER_TYPES.items():
-        hw = sum(base.advanced_hw_weeks) / 2 if ot.n_advanced else base.simple_hw_weeks
-        w_today = base.today_quote_quad_weeks - l_min(base, "quad", CASE_BY_CASE, base.simple_hw_weeks) \
-            - base.quote_safety_weeks
-        L = l_min(base, t, CASE_BY_CASE, hw) + w_today + base.quote_safety_weeks
-        opps[t] = base.retrofit_won_target[t] / win_probability(base, L)
+        L = l_min(base, t, CASE_BY_CASE, hw_weeks(base, ot)) + today_queue(base) + base.quote_safety_weeks + 0.5
+        opps[t] = retrofit_won_target(base)[t] / win_probability(base, L)
     return opps
 
 
@@ -252,20 +269,19 @@ def main():
 
     # ---- 1. load table at baseline volumes
     L += ["## 1. Load at baseline volumes", "", "| Resource | Need/yr | Available/yr | Load ρ |", "|---|---:|---:|---:|"]
-    won0 = base.retrofit_won_target
+    won0, bpy = retrofit_won_target(base), bundled_per_year(base)
     for name, job, cap, _ in resources(base):
-        need = sum((base.bundled_per_year[t] + won0[t]) * job[t] for t in ORDER_TYPES)
+        need = sum((bpy[t] + won0[t]) * job[t] for t in ORDER_TYPES)
         unit = "eng-wk" if name == "engineering" else "h"
         L.append(f"| {name} | {need:,.0f} {unit} | {cap * 52:,.0f} {unit} | {need / (cap * 52):.0%} |")
 
     # ---- 2. minimum lead times
-    hw_adv = sum(base.advanced_hw_weeks) / 2
     L += ["", "## 2. Minimum lead time without queues (weeks)", "",
-          "| Order type | Case-by-case | Type approved | Type approved + adv. stock |", "|---|---:|---:|---:|"]
+          "| Class | Case-by-case | Type approved | Type approved + sensor stock |", "|---|---:|---:|---:|"]
     for t, ot in ORDER_TYPES.items():
-        hw = hw_adv if ot.n_advanced else base.simple_hw_weeks
+        hw = hw_weeks(base, ot)
         L.append(f"| {t} | {l_min(base, t, CASE_BY_CASE, hw):.1f} | {l_min(base, t, TYPE_APPROVED, hw):.1f} | "
-                 f"{l_min(base, t, TYPE_APPROVED, base.simple_hw_weeks):.1f} |")
+                 f"{l_min(base, t, TYPE_APPROVED, base.stock_hw_weeks):.1f} |")
     L.append(f"\nExpress limit: {base.express_max_weeks:.0f} weeks. Comments add on average "
              f"{CASE_BY_CASE.p_comments * CASE_BY_CASE.comment_weeks:.1f} weeks (case-by-case).")
 
@@ -274,10 +290,12 @@ def main():
           "| ρ/(1−ρ) | " + " | ".join(f"{r / (1 - r):.1f}" for r in (0.8, 0.85, 0.9, 0.92, 0.95)) + " |"]
 
     # ---- 4. contribution per order
-    L += ["", "## 4. Contribution per order (kNOK)", "", "| Type | Price | Contribution | Express extra |", "|---|---:|---:|---:|"]
+    L += ["", "## 4. Contribution per project (kNOK)", "",
+          "| Class | Price | Traded sensors (cost) | Contribution | Express extra |", "|---|---:|---:|---:|---:|"]
     for t, ot in ORDER_TYPES.items():
         p = cs_price(base, ot)
-        L.append(f"| {t} | {p:,.0f} | {p * base.margin:,.0f} | {p * base.express_price_premium:,.0f} |")
+        L.append(f"| {t} | {p:,.0f} | {traded_cost(base, ot):,.0f} | {contribution(base, ot):,.0f} | "
+                 f"{p * base.express_price_premium:,.0f} |")
 
     # ---- 5/6. scenarios: hand vs model
     base_npv, base_ss = npv(base, opps)
@@ -288,16 +306,15 @@ def main():
               "| Hours factor | " + " | ".join(f"{f:.2f}" for f in base_ss["factors"]) + " |",
               "", f"Learning rate {min(base.learning_rates.values()):.0%} per doubling, "
               f"{base.units_built_today:.0f} units built today, floor {base.learning_floor:.0%}."]
-    w_today = base.today_quote_quad_weeks - l_min(base, "quad", CASE_BY_CASE, base.simple_hw_weeks) \
-        - base.quote_safety_weeks
-    L += ["", f"Today's queue (anchor): quoted quad lead time {base.today_quote_quad_weeks:.0f} wk − L_min "
-          f"{l_min(base, 'quad', CASE_BY_CASE, base.simple_hw_weeks):.1f} − safety {base.quote_safety_weeks:.0f} "
+    w_today = today_queue(base)
+    L += ["", f"Today's queue (anchor): quoted {base.anchor_type} lead time {base.today_quote_weeks:.1f} wk − L_min "
+          f"{anchor_l_min(base):.1f} − safety {base.quote_safety_weeks:.0f} − rounding 0.5 "
           f"= **{w_today:.1f} weeks** of queue.",
           "", "Retrofit opportunities by hand (today's wins / p(today's lead time)): "
           + ", ".join(f"{t} {v:.0f}" for t, v in opps.items()) + f" = {sum(opps.values()):.0f} per year."]
     L += ["", "## 5–6. Scenarios: hand calculation vs model", "",
-          "| Scenario | FAT load ρ (retrofit part), 5-yr avg. | Queue [wk] hand | Quote quad [wk] hand / model | Retrofit won/yr hand / model | "
-          "Express/yr hand / model | ΔNPV [MNOK] hand / model | Ratio | Check | Step vs previous [MNOK] hand / model |",
+          "| Scenario | FAT load ρ (retrofit part), 5-yr avg. | Queue [wk] hand | Quote anchor class [wk] hand / model | Retrofit won/yr hand / model | "
+          "Express/yr hand / model | ΔNPV [MNOK] hand / model | Ratio | Step = lever value [MNOK] hand / model | Check |",
           "|---|---:|---:|---:|---:|---:|---:|---:|---|---:|"]
     prev = None
     hand_dn = {}
@@ -311,33 +328,28 @@ def main():
         q = ss["queue"]
         won = sum(ss["won"].values())
         mdn = m.get("dnpv")
-        if mdn is None or name == "1 baseline":
-            ratio, check = "–", "–"
-        elif abs(mdn) < 10 and abs(dn) < 10:
-            ratio, check = "–", "OK (both small)"
-        else:
-            r = dn / mdn if mdn else float("inf")
-            ok = TOL[0] <= r <= TOL[1]
-            n_fail += not ok
-            ratio, check = f"{r:.2f}", "OK" if ok else "**CHECK**"
         fm = lambda k, f="{:.1f}": f.format(m[k]) if k in m else "–"
         hand_dn[name] = dn
         parent = "5 +TA ABS" if name.startswith("5b") else prev
-        if parent is None:
-            step = "–"
+        ratio = f"{dn / mdn:.2f}" if mdn and abs(mdn) >= SMALL else "–"
+        if parent is None or mdn is None or parent not in model:
+            step, check = "–", "–"
         else:
-            mstep = (f"{m['dnpv'] - model[parent]['dnpv']:.1f}" if "dnpv" in m and parent in model else "–")
-            step = f"{dn - hand_dn[parent]:.1f} / {mstep}" + (" (vs 5)" if name.startswith("5b") else "")
+            h_step, m_step = dn - hand_dn[parent], mdn - model[parent]["dnpv"]
+            ok = abs(h_step - m_step) <= max(SMALL, STEP_TOL * abs(m_step))
+            n_fail += not ok
+            check = "OK" if ok else "**CHECK**"
+            step = f"{h_step:.1f} / {m_step:.1f}" + (" (vs 5)" if name.startswith("5b") else "")
         if not name.startswith("5b"):
             prev = name
         if name != "1 baseline":
-            readme_rows.append(f"| {name} | {dn:.0f} | {fm('dnpv', '{:.0f}')} | {ratio} | {check} |")
+            readme_rows.append(f"| {name} | {step} | {dn:.0f} | {fm('dnpv', '{:.0f}')} | {check} |")
         fl = ss["loads"]["FAT"]
-        L.append(f"| {name} | {fl['rho']:.0%} ({fl['rho_r']:.0%}) | {q:.1f} | {ss['L']['quad']:.0f} / {fm('quote_quad', '{:.0f}')} | "
+        L.append(f"| {name} | {fl['rho']:.0%} ({fl['rho_r']:.0%}) | {q:.1f} | {ss['L'][base.anchor_type]:.0f} / {fm('quote_' + base.anchor_type, '{:.0f}')} | "
                  f"{won:.1f} / {fm('retrofit_won')} | {ss['express']:.1f} / {fm('won_express')} | "
-                 f"{dn:.1f} / {fm('dnpv')} | {ratio} | {check} | {step} |")
-    L += ["", f"Ballpark agreement: hand/model ΔNPV ratio within {TOL[0]}–{TOL[1]}, or both below 10 MNOK.",
-          f"Scenarios outside: {n_fail}.", "",
+                 f"{dn:.1f} / {fm('dnpv')} | {ratio} | {step} | {check} |")
+    L += ["", f"Check: each lever's own value (step vs previous) by hand and by model differ by at most "
+          f"{SMALL:g} MNOK or {STEP_TOL:.0%} of the model value.", f"Steps outside: {n_fail}.", "",
           "Hand-check values are averages over the 5 years. Known simplifications: average lead time per order type (spread only assumed as",
           "±3 weeks for express share), queue anchored on today's quote and scaled, no late-delivery penalties (LDs), no approval",
           "comments in the quote (as in the model), type approval from year 2.", ""]
@@ -345,8 +357,9 @@ def main():
     (OUT / "hand_check.md").write_text("\n".join(L))
     learn = "with learning" if base.learning else "without learning"
     update_readme([f"Latest run ({learn}), ΔNPV vs baseline over 5 years [MNOK]:", "",
-                   "| Scenario | Hand | Model | Ratio | Check |", "|---|---:|---:|---:|---|",
-                   *readme_rows, "", f"Scenarios outside the band: {n_fail}."])
+                   "| Scenario | Lever value hand / model | ΔNPV hand | ΔNPV model | Check |", "|---|---:|---:|---:|---|",
+                   *readme_rows, "",
+                   f"Check: lever values agree within {SMALL:g} MNOK or {STEP_TOL:.0%}. Steps outside: {n_fail}."])
     print("\n".join(L))
     return n_fail
 

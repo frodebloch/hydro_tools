@@ -1,30 +1,35 @@
 # Scenario results (200 Monte Carlo runs, means)
 
-Retrofit opportunities calibrated so the baseline wins 20 per type per year: single 37.5, quad 43.3, package 45.8 per year.
+Retrofit opportunities calibrated so the baseline (without learning) wins today's retrofit volume: simple 59.9, medium 38.3, advanced 3.3 per year.
 
-| Metric | 0 bundled asap (ref.) | 1 baseline | 1b quote incl. comments | 2 +pull bundled fwd | 2b +adv. stock, no TA | 3 +TA DNV | 4 +1 adv. stock set | 5 +TA ABS | 5b +10% prod. (not FAT) | 6 +25% FAT capacity | 7 +FAT +production |
+| Metric | 0 bundled asap (ref.) | 1 baseline | 1b quote incl. comments | 2 +pull bundled fwd | 2b +sensor stock, no TA | 3 +TA DNV | 4 +1 sensor stock set | 5 +TA ABS | 5b +10% prod. (not FAT) | 6 +25% FAT capacity | 7 +FAT +production |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Retrofit opportunities/yr | 127 | 127 | 127 | 127 | 127 | 127 | 127 | 127 | 127 | 127 | 127 |
-| Retrofit won/yr | 78.4 | 78.6 | 69.1 | 82.8 | 82.8 | 85.3 | 85.4 | 85.7 | 85.7 | 86.2 | 86.2 |
-|   express (≤4 mo) | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 36.5 | 38.5 | 43.3 | 43.5 | 45.6 | 45.7 |
-|   standard (≤6 mo) | 72.4 | 73.3 | 41.1 | 82.4 | 82.4 | 48.5 | 46.5 | 42.0 | 41.9 | 40.6 | 40.5 |
-|   long (>6 mo) | 5.9 | 5.2 | 28.0 | 0.4 | 0.4 | 0.4 | 0.4 | 0.4 | 0.4 | 0.0 | 0.0 |
-| Median quote single [wk] | 20 | 20 | 22 | 18 | 18 | 12 | 12 | 12 | 12 | 12 | 12 |
-| Median quote quad [wk] | 23 | 23 | 26 | 22 | 22 | 16 | 16 | 16 | 16 | 16 | 16 |
-| Median quote package [wk] | 23 | 24 | 27 | 23 | 23 | 20 | 20 | 20 | 20 | 20 | 20 |
-| Retrofit late vs quote | 9% | 10% | 0% | 12% | 12% | 9% | 9% | 9% | 9% | 9% | 9% |
-| Orders with FAT rebooked | 10% | 6% | 0% | 6% | 6% | 5% | 5% | 5% | 5% | 5% | 5% |
+| Retrofit opportunities/yr | 102 | 102 | 102 | 102 | 102 | 102 | 102 | 102 | 102 | 102 | 102 |
+| Retrofit won/yr | 58.1 | 58.3 | 44.4 | 62.7 | 62.7 | 67.2 | 67.3 | 67.8 | 67.8 | 67.8 | 67.8 |
+|   express (≤4 mo) | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 21.7 | 21.8 | 24.5 | 24.5 | 25.2 | 25.2 |
+|   standard (≤6 mo) | 49.1 | 49.7 | 1.5 | 61.6 | 61.6 | 45.1 | 45.0 | 42.9 | 43.0 | 42.3 | 42.3 |
+|   long (>6 mo) | 9.0 | 8.6 | 42.8 | 1.1 | 1.1 | 0.4 | 0.4 | 0.3 | 0.3 | 0.3 | 0.3 |
+|   simple won/yr | 35.4 | 35.6 | 28.2 | 37.9 | 37.9 | 40.1 | 40.1 | 40.3 | 40.3 | 40.3 | 40.3 |
+|   medium won/yr | 20.8 | 20.8 | 14.8 | 22.7 | 22.7 | 25.0 | 25.0 | 25.2 | 25.2 | 25.2 | 25.2 |
+|   advanced (DP2) won/yr | 1.9 | 1.9 | 1.4 | 2.1 | 2.1 | 2.2 | 2.2 | 2.2 | 2.2 | 2.2 | 2.2 |
+| Median quote simple [wk] | 24 | 24 | 27 | 23 | 23 | 18 | 18 | 17 | 17 | 17 | 17 |
+| Median quote medium [wk] | 26 | 25 | 29 | 25 | 25 | 19 | 19 | 19 | 19 | 19 | 19 |
+| Median quote advanced [wk] | 25 | 25 | 29 | 24 | 24 | 22 | 21 | 20 | 20 | 20 | 20 |
+| Turnover, all projects [kNOK/yr] | 100,964 | 100,750 | 86,280 | 105,915 | 105,914 | 111,254 | 111,684 | 112,338 | 112,338 | 112,430 | 112,431 |
+| Working capital, traded sensors [kNOK/yr] | 491 | 385 | 349 | 520 | 652 | 498 | 621 | 619 | 631 | 490 | 490 |
+| Retrofit late vs quote | 11% | 12% | 0% | 13% | 13% | 11% | 11% | 11% | 11% | 11% | 11% |
+| Orders with FAT rebooked | 12% | 6% | 0% | 6% | 6% | 6% | 6% | 6% | 6% | 6% | 6% |
 | Bundled late (≥1 wk) | 0.0% | 0.0% | 0.0% | 0.0% | 0.0% | 0.0% | 0.0% | 0.0% | 0.0% | 0.0% | 0.0% |
-| LDs retrofit [kNOK/yr] | 2082 | 1955 | 0 | 1301 | 1302 | 911 | 933 | 889 | 893 | 573 | 571 |
+| LDs retrofit [kNOK/yr] | 227 | 196 | 0 | 115 | 115 | 79 | 83 | 77 | 78 | 65 | 65 |
 | LDs bundled [kNOK/yr] | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| Hours per unit after 5 yr (learning) | 0.65 | 0.65 | 0.66 | 0.64 | 0.64 | 0.64 | 0.64 | 0.64 | 0.64 | 0.64 | 0.64 |
-| Class comment rate after 5 yr | 7% | 7% | 7% | 7% | 7% | 7% | 7% | 7% | 7% | 7% | 7% |
-| Engineering load | 64% | 63% | 58% | 65% | 65% | 67% | 67% | 68% | 68% | 68% | 68% |
-| Production load | 75% | 73% | 67% | 78% | 78% | 80% | 80% | 80% | 72% | 81% | 72% |
-| FAT load | 82% | 80% | 72% | 87% | 87% | 90% | 90% | 91% | 91% | 72% | 71% |
-| **ΔNPV vs baseline [MNOK]** | **-1.0** | **0.0** | **-93.2** | **32.1** | **28.3** | **79.7** | **90.9** | **96.6** | **84.1** | **97.9** | **85.6** |
-| ΔNPV P10 / P90 [MNOK] | -12.9 / 11.1 | 0.0 / 0.0 | -107.0 / -80.6 | 14.8 / 50.3 | 10.9 / 46.4 | 62.7 / 100.3 | 73.7 / 110.1 | 79.2 / 117.1 | 66.2 / 104.4 | 77.6 / 121.3 | 64.9 / 110.2 |
-| ΔNPV vs previous step [MNOK] | – | – | -93.2 (vs 1) | 32.1 | -3.8 (vs 2) | 47.5 | 11.3 | 5.7 | -12.5 (vs 5) | 1.3 | -12.4 |
+| Hours per unit after 5 yr (learning) | 0.66 | 0.66 | 0.68 | 0.65 | 0.65 | 0.65 | 0.65 | 0.65 | 0.65 | 0.65 | 0.65 |
+| Class comment rate after 5 yr | 7% | 7% | 8% | 7% | 7% | 7% | 7% | 7% | 7% | 7% | 7% |
+| Engineering load | 61% | 61% | 55% | 63% | 63% | 65% | 65% | 66% | 66% | 66% | 66% |
+| Production load | 73% | 72% | 64% | 77% | 77% | 80% | 80% | 80% | 72% | 80% | 72% |
+| FAT load | 80% | 78% | 69% | 85% | 85% | 89% | 89% | 90% | 90% | 71% | 70% |
+| **ΔNPV vs baseline [MNOK]** | **-0.6** | **0.0** | **-15.2** | **5.8** | **1.4** | **9.9** | **6.3** | **4.6** | **-8.3** | **-3.1** | **-15.9** |
+| ΔNPV P10 / P90 [MNOK] | -2.7 / 2.1 | 0.0 / 0.0 | -18.1 / -12.4 | 3.0 / 9.3 | -1.4 / 4.8 | 6.1 / 14.3 | 2.4 / 10.9 | 0.7 / 9.3 | -12.1 / -3.5 | -7.2 / 1.7 | -20.0 / -11.1 |
+| ΔNPV vs previous step [MNOK] | – | – | -15.2 (vs 1) | 5.8 | -4.4 (vs 2) | 4.1 | -3.6 | -1.7 | -12.9 (vs 5) | -7.6 | -12.8 |
 
 NPV over 5 years after a 2-year warm-up; contribution = 20 % margin + express premium / long-lead discount, minus Orgalim LDs and lever costs. Placeholder values: see config.py.
 Main table includes learning (config.learning = True); retrofit opportunities are calibrated on today's situation without learning.
@@ -33,16 +38,16 @@ Main table includes learning (config.learning = True); retrofit opportunities ar
 
 | Scenario | ΔNPV with learning [MNOK] | ΔNPV without learning [MNOK] | Retrofit won/yr with / without |
 |---|---:|---:|---:|
-| 0 bundled asap (ref.) | -1.0 | -3.4 | 78.4 / 59.2 |
-| 1 baseline | 0.0 | 0.0 | 78.6 / 60.6 |
-| 1b quote incl. comments | -93.2 | -7.5 | 69.1 / 60.1 |
-| 2 +pull bundled fwd | 32.1 | 67.6 | 82.8 / 73.0 |
-| 2b +adv. stock, no TA | 28.3 | 63.5 | 82.8 / 73.0 |
-| 3 +TA DNV | 79.7 | 85.1 | 85.3 / 73.5 |
-| 4 +1 adv. stock set | 90.9 | 82.4 | 85.4 / 73.5 |
-| 5 +TA ABS | 96.6 | 82.6 | 85.7 / 73.5 |
-| 5b +10% prod. (not FAT) | 84.1 | 72.1 | 85.7 / 73.8 |
-| 6 +25% FAT capacity | 97.9 | 172.5 | 86.2 / 84.7 |
-| 7 +FAT +production | 85.6 | 176.4 | 86.2 / 86.0 |
+| 0 bundled asap (ref.) | -0.6 | -1.5 | 58.1 / 39.8 |
+| 1 baseline | 0.0 | 0.0 | 58.3 / 42.1 |
+| 1b quote incl. comments | -15.2 | -2.4 | 44.4 / 36.5 |
+| 2 +pull bundled fwd | 5.8 | 15.1 | 62.7 / 59.3 |
+| 2b +sensor stock, no TA | 1.4 | 10.7 | 62.7 / 59.3 |
+| 3 +TA DNV | 9.9 | 15.9 | 67.2 / 61.3 |
+| 4 +1 sensor stock set | 6.3 | 11.8 | 67.3 / 61.3 |
+| 5 +TA ABS | 4.6 | 9.5 | 67.8 / 61.5 |
+| 5b +10% prod. (not FAT) | -8.3 | -4.0 | 67.8 / 61.6 |
+| 6 +25% FAT capacity | -3.1 | 12.7 | 67.8 / 67.6 |
+| 7 +FAT +production | -15.9 | -0.0 | 67.8 / 67.7 |
 
-Learning itself (baseline with vs without): 120.4 MNOK.
+Learning itself (baseline with vs without): 16.9 MNOK.
