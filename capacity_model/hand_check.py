@@ -36,6 +36,9 @@ from config import (CASE_BY_CASE, CLASS_SHARE, ORDER_TYPES, SCENARIOS, TYPE_APPR
 from sim import win_probability
 
 OUT = Path(__file__).parent / "results"
+README = Path(__file__).parent / "README.md"
+MARK_BEGIN = "<!-- hand-check:begin"
+MARK_END = "<!-- hand-check:end -->"
 L_SPREAD = 3.0      # weeks: spread of actual quotes around the average, for express / long shares
 RHO_MAX = 0.98      # practical maximum load of a resource
 TOL = (0.67, 1.5)   # hand / model ratio regarded as "ballpark agreement"
@@ -227,6 +230,18 @@ def hand_opportunities(base):
     return opps
 
 
+def update_readme(lines):
+    """Replace the generated block between the markers in README.md (if the markers exist)."""
+    if not README.exists():
+        return
+    text = README.read_text()
+    i, j = text.find(MARK_BEGIN), text.find(MARK_END)
+    if i < 0 or j < 0:
+        return
+    i = text.index("\n", i) + 1
+    README.write_text(text[:i] + "\n".join(lines) + "\n" + text[j:])
+
+
 def main():
     model_file = OUT / "model_means.json"
     model = json.loads(model_file.read_text()) if model_file.exists() else {}
@@ -286,6 +301,7 @@ def main():
           "|---|---:|---:|---:|---:|---:|---:|---:|---|---:|"]
     prev = None
     hand_dn = {}
+    readme_rows = []
     n_fail = 0
     for name in CHECKED:
         cfg = SCENARIOS[name]
@@ -314,6 +330,8 @@ def main():
             step = f"{dn - hand_dn[parent]:.1f} / {mstep}" + (" (vs 5)" if name.startswith("5b") else "")
         if not name.startswith("5b"):
             prev = name
+        if name != "1 baseline":
+            readme_rows.append(f"| {name} | {dn:.0f} | {fm('dnpv', '{:.0f}')} | {ratio} | {check} |")
         fl = ss["loads"]["FAT"]
         L.append(f"| {name} | {fl['rho']:.0%} ({fl['rho_r']:.0%}) | {q:.1f} | {ss['L']['quad']:.0f} / {fm('quote_quad', '{:.0f}')} | "
                  f"{won:.1f} / {fm('retrofit_won')} | {ss['express']:.1f} / {fm('won_express')} | "
@@ -325,6 +343,10 @@ def main():
           "comments in the quote (as in the model), type approval from year 2.", ""]
     OUT.mkdir(exist_ok=True)
     (OUT / "hand_check.md").write_text("\n".join(L))
+    learn = "with learning" if base.learning else "without learning"
+    update_readme([f"Latest run ({learn}), ΔNPV vs baseline over 5 years [MNOK]:", "",
+                   "| Scenario | Hand | Model | Ratio | Check |", "|---|---:|---:|---:|---|",
+                   *readme_rows, "", f"Scenarios outside the band: {n_fail}."])
     print("\n".join(L))
     return n_fail
 
