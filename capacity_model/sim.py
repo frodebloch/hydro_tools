@@ -22,10 +22,11 @@ Flow of one order
   price premium <= 4 months, discount > 6 months. Advanced hardware from stock if a set is
   available (replenished after the normal lead time), otherwise ordered at award.
 * Late delivery: Orgalim LDs 0.5 %/full week, max 7.5 %; bundled on the mech + CS value.
-* Learning (from the start of the horizon): hours per unit = max(floor, (n/n0)^-b) with n the
-  cumulative simple-equivalent units completed. Implemented as capacity growing by 1/factor from
-  the current week onwards, so quotes use the performance reached so far. The class comment
-  probability falls the same way with the number of approvals.
+* Learning per product family (from the start of the horizon): hours per project =
+  max(floor, (n_eff/n_eff0)^-b) x today's hours, with n_eff = own experience + transfer x the
+  other families' experience (simple-equivalents completed). New projects are booked with the
+  current factor; when a family's factor improves, the remaining booked work of its active
+  projects is scaled down. The class comment probability falls with the number of approvals.
 """
 
 import math
@@ -35,8 +36,9 @@ import numpy as np
 
 from config import (CASE_BY_CASE, CLASS_SHARE, ORDER_TYPES, TYPE_APPROVED, Config, bundled_per_year,
                     comment_probability, contribution, cs_price, eng_capacity_per_week, eng_weeks,
-                    fat_capacity_per_week, learning_factor, prod_capacity_per_week, prod_hours,
-                    retrofit_won_target, traded_cost)
+                    experience_today, family_factors, fat_capacity_per_week, lever_cost_per_year,
+                    prod_capacity_per_week,
+                    prod_hours, retrofit_won_target, traded_cost, FAMILIES)
 
 DRAIN_WEEKS = 170
 SOCIETIES = list(CLASS_SHARE)
@@ -206,23 +208,35 @@ def simulate(cfg: Config, seed: int, retro_rates: dict):
         return ep, pp, fp
 
     active, finished, quotes = [], [], []
-    base_cap = {"eng": E.cap[0], "prod": P.cap[0], "fat": F.cap[0]}
     cals = {"eng": E, "prod": P, "fat": F}
-    n_units, n_appr = cfg.units_built_today, cfg.approvals_done_today
-    last_f = {k: 1.0 for k in cals}
+    n_fam = dict(experience_today(cfg))
+    n_appr = cfg.approvals_done_today
+    f_cur = {fam: {r: 1.0 for r in cals} for fam in FAMILIES}
+    se_today = {fam: 0.0 for fam in FAMILIES}
+    for t, n in cfg.projects_per_year.items():
+        se_today[ORDER_TYPES[t].family] += n * cfg.class_weight[ORDER_TYPES[t].cls]
 
     for w in range(t1 + DRAIN_WEEKS):
         bundled_arr, retro_arr = arrivals[w]
 
-        # ---------------- learning: capacity from this week on ----------------
+        # ---------------- learning: hours per project per family ----------------
         if cfg.learning and w >= t0:
-            for k, cal in cals.items():
-                f = learning_factor(cfg.learning_rates[k], n_units, cfg.units_built_today, cfg.learning_floor)
-                if f < last_f[k] - 1e-4:
-                    cal.cap[w:] = base_cap[k] / f
-                    last_f[k] = f
+            f_new = family_factors(cfg, n_fam)
+            for fam in FAMILIES:
+                for r, cal in cals.items():
+                    if f_new[fam][r] < f_cur[fam][r] - 1e-4:
+                        ratio = f_new[fam][r] / f_cur[fam][r]
+                        for t in active:
+                            if ORDER_TYPES[t.otype].family != fam:
+                                continue
+                            plan = getattr(t, r)
+                            for k in [k for k in plan if k > w]:
+                                cut = plan[k] * (1 - ratio)
+                                plan[k] -= cut
+                                cal.used[k] -= cut
+                        f_cur[fam][r] = f_new[fam][r]
         if w == t1 - 1:
-            f_end = min(last_f.values()) if cfg.learning else 1.0
+            f_end = {fam: f_cur[fam]["prod"] for fam in FAMILIES}
             c_end = comment_probability(cfg, CASE_BY_CASE.p_comments, n_appr)
 
         # ---------------- bundled arrivals ----------------
@@ -231,9 +245,10 @@ def simulate(cfg: Config, seed: int, retro_rates: dict):
             due = w + a["lead"]
             appr = approval_for(u[0], w)
             hw = w + (lo + u[3] * (hi - lo) if ot.long_lead else cfg.stock_hw_weeks)
-            ew = eng_weeks(cfg, ot)
-            ph = unit_hours(cfg, prod_hours(cfg, ot), a["z"])
-            fh = ph * cfg.fat_to_prod
+            fc = f_cur[ot.family]
+            ew = eng_weeks(cfg, ot) * fc["eng"]
+            ph0 = unit_hours(cfg, prod_hours(cfg, ot), a["z"])
+            ph, fh = ph0 * fc["prod"], ph0 * cfg.fat_to_prod * fc["fat"]
             plans = None
             if cfg.bundled_policy == "alap":
                 fp = F.backward(due - ship - 1, w + 2, fh, ot.fat_max_rate)
@@ -272,9 +287,10 @@ def simulate(cfg: Config, seed: int, retro_rates: dict):
                     stock_idx = avail[0]
                 else:
                     hw = w + lo + u[3] * (hi - lo)
-            ew = eng_weeks(cfg, ot)
-            ph = unit_hours(cfg, prod_hours(cfg, ot), a["z"])
-            fh = ph * cfg.fat_to_prod
+            fc = f_cur[ot.family]
+            ew = eng_weeks(cfg, ot) * fc["eng"]
+            ph0 = unit_hours(cfg, prod_hours(cfg, ot), a["z"])
+            ph, fh = ph0 * fc["prod"], ph0 * cfg.fat_to_prod * fc["fat"]
             appr_q = appr.nominal_weeks + (appr.comment_weeks if cfg.quote_comment_allowance else 0.0)
             ep, pp, fp = forward_chain(ot, w + 1, hw, ew, ph, fh, appr_q)
             L = math.ceil(end_of(fp) + ship - w + cfg.quote_safety_weeks)
@@ -341,7 +357,7 @@ def simulate(cfg: Config, seed: int, retro_rates: dict):
                 t.wc = traded_cost(cfg, ot) * cfg.discount_rate * max(t.ready - start, 0.0) / 52.0
                 finished.append(t)
                 if w >= t0:
-                    n_units += cfg.class_weight[ot.name]
+                    n_fam[ot.family] += cfg.class_weight[ot.cls]
             else:
                 still.append(t)
         active = still
@@ -389,7 +405,10 @@ def simulate(cfg: Config, seed: int, retro_rates: dict):
     for name, cal in (("eng", E), ("prod", P), ("fat", F)):
         r[f"{name}_load"] = cal.used[t0:t1].sum() / cal.cap[t0:t1].sum()
     r["eng_hours"] = E.used[t0:t1].sum() * 37.5 / years
-    r["hours_factor_end"] = f_end
+    tot = sum(se_today.values())
+    r["hours_factor_end"] = sum(f_end[f] * se_today[f] for f in FAMILIES) / tot
+    for fam in FAMILIES:
+        r[f"hours_factor_end_{fam}"] = f_end[fam]
     r["comment_rate_end"] = c_end
     r["prod_hours"] = P.used[t0:t1].sum() / years
 
@@ -405,11 +424,10 @@ def simulate(cfg: Config, seed: int, retro_rates: dict):
         npv -= cfg.ta_cost_first + cfg.ta_cost_additional * (n_ta - 1)
     if cfg.fat_capacity_factor > 1.0:
         npv -= cfg.fat_extra_cost_upfront
-    stock_value = cfg.advanced_stock_sets * traded_cost(cfg, ORDER_TYPES["advanced"])
-    extra_prod_h = (cfg.prod_capacity_factor - 1.0) * prod_capacity_per_week(cfg) * 52 / cfg.prod_capacity_factor
+    stock_value = cfg.advanced_stock_sets * traded_cost(cfg, ORDER_TYPES["b5_dp2"])
     for y in range(int(years)):
         wk = t0 + 52 * y
-        yearly = stock_value * cfg.stock_carrying_rate + extra_prod_h * cfg.prod_cost_per_hour
+        yearly = stock_value * cfg.stock_carrying_rate + lever_cost_per_year(cfg)
         if cfg.fat_capacity_factor > 1.0:
             yearly += cfg.fat_extra_cost_per_year
         if wk + 52 > ta_ready:

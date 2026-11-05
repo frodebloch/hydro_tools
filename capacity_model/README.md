@@ -46,6 +46,9 @@ Output in `results/`: `summary.md` (model table + learning sensitivity), `hand_c
 | BruCon-4 | 1 | excluded (outgoing); its share of the reported hours is removed |
 | **Total modelled** | **106** | 68 simple, 35 medium, 3 advanced |
 
+These give **5 project types (family × class)**: PTC simple (42), CMS (26), PTC medium (23),
+BruCon-5 medium (12) and BruCon-5 DP2 (3).
+
 ### Per project class
 
 | Class | Price | Traded sensors | Weight (hours vs simple) | Eng / project | Prod / project | FAT / project | Hardware |
@@ -64,6 +67,7 @@ projects**: 23,400 h engineering and 32,300 h production (USER), minus the BruCo
 |---|---|---|
 | Bundled / retrofit split | 60 % / 40 % for all classes | **PLACEHOLDER (highest priority)** |
 | Capacity | 24 engineers × 80 % × 45 wk; production load 85 %; FAT load 92 % (bottleneck) | USER / PLACEHOLDER loads |
+| Cost of extra capacity | Engineer 1.3 MNOK/yr; production 0.8 kNOK/h; FAT +25 %: 2 MNOK + 1.5 MNOK/yr | PLACEHOLDER |
 | FAT hours | 0.286 × production hours | PLACEHOLDER |
 | Class approval | Case-by-case 13 wk, 50 % comments +4 wk; type approval 6.5 wk (25 %, +2 wk) | USER / PLACEHOLDER |
 | Class share | DNV 80 %, ABS 10 %, BV 7 %, LR 3 % | USER |
@@ -72,7 +76,8 @@ projects**: 23,400 h engineering and 32,300 h production (USER), minus the BruCo
 | LDs | Orgalim, 0.5 % per full week, max 7.5 %; bundled on mech + CS value (mech 20 MNOK) | USER / PLACEHOLDER |
 | Retrofit market | Win probability flat up to ~6 months, then falling; express (≤ 4 months) +15 % price | PLACEHOLDER |
 | Bundled scheduling | As late as possible (current practice) | USER |
-| Learning | 90 % per doubling (eng, production, FAT), floor 50 %; ~60 simple-equivalents built so far | USER / PLACEHOLDER |
+| Learning | Per family (PTC, CMS, BruCon-5), 90 % per doubling, floor 50 %, 30 % transfer between families | USER |
+| Experience today | Deliveries since 2023, volume doubled to 2026: PTC ≈ 239, CMS ≈ 72, BruCon-5 ≈ 93 simple-equivalents | USER (CMS history PLACEHOLDER) |
 | Comment learning | Comment rate × 0.6 per doubling of approvals, down to 7.5 % | USER (target 5–10 %) |
 | Today's quote (anchor) | Medium retrofit quoted 29.5 wk today (= model baseline) | **PLACEHOLDER: replace with real figure** |
 
@@ -98,37 +103,40 @@ order → engineering ─┬→ class approval (comments?) ───────
   later than quoted.
 - **Contribution** = own content × own margin + traded sensors × traded margin. Working capital on
   sensors is charged from arrival to delivery.
-- **Learning**: hours per unit = max(floor, (n / n₀)^−b), with b = log₂(1 / learning rate) and n the
-  cumulative simple-equivalents completed. It is modelled as capacity growing from the current week
-  onwards, so quotes reflect the performance reached so far and more volume gives faster learning. The
-  class comment rate falls the same way with the number of approvals.
+- **Learning per family**: hours per project = today's hours × max(floor, (n_eff / n_eff,0)^−b), with
+  b = log₂(1 / learning rate) and n_eff = own experience + 0.3 × the other families' experience
+  (simple-equivalents completed). New projects are booked with the family's current factor; when the
+  factor improves, the remaining booked work of the family's active projects is scaled down. So more
+  volume in one family (e.g. DP2) makes that family learn faster. The class comment rate falls with the
+  number of approvals.
 
 ## Results (placeholders, see `results/summary.md`)
 
-Turnover about 100 MNOK a year in the baseline (about 112 MNOK with all levers). ΔNPV over 5 years
+Turnover about 95 MNOK a year in the baseline (about 110 MNOK with all levers). ΔNPV over 5 years
 against the baseline (as late as possible, case-by-case approval):
 
 | Lever | Lever value, with learning | ΔNPV vs baseline, with learning | ΔNPV vs baseline, without learning | What happens |
 |---|---:|---:|---:|---|
-| Learning itself | | +17 | | Hours fall to ~0.65× in 5 years, comments to ~7 % |
+| Learning itself | | +10 | | Hours fall to ~0.85× in 5 years (all families), comments to ~7 % |
 | 0 Bundled as early as possible | | −1 | −2 | Blocks near-term capacity |
-| 1b Quote incl. approval comments | | −15 | −2 | Every quote 4 weeks longer although comments become rare |
-| **2 Pull bundled work into idle capacity** | **+6** | +6 | +15 | Nearly free |
-| **3 + Type approval DNV** | **+4** | +10 | +16 | Express (≤ 4 months) becomes possible: ~22 express wins a year |
-| 4 + 1 sensor stock set | −4 | +6 | +12 | 6 MNOK stock for ~1 retrofit DP2 a year |
-| 5 + Type approval ABS | −2 | +5 | +10 | Only 10 % of volume |
-| 5b + 10 % production instead | −13 | −8 | −4 | Not the bottleneck |
-| 6 + 25 % FAT capacity | −8 | −3 | +13 | Only pays off without learning |
-| 7 + 10 % production as well | −13 | −16 | 0 | Not needed |
+| 1b Quote incl. approval comments | | −9 | −3 | Every quote 4 weeks longer although comments become rare |
+| **2 Pull bundled work into idle capacity** | **+12** | +12 | +15 | Nearly free; retrofit wins 52 → 63 a year |
+| **3 + Type approval DNV** | **+8** | +19 | +17 | Express (≤ 4 months) becomes possible: ~31 express wins a year |
+| 4 + 1 sensor stock set | −3 | +16 | +12 | 6 MNOK stock for ~1 retrofit DP2 a year |
+| 5 + Type approval ABS | −1 | +15 | +10 | Only 10 % of volume |
+| 5b + 10 % production instead | −13 | +1 | −4 | Not the bottleneck |
+| 6 + 25 % FAT capacity | −3 | +11 | +12 | FAT is at 100 % after step 2, but the gain does not cover the cost |
+| 7 + 10 % production as well | −13 | −1 | −1 | Not needed |
 
 Main messages at today's volume:
 
 1. **The economics are modest at today's volume** (contribution about 20 MNOK a year). Lever values are
-   single-digit MNOK; fixed capacity investments do not pay off if learning comes as expected.
-2. **Pull forward and type approval for DNV** are the levers that pay off in both cases.
-3. **FAT capacity** pays off only without learning (+13 vs −3 MNOK). Track hours per project before
-   investing.
-4. **Sensor stock does not pay off at 3 DP2 a year.** It only becomes relevant if DP2 volume grows.
+   single- to low double-digit MNOK.
+2. **Pull forward (+12) and type approval for DNV (+8)** pay off in all cases tested.
+3. **Learning is slower than first assumed**, because PTC and BruCon-5 have been delivered since 2023
+   (about 3 years of experience). Hours fall only to ~0.85× in 5 years. Learning alone does not remove the
+   FAT bottleneck.
+4. **Sensor stock does not pay off at 3 DP2 a year.**
 
 ## Case: 300 MNOK/yr retrofit on DP2
 
@@ -140,51 +148,54 @@ market (opportunities × M, linear to year 3), and finds the M each lever set ne
 
 Retrofit DP2 won per year in years 3–5, at the largest market tested (M = 40, ~120 opportunities a year):
 
-| Lever set | With learning, DP2 = 3.5× | Without learning, 3.5× | With learning, DP2 = 6× |
+| Lever set | With learning, DP2 = 3.5× | Without learning | With learning, DP2 = 6× |
 |---|---:|---:|---:|
-| A Baseline | 33 (quotes > 6 mo) | 16 | 21 |
-| B + Pull forward | 35 (quotes > 6 mo) | 16 | 23 |
-| C + TA DNV | 35 (quotes > 6 mo) | 16 | 23 |
-| D + 4 sensor stock sets | 35 (quotes > 6 mo) | 16 | 23 |
-| **E D + 25 % FAT** | **45** ✓ | 22 | 29 |
-| F D + 25 % production | 35 | 16 | 23 |
-| **G D + 25 % FAT + 25 % production** | **55** ✓ | 27 | **36** ✓ |
-| H D + 50 % FAT + 50 % production | 59 | 29 | 36 |
+| A Baseline | 22 | 16 | 14 |
+| B–D + pull forward, TA DNV, 4 sensor stock sets | 23 | 17 | 15 |
+| E D + 25 % FAT | 30 (just) | 22 | 19 |
+| G D + 25 % FAT + 25 % production | **38** ✓ (engineering 100 %) | 28 | 24 |
+| H D + 50 % FAT + 50 % production | **40** ✓ (engineering 100 %) | 30 | 24 |
+| I G + 25 % engineers | 38 ✓ | 28 | 25 |
+| **J H + 25 % engineers** | **53** ✓ | **39** ✓ | **34** ✓ (quotes > 6 mo) |
+| K H + 50 % engineers | 53 | 39 | 34 |
 
 At the market needed to hit 30 a year:
 
-| Case | Cheapest lever set that reaches 30 with quotes ≤ 6 months | Market needed (DP2 opportunities/yr) | Win rate | Loads eng / prod / FAT |
-|---|---|---:|---:|---|
-| With learning, 3.5× | **E: + 25 % FAT** | ~48 (M ≈ 15) | 65 % | 92 % / **100 %** / 86 % |
-| With learning, 6× | **G: + 25 % FAT + 25 % production** | ~58 (M ≈ 19) | 52 % | **99 %** / 93 % / 98 % |
-| Without learning | **Not reached** even with +50 % FAT and production (max ~29) | – | – | engineering becomes the limit |
+| Case | Lever set | Market needed (DP2 opportunities/yr) | Win rate | DP2 quote | Loads eng / prod / FAT | ΔNPV vs baseline at same market |
+|---|---|---:|---:|---:|---|---:|
+| With learning | G: +25 % FAT, +25 % production (minimum) | 58 (M ≈ 18) | 55 % | 24 wk | **100 % / 95 % / 100 %** | +61 MNOK |
+| With learning | H: +50 % FAT, +50 % production | 52 (M ≈ 16) | 64 % | 21 wk | **100 %** / 80 % / 86 % | +64 MNOK |
+| With learning | **J: H + 25 % engineers (robust)** | **47 (M ≈ 14)** | **68 %** | **19 wk** | 92 % / 90 % / 96 % | +41 MNOK |
+| Without learning | J: H + 25 % engineers | 55 (M ≈ 17) | 58 % | 23 wk | 99 % / 97 % / 99 % | +19 MNOK |
+| DP2 = 6× | J: H + 25 % engineers | 63 (M ≈ 19) | 48 % | 27 wk ⚠ | 100 % / 98 % / 100 % | −2 MNOK |
 
 What it takes:
 
-1. **The market must grow about 15–20×**, from ~3 to ~50–60 DP2 retrofit opportunities a year. Even with
-   all levers we win only about 2 out of 3.
-2. **FAT +25 % is necessary**, and production +25 % if DP2 is heavier than assumed. Without FAT expansion
-   the extra DP2 projects only crowd out simple and medium retrofit (59 → 48 a year), at quotes over
-   6 months.
-3. **Learning is a precondition.** Without it, engineering, production and FAT all need roughly
-   +20–55 % (see the hand check below), not just FAT.
+1. **Capacity: about +50 % FAT, +50 % production and +25 % engineering (~6 engineers).** With only
+   +25 % FAT and production the target is just reached, but engineering and FAT run at 100 %, which is
+   fragile. Without learning, or if a DP2 is heavier than assumed, the full package is needed.
+2. **The market must grow about 14–19×**, from ~3 to ~50–60 DP2 retrofit opportunities a year, and we
+   win only 1 in 2 to 2 in 3 of them.
+3. **Without capacity expansion** the extra DP2 projects only crowd out other retrofit, at quotes over
+   6 months. The maximum is then ~23 DP2 a year.
 4. **Supply chain and money:** 30 DP2 a year means about **180 MNOK of sensor purchases** a year with
    9–13 weeks lead time. Supplier capacity and working capital have to be secured.
-5. **How heavy a DP2 is in own hours** (3.5× vs 6×) decides whether production and engineering also
-   need expanding. It is the most important number to measure (hours booked on the 3 DP2 projects).
+5. **How heavy a DP2 is in own hours** (3.5× vs 6×) decides whether the case pays off (+41 vs −2 MNOK
+   for the robust lever set). Measure the hours booked on the 3 DP2 projects.
 
 **Hand check: capacity needed for 30 DP2 a year** (≈ 27 more than today):
 
-    need = today's need + 27 × hours per DP2,   then divided by the learning factor (~0.72 in years 3–5)
+    need = today's need + 27 × hours per DP2,   then × the learning factor (~0.85 in years 3–5)
 
-| Resource | Today's need | + 27 DP2 | Total | Available (98 %) | Without learning | With learning (× 0.72) |
+| Resource | Today's need | + 27 DP2 | Total | Available (98 %) | Without learning | With learning (× 0.85) |
 |---|---:|---:|---:|---:|---|---|
-| Engineering | 610 eng-wk | 27 × 14.4 = 389 | 999 | 847 | **+18 %** needed | 719, fits |
-| Production | 31,556 h | 27 × 744 = 20,088 | 51,644 | 36,382 | **+42 %** | 37,184, **+2 %** (at the limit) |
-| FAT | 9,025 h | 27 × 213 = 5,751 | 14,776 | 9,614 | **+54 %** | 10,639, **+11 %** |
+| Engineering | 610 eng-wk | 27 × 14.4 = 389 | 999 | 847 | **+18 %** | 849: **at the limit** |
+| Production | 31,556 h | 27 × 744 = 20,088 | 51,644 | 36,382 | **+42 %** | 43,900: **+21 %** |
+| FAT | 9,025 h | 27 × 213 = 5,751 | 14,776 | 9,614 | **+54 %** | 12,560: **+31 %** |
 
-This matches the model: with learning, FAT is the first constraint and production is at the limit;
-without learning, all three need large expansions.
+This matches the model. With learning, +25 % production and FAT is just enough, with engineering at its
+limit; with margin for queues (loads ≤ ~90 %), roughly +50 % FAT and production and +25 % engineering
+are needed.
 
 ## Hand check
 
@@ -271,11 +282,14 @@ This uses the same p(L) curve as the model, so the hand check verifies the model
 
 Type approval takes effect from year 2.
 
-**7. Learning**
+**7. Learning (per family)**
 
-    hours factor in year y = max(50 %, (n_y / n_0)^−0.152)       n_y = n_0 + simple-equivalents per year × (y + 0.5)
+    hours factor = max(50 %, (n_eff,y / n_eff,0)^−0.152)       n_eff = own + 0.3 × other families' experience
+    n_y = experience today + simple-equivalents per year × (y + 0.5)
 
-Capacity is divided by the factor. With n_0 = 60 at today's volume: 0.88, 0.79, 0.74, 0.71, 0.68 for years 1–5.
+Hours per project are multiplied by the factor. Experience today (from deliveries since 2023, volume
+doubled to 2026): PTC 239, CMS 72, BruCon-5 93 simple-equivalents. At today's volume all families
+give 0.97, 0.94, 0.91, 0.88, 0.86 for years 1–5.
 
 Steps 1–5 depend on each other (more wins mean higher load and longer lead times). By hand, repeat them
 2–3 times. The script iterates until the numbers settle, and caps load at 98 %.
@@ -287,15 +301,15 @@ Latest run (with learning), ΔNPV vs baseline over 5 years [MNOK]:
 
 | Scenario | Lever value hand / model | ΔNPV hand | ΔNPV model | Check |
 |---|---:|---:|---:|---|
-| 2 +pull bundled fwd | 6.1 / 5.8 | 6 | 6 | OK |
-| 3 +TA DNV | 8.7 / 4.1 | 15 | 10 | **CHECK** |
-| 4 +1 sensor stock set | -0.2 / -3.6 | 15 | 6 | **CHECK** |
-| 5 +TA ABS | -0.7 / -1.7 | 14 | 5 | OK |
-| 5b +10% prod. (not FAT) | -12.0 / -12.9 (vs 5) | 2 | -8 | OK |
-| 6 +25% FAT capacity | -7.2 / -7.6 | 7 | -3 | OK |
-| 7 +FAT +production | -11.9 / -12.8 | -5 | -16 | OK |
+| 2 +pull bundled fwd | 13.1 / 11.8 | 13 | 12 | OK |
+| 3 +TA DNV | 5.9 / 7.6 | 19 | 19 | OK |
+| 4 +1 sensor stock set | -0.4 / -3.4 | 19 | 16 | OK |
+| 5 +TA ABS | -1.2 / -1.4 | 17 | 15 | OK |
+| 5b +10% prod. (not FAT) | -11.9 / -13.1 (vs 5) | 5 | 1 | OK |
+| 6 +25% FAT capacity | -0.9 / -3.1 | 16 | 11 | OK |
+| 7 +FAT +production | -10.9 / -12.8 | 5 | -1 | OK |
 
-Check: lever values agree within 3 MNOK or 50%. Steps outside: 2.
+Check: lever values agree within 3 MNOK or 50%. Steps outside: 0.
 <!-- hand-check:end -->
 
 The hand calculation agrees with the model on load, lead times, retrofit volume and most lever values.
@@ -310,10 +324,10 @@ model = conservative end.
 - **DP2 own hours**: hours booked on the 3 DP2 projects (decides 3.5× vs 6×), and medium's weight (2×).
 - **FAT**: test hours per project, number of benches and real load. FAT is the bottleneck.
 - **Today's quoted lead time** for a retrofit (anchors the hand check).
-- **Learning**: hours per project over time, and simple-equivalents built so far (placeholder 60).
+- **Learning**: hours per project over time per family; CMS delivery history (assumed as PTC).
 - Classification of CMS and PTC – Other (assumed simple).
 - Win probability vs quoted lead time, and the size of the express premium. No quote history is
   available, so a sales-team estimate would help.
 - Market for DP2 retrofit: how many opportunities could realistically be generated.
 - Sensor suppliers' capacity, and the margin on traded sensors (20 % for now).
-- Costs of type approval, extra FAT capacity and extra production capacity.
+- Costs of type approval, extra FAT capacity, extra production capacity and extra engineers.

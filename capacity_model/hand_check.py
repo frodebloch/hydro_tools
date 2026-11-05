@@ -15,8 +15,9 @@ Calculator-level formulas, using the same inputs as the model (config.py):
                      shares from a +-3 week spread of quotes around the average lead time
   5. Win rate        won = opportunities x p(L), same p(L) curve as the model
   6. NPV             sum of yearly contribution x discount factor - lever costs
-  7. Learning        hours factor in year y = max(floor, (n_y / n_0)^-b), b = log2(1 / learning rate),
-                     n_y = units built today + units per year x (y + 0.5); capacity / factor
+  7. Learning        per family: hours factor in year y = max(floor, (n_eff,y / n_eff,0)^-b),
+                     b = log2(1 / learning rate), n_eff = own experience + 0.3 x other families',
+                     n_y = experience today + simple-equivalents per year x (y + 0.5); hours x factor
 
 More wins -> higher load -> longer lead time, so steps 1-5 are repeated until they settle
 (a few rounds by hand; the script does it automatically).
@@ -32,7 +33,8 @@ from pathlib import Path
 
 from config import (CASE_BY_CASE, CLASS_SHARE, ORDER_TYPES, SCENARIOS, TYPE_APPROVED, bundled_per_year,
                     contribution, cs_price, eng_capacity_per_week, eng_weeks, fat_capacity_per_week, fat_hours,
-                    learning_factor, prod_capacity_per_week, prod_hours, retrofit_won_target, traded_cost)
+                    experience_today, family_factors, lever_cost_per_year, prod_capacity_per_week, prod_hours, retrofit_won_target,
+                    traded_cost, FAMILIES)
 from sim import win_probability
 
 OUT = Path(__file__).parent / "results"
@@ -59,7 +61,7 @@ def class_shares(cfg, L):
 
 
 def simple_equiv(cfg, ot):
-    return cfg.class_weight[ot.name]
+    return cfg.class_weight[ot.cls]
 
 
 def hw_weeks(cfg, ot, from_stock=False):
@@ -77,29 +79,31 @@ def today_queue(base):
     return base.today_quote_weeks - anchor_l_min(base) - base.quote_safety_weeks - 0.5
 
 
-def resources(cfg):
-    """(name, job size per order type in resource units, capacity per week, max rate per order type)."""
+def resources(cfg, fac=None):
+    """(name, job size per project type in resource units, capacity per week, max rate per type).
+    fac: learning factor per family and resource (None = today's hours)."""
+    f = lambda ot, r: fac[ot.family][r] if fac else 1.0
     return [
-        ("engineering", {t: eng_weeks(cfg, ot) for t, ot in ORDER_TYPES.items()},
+        ("engineering", {t: eng_weeks(cfg, ot) * f(ot, "eng") for t, ot in ORDER_TYPES.items()},
          eng_capacity_per_week(cfg), {t: ot.eng_max_rate for t, ot in ORDER_TYPES.items()}),
-        ("production", {t: prod_hours(cfg, ot) for t, ot in ORDER_TYPES.items()},
+        ("production", {t: prod_hours(cfg, ot) * f(ot, "prod") for t, ot in ORDER_TYPES.items()},
          prod_capacity_per_week(cfg), {t: ot.prod_max_rate for t, ot in ORDER_TYPES.items()}),
-        ("FAT", {t: fat_hours(cfg, ot) for t, ot in ORDER_TYPES.items()},
+        ("FAT", {t: fat_hours(cfg, ot) * f(ot, "fat") for t, ot in ORDER_TYPES.items()},
          fat_capacity_per_week(cfg), {t: ot.fat_max_rate for t, ot in ORDER_TYPES.items()}),
     ]
 
 
-def l_min(cfg, t, appr, hw):
+def l_min(cfg, t, appr, hw, fac=None):
     """Formula 2: critical path without queues, nominal approval."""
-    res = {name: job[t] / rate[t] for name, job, _, rate in resources(cfg)}
+    res = {name: job[t] / rate[t] for name, job, _, rate in resources(cfg, fac)}
     eng, prod, fat = res["engineering"], res["production"], res["FAT"]
     return max(max(eng, hw) + prod, eng + appr.nominal_weeks) + fat + cfg.shipping_weeks
 
 
-def loads(cfg, won):
+def loads(cfg, won, fac=None):
     """Formula 1 per resource: total load, retrofit load, and weight k = E[S^2] / (2 E[S])."""
     out = {}
-    for name, job, cap, _ in resources(cfg):
+    for name, job, cap, _ in resources(cfg, fac):
         bpy = bundled_per_year(cfg)
         lam = {t: (bpy[t] + won[t]) / 52.0 for t in ORDER_TYPES}
         s = {t: job[t] / cap for t in ORDER_TYPES}            # weeks of the whole resource
@@ -119,21 +123,21 @@ def queue_factor(ld, pull):
     return tot
 
 
-def queue_weeks(cfg, won, base):
+def queue_weeks(cfg, won, base, fac=None):
     """Formula 3: today's queue scaled by the change in the queueing factor."""
     w_today = today_queue(base)
     f_today = queue_factor(loads(base, retrofit_won_target(base)), pull=False)
-    return max(w_today, 0.0) * queue_factor(loads(cfg, won), cfg.pull_forward) / f_today
+    return max(w_today, 0.0) * queue_factor(loads(cfg, won, fac), cfg.pull_forward) / f_today
 
 
-def steady_state(cfg, opps, ta_active=True, base=None):
+def steady_state(cfg, opps, ta_active=True, base=None, fac=None):
     """Formulas 1-5 iterated to a consistent volume / lead time."""
     ta_share = sum(CLASS_SHARE[s] for s in cfg.type_approved_societies) if ta_active else 0.0
     hw_adv = sum(cfg.sensor_hw_weeks) / 2
     base = base or SCENARIOS["1 baseline"]
     won = dict(retrofit_won_target(cfg))
     for _ in range(40):
-        Wq = queue_weeks(cfg, won, base)
+        Wq = queue_weeks(cfg, won, base, fac)
         new_won, contrib, express, detail = {}, 0.0, 0.0, {}
         for t, ot in ORDER_TYPES.items():
             cases = []   # (share of opportunities, approval, hardware weeks)
@@ -155,7 +159,7 @@ def steady_state(cfg, opps, ta_active=True, base=None):
             for share, appr, hw in cases:
                 if share <= 0:
                     continue
-                L = l_min(cfg, t, appr, hw) + Wq + cfg.quote_safety_weeks + 0.5   # +0.5: quotes in whole weeks
+                L = l_min(cfg, t, appr, hw, fac) + Wq + cfg.quote_safety_weeks + 0.5   # +0.5: quotes in whole weeks
                 n = opps[t] * share * win_probability(cfg, L)
                 w_t += n
                 ex, lg = class_shares(cfg, L)
@@ -169,7 +173,7 @@ def steady_state(cfg, opps, ta_active=True, base=None):
             new_won[t] = w_t
             detail[t] = sum(s * L for s, L in Ls) / sum(s for s, _ in Ls)
         # capacity cap: retrofit wins cannot push any resource above RHO_MAX
-        ld = loads(cfg, new_won)
+        ld = loads(cfg, new_won, fac)
         scale = 1.0
         for v in ld.values():
             bundled = v["rho"] - v["rho_r"]
@@ -181,27 +185,22 @@ def steady_state(cfg, opps, ta_active=True, base=None):
             new_won = {t: n * scale for t, n in new_won.items()}
         won = {t: 0.5 * won[t] + 0.5 * new_won[t] for t in won}   # damped update
     return dict(won=won, contrib=contrib, express=express, L=detail, queue=Wq,
-                loads=loads(cfg, won))
+                loads=loads(cfg, won, fac))
 
 
-def units_per_year(cfg, won):
+def se_per_year_by_family(cfg, won):
     bpy = bundled_per_year(cfg)
-    return sum((bpy[t] + won[t]) * simple_equiv(cfg, ot) for t, ot in ORDER_TYPES.items())
+    out = {f: 0.0 for f in FAMILIES}
+    for t, ot in ORDER_TYPES.items():
+        out[ot.family] += (bpy[t] + won[t]) * simple_equiv(cfg, ot)
+    return out
 
 
-def year_factors(cfg, units_rate, years):
-    """Formula 7: hours factor per year at mid-year cumulative volume."""
-    if not cfg.learning:
-        return [1.0] * years
-    rate = min(cfg.learning_rates.values())
-    return [learning_factor(rate, cfg.units_built_today + units_rate * (y + 0.5), cfg.units_built_today,
-                            cfg.learning_floor) for y in range(years)]
-
-
-def with_learning(cfg, f):
-    """Same config, capacities divided by the hours factor (lever costs still taken from cfg)."""
-    return replace(cfg, engineers=cfg.engineers / f, prod_capacity_factor=cfg.prod_capacity_factor / f,
-                   fat_capacity_factor=cfg.fat_capacity_factor / f)
+def year_factors(cfg, rate_by_family, years):
+    """Formula 7: learning factor per family and resource, per year, at mid-year experience."""
+    n0 = experience_today(cfg)
+    return [family_factors(cfg, {f: n0[f] + rate_by_family[f] * (y + 0.5) for f in FAMILIES})
+            for y in range(years)]
 
 
 def npv(cfg, opps):
@@ -209,16 +208,15 @@ def npv(cfg, opps):
     years = int(cfg.horizon_weeks / 52)
     first_year_ta = cfg.type_approval_ready_week // 52
     first = steady_state(cfg, opps, ta_active=False)
-    factors = year_factors(cfg, units_per_year(cfg, first["won"]), years)
+    factors = year_factors(cfg, se_per_year_by_family(cfg, first["won"]), years)
     n_ta = len(cfg.type_approved_societies)
-    stock_value = cfg.advanced_stock_sets * traded_cost(cfg, ORDER_TYPES["advanced"])
-    extra_prod_h = (cfg.prod_capacity_factor - 1.0) * prod_capacity_per_week(cfg) * 52 / cfg.prod_capacity_factor
+    stock_value = cfg.advanced_stock_sets * traded_cost(cfg, ORDER_TYPES["b5_dp2"])
     total, states = 0.0, []
     for y in range(years):
         d = (1 + cfg.discount_rate) ** -(y + 0.5)
-        ss = steady_state(with_learning(cfg, factors[y]), opps, ta_active=y >= first_year_ta)
+        ss = steady_state(cfg, opps, ta_active=y >= first_year_ta, fac=factors[y])
         states.append(ss)
-        cost = stock_value * cfg.stock_carrying_rate + extra_prod_h * cfg.prod_cost_per_hour
+        cost = stock_value * cfg.stock_carrying_rate + lever_cost_per_year(cfg)
         cost += cfg.fat_extra_cost_per_year if cfg.fat_capacity_factor > 1 else 0.0
         cost += cfg.ta_cost_per_year * n_ta if y >= first_year_ta else 0.0
         total += (ss["contrib"] - cost) * d
@@ -300,12 +298,16 @@ def main():
     # ---- 5/6. scenarios: hand vs model
     base_npv, base_ss = npv(base, opps)
     if base.learning:
-        L += ["", "## 7. Learning: hours factor per year (baseline volume)", "",
-              "| Year | " + " | ".join(str(y + 1) for y in range(len(base_ss["factors"]))) + " |",
-              "|---|" + "---:|" * len(base_ss["factors"]),
-              "| Hours factor | " + " | ".join(f"{f:.2f}" for f in base_ss["factors"]) + " |",
-              "", f"Learning rate {min(base.learning_rates.values()):.0%} per doubling, "
-              f"{base.units_built_today:.0f} units built today, floor {base.learning_floor:.0%}."]
+        fs = base_ss["factors"]
+        n0 = experience_today(base)
+        L += ["", "## 7. Learning: hours factor per family and year (baseline volume)", "",
+              "| Family | Experience today [simple-eq.] | " + " | ".join(f"Year {y + 1}" for y in range(len(fs))) + " |",
+              "|---|---:|" + "---:|" * len(fs)]
+        for fam in FAMILIES:
+            L.append(f"| {fam} | {n0[fam]:.0f} | " + " | ".join(f"{f[fam]['prod']:.2f}" for f in fs) + " |")
+        L += ["", f"Learning rate {min(base.learning_rates.values()):.0%} per doubling, transfer between "
+              f"families {base.learning_transfer:.0%}, floor {base.learning_floor:.0%}. Experience from deliveries since "
+              f"{base.first_year} (volume doubled to 2026)."]
     w_today = today_queue(base)
     L += ["", f"Today's queue (anchor): quoted {base.anchor_type} lead time {base.today_quote_weeks:.1f} wk − L_min "
           f"{anchor_l_min(base):.1f} − safety {base.quote_safety_weeks:.0f} − rounding 0.5 "

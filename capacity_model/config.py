@@ -5,10 +5,11 @@ Units: time in weeks, engineering in engineer-weeks (37.5 h), production/FAT in 
 
 Structure
 ---------
-* SUBTYPES: the real product sub types with their 2026 volume (projects) and class.
-* Project classes (ORDER_TYPES): simple / medium / advanced. A project's hours are
-  class weight x hours per "simple-equivalent"; the hours per simple-equivalent are calibrated
-  so that the 2026 volume reproduces the hours reported on the projects.
+* SUBTYPES: the real product sub types with their 2026 volume (projects) and project type.
+* Project types (ORDER_TYPES) = product family (PTC, CMS, BruCon-5) x class (simple / medium /
+  advanced). A project's hours are class weight x hours per "simple-equivalent"; the hours per
+  simple-equivalent are calibrated so that the 2026 volume reproduces the hours booked on the projects.
+* Learning per family, with partial transfer of experience between families.
 * Price per project is split into own content and traded (bought-in) sensors, each with its own
   margin. Traded sensors have a long lead time and tie up working capital until delivery.
 """
@@ -20,6 +21,8 @@ from dataclasses import dataclass, field, replace
 @dataclass(frozen=True)
 class OrderType:
     name: str
+    cls: str                  # simple / medium / advanced: hours weight, price, traded share
+    family: str               # learning family
     eng_max_rate: float       # max engineers in parallel on one project
     prod_max_rate: float      # max production hours/week on one project
     fat_max_rate: float       # max FAT hours/week on one project
@@ -27,31 +30,44 @@ class OrderType:
     n_mech: int = 1           # mechanical units in the same (bundled) contract, PLACEHOLDER
 
 
-ORDER_TYPES = {
-    "simple": OrderType("simple", eng_max_rate=1.0, prod_max_rate=75.0, fat_max_rate=37.5, long_lead=False),
-    "medium": OrderType("medium", eng_max_rate=2.0, prod_max_rate=150.0, fat_max_rate=37.5, long_lead=False),
-    "advanced": OrderType("advanced", eng_max_rate=3.0, prod_max_rate=225.0, fat_max_rate=75.0, long_lead=True),
-}
+_RATES = {"simple": (1.0, 75.0, 37.5), "medium": (2.0, 150.0, 37.5), "advanced": (3.0, 225.0, 75.0)}
 
-# USER: 2026 projects (to date + planned) per sub type and class. BruCon-4 is outgoing -> excluded.
+
+def _ot(name, cls, family):
+    e, p, f = _RATES[cls]
+    return OrderType(name, cls, family, eng_max_rate=e, prod_max_rate=p, fat_max_rate=f,
+                     long_lead=(cls == "advanced"))
+
+
+ORDER_TYPES = {
+    "ptc_simple": _ot("ptc_simple", "simple", "PTC"),
+    "cms": _ot("cms", "simple", "CMS"),
+    "ptc_medium": _ot("ptc_medium", "medium", "PTC"),
+    "b5_medium": _ot("b5_medium", "medium", "BruCon-5"),
+    "b5_dp2": _ot("b5_dp2", "advanced", "BruCon-5"),
+}
+FAMILIES = ("PTC", "CMS", "BruCon-5")
+
+# USER: 2026 projects per sub type: (project type, delivered to date, planned rest of year).
+# BruCon-4 is outgoing -> excluded.
 SUBTYPES = {
-    "PTC - Thruster": ("simple", 36),
-    "CMS": ("simple", 26),                    # class assumed
-    "PTC - Other": ("simple", 6),             # class assumed
-    "PTC - Shaft propulsion": ("medium", 18),
-    "BruCon-5 DP0": ("medium", 7),
-    "PTC - Azimuth propulsion": ("medium", 5),
-    "BruCon-5 JS": ("medium", 3),
-    "BruCon-5 AC": ("medium", 2),
-    "BruCon-5 DP2": ("advanced", 3),
+    "PTC - Thruster": ("ptc_simple", 27, 9),
+    "PTC - Other": ("ptc_simple", 3, 3),          # class assumed
+    "CMS": ("cms", 22, 4),                        # own family, simple (mainly software setup)
+    "PTC - Shaft propulsion": ("ptc_medium", 15, 3),
+    "PTC - Azimuth propulsion": ("ptc_medium", 5, 0),
+    "BruCon-5 DP0": ("b5_medium", 4, 3),
+    "BruCon-5 JS": ("b5_medium", 2, 1),
+    "BruCon-5 AC": ("b5_medium", 2, 0),
+    "BruCon-5 DP2": ("b5_dp2", 3, 0),
 }
 EXCLUDED_FROM_HOURS = {"BruCon-4": ("advanced", 1)}   # hours booked in 2026, removed from calibration
 
 
-def class_volumes():
-    vol = {c: 0 for c in ORDER_TYPES}
-    for cls, n in SUBTYPES.values():
-        vol[cls] += n
+def type_volumes():
+    vol = {t: 0 for t in ORDER_TYPES}
+    for t, done, planned in SUBTYPES.values():
+        vol[t] += done + planned
     return vol
 
 
@@ -80,11 +96,11 @@ class Config:
     seed: int = 1
 
     # --- volumes per year (projects) ---
-    projects_per_year: dict = field(default_factory=class_volumes)                 # USER (2026)
-    retrofit_share: dict = field(default_factory=lambda: {"simple": 0.4, "medium": 0.4, "advanced": 0.4})  # PLACEHOLDER
+    projects_per_year: dict = field(default_factory=type_volumes)                  # USER (2026)
+    retrofit_share: dict = field(default_factory=lambda: {t: 0.4 for t in ORDER_TYPES})  # PLACEHOLDER
     bundled_lead_weeks: tuple = (52.0, 156.0)   # USER: 1-3 years
     # market growth: retrofit opportunities per class x multiplier, ramped linearly over ramp_weeks
-    retrofit_ramp: dict = field(default_factory=dict)   # e.g. {"advanced": 10}
+    retrofit_ramp: dict = field(default_factory=dict)   # e.g. {"b5_dp2": 10}
     ramp_weeks: int = 156                       # reached by year 3
 
     # --- hours per project: class weight x hours per simple-equivalent (calibrated) ---
@@ -97,6 +113,8 @@ class Config:
     # --- capacity ---
     engineers: float = 24.0                     # USER
     availability: float = 0.80                  # USER
+    eng_capacity_factor: float = 1.0            # lever: 1.25 = +25 % engineers
+    engineer_cost_per_year: float = 1300.0      # PLACEHOLDER kNOK per extra engineer (fully loaded)
     working_weeks: float = 45.0                 # per year after holidays (assumption)
     prod_load: float = 0.85                     # PLACEHOLDER: reported / available hours
     prod_capacity_factor: float = 1.0           # lever
@@ -126,7 +144,7 @@ class Config:
     max_quote_weeks: float = 52.0
     quote_safety_weeks: float = 1.0
     quote_comment_allowance: bool = False       # quote approval incl. the comment loop
-    anchor_type: str = "medium"                 # hand check anchor
+    anchor_type: str = "ptc_medium"             # hand check anchor
     today_quote_weeks: float = 29.5             # PLACEHOLDER (= model baseline today): replace with the real quoted lead time, medium retrofit
 
     # --- class approval ---
@@ -141,7 +159,11 @@ class Config:
     learning: bool = True
     learning_rates: dict = field(default_factory=lambda: {"eng": 0.90, "prod": 0.90, "fat": 0.90})  # USER
     learning_floor: float = 0.50                # USER: hours can fall to 50 % of today at best
-    units_built_today: float = 60.0             # PLACEHOLDER: simple-equivalents built so far (~0.4 yr)
+    # experience per family = simple-equivalents built so far, from the delivery history:
+    first_year: int = 2023                      # USER: BruCon-5 and PTC delivered since 2023
+    growth_since_first_year: dict = field(default_factory=lambda: {"PTC": 2.0, "CMS": 2.0, "BruCon-5": 2.0})
+                                                # USER: volume doubled 2023 -> 2026 (CMS: PLACEHOLDER)
+    learning_transfer: float = 0.30             # USER: experience from other families counts 30 %
     comment_learning_rate: float = 0.60         # comment rate x0.6 per doubling of approvals (USER: "fast")
     comment_floor: float = 0.075                # USER: 5-10 % realistic target
     approvals_done_today: float = 40.0          # PLACEHOLDER: projects approved so far
@@ -171,12 +193,12 @@ def retrofit_won_target(cfg: Config) -> dict:
 
 
 def simple_equiv(cfg: Config, t: str) -> float:
-    return cfg.class_weight[t]
+    return cfg.class_weight[ORDER_TYPES[t].cls]
 
 
 def workload_se(cfg: Config) -> float:
     """Simple-equivalents per year at today's volume."""
-    return sum(n * cfg.class_weight[t] for t, n in cfg.projects_per_year.items())
+    return sum(n * cfg.class_weight[ORDER_TYPES[t].cls] for t, n in cfg.projects_per_year.items())
 
 
 def _scope(cfg: Config) -> float:
@@ -195,12 +217,12 @@ def prod_hours_per_se(cfg: Config) -> float:
 
 
 def eng_weeks(cfg: Config, ot: OrderType) -> float:
-    return eng_hours_per_se(cfg) * cfg.class_weight[ot.name] / 37.5
+    return eng_hours_per_se(cfg) * cfg.class_weight[ot.cls] / 37.5
 
 
 def prod_hours(cfg: Config, ot: OrderType) -> float:
     """Mean production hours per project."""
-    return prod_hours_per_se(cfg) * cfg.class_weight[ot.name]
+    return prod_hours_per_se(cfg) * cfg.class_weight[ot.cls]
 
 
 def fat_hours(cfg: Config, ot: OrderType) -> float:
@@ -208,7 +230,7 @@ def fat_hours(cfg: Config, ot: OrderType) -> float:
 
 
 def eng_capacity_per_week(cfg: Config) -> float:
-    return cfg.engineers * cfg.availability * cfg.working_weeks / 52.0
+    return cfg.engineers * cfg.availability * cfg.working_weeks / 52.0 * cfg.eng_capacity_factor
 
 
 def prod_capacity_per_week(cfg: Config) -> float:
@@ -220,24 +242,64 @@ def fat_capacity_per_week(cfg: Config) -> float:
 
 
 def cs_price(cfg: Config, ot: OrderType) -> float:
-    return cfg.price[ot.name]
+    return cfg.price[ot.cls]
+
+
+def lever_cost_per_year(cfg: Config) -> float:
+    """Yearly cost of extra production and engineering capacity (FAT, stock and TA handled separately)."""
+    extra_prod_h = (cfg.prod_capacity_factor - 1.0) * prod_capacity_per_week(cfg) * 52 / cfg.prod_capacity_factor
+    extra_eng = (cfg.eng_capacity_factor - 1.0) * cfg.engineers
+    return extra_prod_h * cfg.prod_cost_per_hour + extra_eng * cfg.engineer_cost_per_year
 
 
 def contribution(cfg: Config, ot: OrderType, price: float = None) -> float:
     """Contribution of a project: own part x own margin + traded part x traded margin."""
-    p = cfg.price[ot.name] if price is None else price
-    s = cfg.traded_share[ot.name]
+    p = cfg.price[ot.cls] if price is None else price
+    s = cfg.traded_share[ot.cls]
     return p * ((1 - s) * cfg.margin_own + s * cfg.margin_traded)
 
 
 def traded_cost(cfg: Config, ot: OrderType) -> float:
-    return cfg.price[ot.name] * cfg.traded_share[ot.name] * (1 - cfg.margin_traded)
+    return cfg.price[ot.cls] * cfg.traded_share[ot.cls] * (1 - cfg.margin_traded)
 
 
 def learning_factor(rate: float, n: float, n0: float, floor: float) -> float:
     """Hours per unit relative to today after n cumulative units (n0 today): max(floor, (n/n0)^-b)."""
     b = -math.log2(rate)
     return max(floor, (max(n, n0) / n0) ** (-b))
+
+
+def experience_today(cfg: Config) -> dict:
+    """Simple-equivalents built per family: years since first_year at constant growth, plus 2026 to date."""
+    yr26 = {f: 0.0 for f in FAMILIES}
+    to_date = {f: 0.0 for f in FAMILIES}
+    for t, done, planned in SUBTYPES.values():
+        ot = ORDER_TYPES[t]
+        w = cfg.class_weight[ot.cls]
+        yr26[ot.family] += (done + planned) * w
+        to_date[ot.family] += done * w
+    n_years = 2026 - cfg.first_year
+    out = {}
+    for f in FAMILIES:
+        g = cfg.growth_since_first_year[f] ** (1 / n_years)
+        out[f] = yr26[f] * sum(g ** -k for k in range(1, n_years + 1)) + to_date[f]
+    return out
+
+
+def effective_experience(cfg: Config, n: dict) -> dict:
+    """Own experience + learning_transfer x experience of the other families."""
+    tot = sum(n.values())
+    return {f: n[f] + cfg.learning_transfer * (tot - n[f]) for f in n}
+
+
+def family_factors(cfg: Config, n: dict) -> dict:
+    """Hours factor per family and resource given experience n (simple-equivalents per family)."""
+    if not cfg.learning:
+        return {f: {r: 1.0 for r in cfg.learning_rates} for f in FAMILIES}
+    e0 = effective_experience(cfg, experience_today(cfg))
+    e = effective_experience(cfg, n)
+    return {f: {r: learning_factor(rate, e[f], e0[f], cfg.learning_floor) for r, rate in cfg.learning_rates.items()}
+            for f in FAMILIES}
 
 
 def comment_probability(cfg: Config, p0: float, n_approvals: float) -> float:

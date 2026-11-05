@@ -11,7 +11,7 @@ from pathlib import Path
 
 import numpy as np
 
-from config import SCENARIOS
+from config import FAMILIES, ORDER_TYPES, SCENARIOS
 import hand_check
 from sim import calibrate_retrofit, simulate
 
@@ -24,12 +24,8 @@ COLUMNS = [
     ("won_express", "  express (≤4 mo)", "{:.1f}"),
     ("won_standard", "  standard (≤6 mo)", "{:.1f}"),
     ("won_long", "  long (>6 mo)", "{:.1f}"),
-    ("won_simple", "  simple won/yr", "{:.1f}"),
-    ("won_medium", "  medium won/yr", "{:.1f}"),
-    ("won_advanced", "  advanced (DP2) won/yr", "{:.1f}"),
-    ("quote_simple", "Median quote simple [wk]", "{:.0f}"),
-    ("quote_medium", "Median quote medium [wk]", "{:.0f}"),
-    ("quote_advanced", "Median quote advanced [wk]", "{:.0f}"),
+    *[(f"won_{t}", f"  {t} won/yr", "{:.1f}") for t in ORDER_TYPES],
+    *[(f"quote_{t}", f"Median quote {t} [wk]", "{:.0f}") for t in ORDER_TYPES],
     ("revenue", "Turnover, all projects [kNOK/yr]", "{:,.0f}"),
     ("wc_cost", "Working capital, traded sensors [kNOK/yr]", "{:.0f}"),
     ("retrofit_late_share", "Retrofit late vs quote", "{:.0%}"),
@@ -37,7 +33,8 @@ COLUMNS = [
     ("bundled_late_share", "Bundled late (≥1 wk)", "{:.1%}"),
     ("ld_retrofit", "LDs retrofit [kNOK/yr]", "{:.0f}"),
     ("ld_bundled", "LDs bundled [kNOK/yr]", "{:.0f}"),
-    ("hours_factor_end", "Hours per unit after 5 yr (learning)", "{:.2f}"),
+    ("hours_factor_end", "Hours per project after 5 yr (learning, avg.)", "{:.2f}"),
+    *[(f"hours_factor_end_{f}", f"  {f}", "{:.2f}") for f in FAMILIES],
     ("comment_rate_end", "Class comment rate after 5 yr", "{:.0%}"),
     ("eng_load", "Engineering load", "{:.0%}"),
     ("prod_load", "Production load", "{:.0%}"),
@@ -161,13 +158,13 @@ def sweep_demand(n_runs, rates):
             rr = [simulate(SCENARIOS[name], 7_000_000 + i, {t: v * m for t, v in rates.items()})
                   for i in range(n_runs)]
             won.append(np.mean([r["retrofit_won"] / r["retrofit_opps"] for r in rr]))
-            lead.append(np.nanmean([r["quote_medium"] for r in rr]))
+            lead.append(np.nanmean([r["quote_ptc_medium"] for r in rr]))
             fat.append(np.mean([r["fat_load"] for r in rr]))
         ax[0].plot(mults, won, "o-", label=name)
         ax[1].plot(mults, lead, "o-", label=name)
         ax[2].plot(mults, fat, "o-", label=name)
     ax[0].set_ylabel("Share of retrofit opportunities won")
-    ax[1].set_ylabel("Median quoted lead time, medium [weeks]")
+    ax[1].set_ylabel("Median quoted lead time, PTC medium [weeks]")
     ax[1].axhline(26, ls="--", color="grey")
     ax[1].axhline(17, ls=":", color="grey")
     ax[2].set_ylabel("FAT load")

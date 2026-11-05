@@ -22,7 +22,7 @@ from config import BASE, ORDER_TYPES, cs_price, retrofit_won_target, traded_cost
 from sim import simulate
 
 OUT = Path(__file__).parent / "results"
-T = "advanced"
+T = "b5_dp2"
 TARGET = 30.0                      # retrofit DP2 projects per year (300 MNOK / 10 MNOK)
 YEARS = (3, 4, 5)
 GRID = [1, 5, 10, 20, 30, 40]
@@ -39,6 +39,9 @@ LEVERS = {
     "F D + 25% production": replace(STOCK, prod_capacity_factor=1.25),
     "G D + 25% FAT + 25% production": replace(STOCK, fat_capacity_factor=1.25, prod_capacity_factor=1.25),
     "H G + 50% FAT + 50% production": replace(STOCK, fat_capacity_factor=1.5, prod_capacity_factor=1.5),
+    "I G + 25% engineers": replace(STOCK, fat_capacity_factor=1.25, prod_capacity_factor=1.25, eng_capacity_factor=1.25),
+    "J H + 25% engineers": replace(STOCK, fat_capacity_factor=1.5, prod_capacity_factor=1.5, eng_capacity_factor=1.25),
+    "K H + 50% engineers": replace(STOCK, fat_capacity_factor=1.5, prod_capacity_factor=1.5, eng_capacity_factor=1.5),
 }
 
 
@@ -53,8 +56,8 @@ def run(cfg, M, rates, n_runs, seed0=500_000):
     out["won_y35"] = float(np.mean([avg_y(r, f"won_{T}") for r in rr]))
     out["opps_y35"] = float(np.mean([avg_y(r, f"opps_{T}") for r in rr]))
     out["quote_y35"] = float(np.nanmean([avg_y(r, f"quote_{T}") for r in rr]))
-    out["other_won_y35"] = float(np.mean([avg_y(r, "won_simple") + avg_y(r, "won_medium") for r in rr]))
-    out["medium_quote_y35"] = float(np.nanmean([avg_y(r, "quote_medium") for r in rr]))
+    out["other_won_y35"] = float(np.mean([sum(avg_y(r, f"won_{o}") for o in ORDER_TYPES if o != T) for r in rr]))
+    out["medium_quote_y35"] = float(np.nanmean([avg_y(r, "quote_ptc_medium") for r in rr]))
     for res in ("eng", "prod", "fat"):
         out[f"{res}_load_y35"] = float(np.mean([avg_y(r, f"{res}_load") for r in rr]))
     out["npv_runs"] = [r["npv"] for r in rr]
@@ -76,7 +79,7 @@ def main(n_runs, learning=True, dp2_weight=None):
     suffix = ("" if learning else "_no_learning") + (f"_w{dp2_weight:g}" if dp2_weight else "")
     over = dict(learning=learning)
     if dp2_weight:
-        over["class_weight"] = {**BASE.class_weight, T: dp2_weight}
+        over["class_weight"] = {**BASE.class_weight, "advanced": dp2_weight}
     LEVERS = {k: replace(v, **over) for k, v in LEVERS.items()}
     base = LEVERS["A baseline"]
     rates = json.loads((OUT / "calibration.json").read_text())
@@ -97,14 +100,14 @@ def main(n_runs, learning=True, dp2_weight=None):
     base_at = {name: run(base, M, rates, n_runs) for name, (M, _) in at.items()}
 
     today = retrofit_won_target(base)[T]
-    w = base.class_weight[T]
+    w = base.class_weight[ORDER_TYPES[T].cls]
     sensors = TARGET * traded_cost(base, ot) / 1000
     L = ["# What it takes: 300 MNOK/yr retrofit on advanced (DP2) projects", "",
          f"Target: **{TARGET:.0f} retrofit DP2 projects per year in years 3–5** (= {TARGET * price:.0f} MNOK). "
          f"Today: {base.projects_per_year[T]} DP2 per year in total, ≈ {today:.1f} retrofit "
          f"(retrofit share {base.retrofit_share[T]:.0%}, placeholder), from ≈ {rates[T]:.1f} opportunities.", "",
          f"Assumptions: DP2 = {w:g} × a simple project in own hours; traded sensors "
-         f"{base.traded_share[T]:.0%} of the price ({sensors:.0f} MNOK/yr of sensor purchases at the target), "
+         f"{base.traded_share[ORDER_TYPES[T].cls]:.0%} of the price ({sensors:.0f} MNOK/yr of sensor purchases at the target), "
          f"{base.sensor_hw_weeks[0]:.0f}–{base.sensor_hw_weeks[1]:.0f} weeks lead time. "
          + ("With learning." if learning else "**Without learning.**")
          + f" DP2 market × M reached linearly by year 3; other volumes unchanged. {n_runs} runs per point.", "",
@@ -115,8 +118,8 @@ def main(n_runs, learning=True, dp2_weight=None):
         L.append(f"| {name} | " + " | ".join(f"{curves[name][M]['won_y35']:.1f}" for M in GRID) + " |")
 
     L += ["", "## At the market needed to reach the target", "",
-          "| Lever set | Market M | DP2 opps/yr | Win rate | DP2 quote [wk] | Medium quote [wk] | "
-          "Load eng / prod / FAT | Simple+medium retrofit won/yr | Bundled late | ΔNPV vs baseline at same market [MNOK] |",
+          "| Lever set | Market M | DP2 opps/yr | Win rate | DP2 quote [wk] | PTC medium quote [wk] | "
+          "Load eng / prod / FAT | Other retrofit won/yr | Bundled late | ΔNPV vs baseline at same market [MNOK] |",
           "|---|---:|---:|---:|---:|---:|---|---:|---:|---:|"]
     ref_other = curves["A baseline"][GRID[0]]["other_won_y35"]
     for name, (M, o) in at.items():
