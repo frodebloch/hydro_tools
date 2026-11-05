@@ -6,11 +6,13 @@ Output: results/summary.md, results/scenarios.png, results/demand_sweep.png
 
 import json
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 
 from config import SCENARIOS
+import hand_check
 from sim import calibrate_retrofit, simulate
 
 OUT = Path(__file__).parent / "results"
@@ -30,15 +32,18 @@ COLUMNS = [
     ("bundled_late_share", "Bundled late (≥1 wk)", "{:.1%}"),
     ("ld_retrofit", "LDs retrofit [kNOK/yr]", "{:.0f}"),
     ("ld_bundled", "LDs bundled [kNOK/yr]", "{:.0f}"),
+    ("hours_factor_end", "Hours per unit after 5 yr (learning)", "{:.2f}"),
+    ("comment_rate_end", "Class comment rate after 5 yr", "{:.0%}"),
     ("eng_load", "Engineering load", "{:.0%}"),
     ("prod_load", "Production load", "{:.0%}"),
     ("fat_load", "FAT load", "{:.0%}"),
 ]
 
 
-def run_all(n_runs, rates):
+def run_all(n_runs, rates, **override):
     res = {}
     for name, cfg in SCENARIOS.items():
+        cfg = replace(cfg, **override)
         runs = [simulate(cfg, cfg.seed * 100000 + i, rates) for i in range(n_runs)]
         res[name] = {k: np.array([r[k] for r in runs]) for k in runs[0]}
         print(f"  {name:28s} done", flush=True)
@@ -62,7 +67,21 @@ def incremental(res, names):
     return out
 
 
-def write_summary(res, n_runs, rates):
+def learning_table(res, res_nl):
+    names = list(res)
+    L = ["", "## Sensitivity: with vs without learning", "",
+         "| Scenario | ΔNPV with learning [MNOK] | ΔNPV without learning [MNOK] | Retrofit won/yr with / without |",
+         "|---|---:|---:|---:|"]
+    b, bn = res[BASELINE]["npv"], res_nl[BASELINE]["npv"]
+    for n in names:
+        L.append(f"| {n} | {(res[n]['npv'] - b).mean() / 1000:.1f} | {(res_nl[n]['npv'] - bn).mean() / 1000:.1f} | "
+                 f"{res[n]['retrofit_won'].mean():.1f} / {res_nl[n]['retrofit_won'].mean():.1f} |")
+    L.append(f"\nLearning itself (baseline with vs without): "
+             f"{(res[BASELINE]['npv'].mean() - res_nl[BASELINE]['npv'].mean()) / 1000:.1f} MNOK.")
+    return L
+
+
+def write_summary(res, n_runs, rates, extra=()):
     names = list(res)
     base = res[BASELINE]["npv"]
     L = [f"# Scenario results ({n_runs} Monte Carlo runs, means)", "",
@@ -78,8 +97,15 @@ def write_summary(res, n_runs, rates):
         f"{np.percentile(d[n], 10):.1f} / {np.percentile(d[n], 90):.1f}" for n in names) + " |")
     L.append("| ΔNPV vs previous step [MNOK] | " + " | ".join(incremental(res, names)) + " |")
     L += ["", "NPV over 5 years after a 2-year warm-up; contribution = 20 % margin + express premium / "
-          "long-lead discount, minus Orgalim LDs and lever costs. Placeholder values: see config.py.", ""]
+          "long-lead discount, minus Orgalim LDs and lever costs. Placeholder values: see config.py.",
+          "Main table includes learning (config.learning = True); retrofit opportunities are calibrated on "
+          "today's situation without learning."]
+    L += list(extra) + [""]
     (OUT / "summary.md").write_text("\n".join(L))
+    means = {n: {k: float(np.nanmean(v)) for k, v in res[n].items()} for n in names}
+    for n in names:
+        means[n]["dnpv"] = float(d[n].mean())
+    (OUT / "model_means.json").write_text(json.dumps(means, indent=1))
     print("\n".join(L))
 
 
@@ -153,10 +179,14 @@ if __name__ == "__main__":
     n = int(sys.argv[1]) if len(sys.argv) > 1 else 200
     OUT.mkdir(exist_ok=True)
     print("Calibrating retrofit opportunities on the baseline ...")
-    rates = calibrate_retrofit(SCENARIOS[BASELINE])
+    rates = calibrate_retrofit(replace(SCENARIOS[BASELINE], learning=False))
     (OUT / "calibration.json").write_text(json.dumps(rates, indent=2))
     res = run_all(n, rates)
-    write_summary(res, n, rates)
+    print("Without learning ...")
+    res_nl = run_all(max(50, n // 2), rates, learning=False)
+    write_summary(res, n, rates, extra=learning_table(res, res_nl))
     plots(res)
     print("Demand sweep ...")
     sweep_demand(max(20, n // 5), rates)
+    print("Hand check ...")
+    hand_check.main()

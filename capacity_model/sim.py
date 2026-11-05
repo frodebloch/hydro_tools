@@ -22,6 +22,10 @@ Flow of one order
   price premium <= 4 months, discount > 6 months. Advanced hardware from stock if a set is
   available (replenished after the normal lead time), otherwise ordered at award.
 * Late delivery: Orgalim LDs 0.5 %/full week, max 7.5 %; bundled on the mech + CS value.
+* Learning (from the start of the horizon): hours per unit = max(floor, (n/n0)^-b) with n the
+  cumulative simple-equivalent units completed. Implemented as capacity growing by 1/factor from
+  the current week onwards, so quotes use the performance reached so far. The class comment
+  probability falls the same way with the number of approvals.
 """
 
 import math
@@ -29,9 +33,9 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from config import (CASE_BY_CASE, CLASS_SHARE, ORDER_TYPES, TYPE_APPROVED, Config, cs_price,
-                    eng_capacity_per_week, eng_weeks, fat_capacity_per_week, prod_capacity_per_week,
-                    prod_simple_hours)
+from config import (CASE_BY_CASE, CLASS_SHARE, ORDER_TYPES, TYPE_APPROVED, Config, comment_probability,
+                    cs_price, eng_capacity_per_week, eng_weeks, fat_capacity_per_week, learning_factor,
+                    prod_capacity_per_week, prod_simple_hours)
 
 DRAIN_WEEKS = 170
 SOCIETIES = list(CLASS_SHARE)
@@ -196,9 +200,24 @@ def simulate(cfg: Config, seed: int, retro_rates: dict):
         return ep, pp, fp
 
     active, finished, quotes = [], [], []
+    base_cap = {"eng": E.cap[0], "prod": P.cap[0], "fat": F.cap[0]}
+    cals = {"eng": E, "prod": P, "fat": F}
+    n_units, n_appr = cfg.units_built_today, cfg.approvals_done_today
+    last_f = {k: 1.0 for k in cals}
 
     for w in range(t1 + DRAIN_WEEKS):
         bundled_arr, retro_arr = arrivals[w]
+
+        # ---------------- learning: capacity from this week on ----------------
+        if cfg.learning and w >= t0:
+            for k, cal in cals.items():
+                f = learning_factor(cfg.learning_rates[k], n_units, cfg.units_built_today, cfg.learning_floor)
+                if f < last_f[k] - 1e-4:
+                    cal.cap[w:] = base_cap[k] / f
+                    last_f[k] = f
+        if w == t1 - 1:
+            f_end = min(last_f.values()) if cfg.learning else 1.0
+            c_end = comment_probability(cfg, CASE_BY_CASE.p_comments, n_appr)
 
         # ---------------- bundled arrivals ----------------
         for a in bundled_arr:
@@ -301,12 +320,18 @@ def simulate(cfg: Config, seed: int, retro_rates: dict):
         still = []
         for t in active:
             if t.appr_end is None and max(t.eng) <= w:
-                extra = t.approval.comment_weeks if t.u[2] < t.approval.p_comments else 0.0
+                p_c = comment_probability(cfg, t.approval.p_comments, n_appr) if w >= t0 else t.approval.p_comments
+                if w >= t0:
+                    n_appr += 1
+                extra = t.approval.comment_weeks if t.u[2] < p_c else 0.0
                 t.appr_end = end_of(t.eng) + t.approval.nominal_weeks + extra
             if max(t.fat) <= w and t.appr_end is not None:
                 t.ready = end_of(t.fat) + ship
                 t.late = max(0.0, t.ready - t.due)
                 finished.append(t)
+                if w >= t0:
+                    ot = ORDER_TYPES[t.otype]
+                    n_units += ot.n_simple + cfg.advanced_to_simple * ot.n_advanced
             else:
                 still.append(t)
         active = still
@@ -339,6 +364,8 @@ def simulate(cfg: Config, seed: int, retro_rates: dict):
     for name, cal in (("eng", E), ("prod", P), ("fat", F)):
         r[f"{name}_load"] = cal.used[t0:t1].sum() / cal.cap[t0:t1].sum()
     r["eng_hours"] = E.used[t0:t1].sum() * 37.5 / years
+    r["hours_factor_end"] = f_end
+    r["comment_rate_end"] = c_end
     r["prod_hours"] = P.used[t0:t1].sum() / years
 
     # NPV: contribution at award (20 % margin + premium/discount), LDs at delivery, lever costs

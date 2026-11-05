@@ -4,6 +4,7 @@ Values marked USER are from the product owner; PLACEHOLDER values are guesses to
 Units: time in weeks, engineering in engineer-weeks (37.5 h), production/FAT in hours, money in kNOK.
 """
 
+import math
 from dataclasses import dataclass, field, replace
 
 
@@ -98,6 +99,8 @@ class Config:
     max_quote_weeks: float = 52.0
     quote_safety_weeks: float = 1.0
     quote_comment_allowance: bool = False       # quote approval incl. the comment loop
+    today_quote_quad_weeks: float = 27.0        # PLACEHOLDER: lead time quoted today for a quad retrofit
+                                                # (anchors the hand check; replace with the real figure)
 
     # --- class approval ---
     type_approved_societies: tuple = ()
@@ -106,6 +109,15 @@ class Config:
     ta_cost_first: float = 3000.0               # PLACEHOLDER kNOK
     ta_cost_additional: float = 1500.0          # PLACEHOLDER kNOK per further society
     ta_cost_per_year: float = 400.0             # PLACEHOLDER kNOK per society
+
+    # --- learning (new product, wrinkles being ironed out) ---
+    learning: bool = True
+    learning_rates: dict = field(default_factory=lambda: {"eng": 0.90, "prod": 0.90, "fat": 0.90})  # USER
+    learning_floor: float = 0.50                # USER: hours can fall to 50 % of today at best
+    units_built_today: float = 225.0            # USER: ~200-250 simple-equivalents built so far
+    comment_learning_rate: float = 0.60         # comment rate x0.6 per doubling of approvals (USER: "fast")
+    comment_floor: float = 0.075                # USER: 5-10 % realistic target
+    approvals_done_today: float = 50.0          # PLACEHOLDER: ~225 units / ~4.4 units per order
 
     # --- economics (kNOK) ---
     price_simple: float = 300.0                 # USER
@@ -157,6 +169,19 @@ def prod_capacity_per_week(cfg: Config) -> float:
 def fat_capacity_per_week(cfg: Config) -> float:
     hours = cfg.fat_simple_hours * _units(cfg, cfg.advanced_to_simple)
     return hours / cfg.fat_load / 52.0 * cfg.fat_capacity_factor
+
+
+def learning_factor(rate: float, n: float, n0: float, floor: float) -> float:
+    """Hours per unit relative to today after n cumulative units (n0 today): max(floor, (n/n0)^-b)."""
+    b = -math.log2(rate)
+    return max(floor, (max(n, n0) / n0) ** (-b))
+
+
+def comment_probability(cfg: Config, p0: float, n_approvals: float) -> float:
+    if not cfg.learning:
+        return p0
+    f = learning_factor(cfg.comment_learning_rate, n_approvals, cfg.approvals_done_today, 0.0)
+    return max(min(cfg.comment_floor, p0), p0 * f)
 
 
 def cs_price(cfg: Config, ot: OrderType) -> float:
