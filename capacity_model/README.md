@@ -220,6 +220,56 @@ With learning, the hand calculation is systematically about 35–45 % higher tha
 ranking and the same conclusions. This is because it ignores late-delivery penalties (LDs) and FAT
 rebooking, and uses averages instead of spread.
 
+## Case: 300 MNOK/yr retrofit on advanced units
+
+`target_advanced.py [n_runs] [--no-learning]` → `results/target_advanced[_no_learning].md/.png`.
+
+300 MNOK / 10 MNOK per advanced unit means **30 packages (8 simple + 1 advanced) per year**, reached by
+year 3 and held in years 3–5 (≈ 372 MNOK including the simple units). Today the figure is 20 per year,
+from ~46 package opportunities.
+
+The script grows the package market (opportunities × M, linear to year 3). For each lever set it finds
+the M needed, and reports the market, win rate, lead time, loads, side effects and ΔNPV at that point.
+
+Packages won per year in years 3–5 (60 runs per point):
+
+| Lever set | With learning, today's market | With learning, max (M = 2.5) | Without learning, today's market | Without learning, max (M = 2.5) |
+|---|---:|---:|---:|---:|
+| A Baseline | 28.5 | 51 | 20 | 29 (quotes > 6 mo) |
+| B Pull bundled forward | 29.4 | 58 | 25 | 30 (quotes > 6 mo) |
+| C B + TA DNV | **31.0** ✓ | 57 | 25 | 30 |
+| D C + 2 advanced stock sets | 31.1 ✓ | 57 | 25 | 30 |
+| E D + 25 % FAT | 31.1 ✓ | 70 | **30.3** ✓ | 37 |
+| G D + 25 % FAT + 10 % production | 31.1 ✓ | 74 | 31.1 ✓ | 44 |
+
+What it takes:
+
+1. **With learning as assumed (90 %/doubling), the target is reached without market growth.** Pull
+   forward plus **type approval for DNV** is enough: quotes fall to ~19 weeks and the package win rate
+   rises from ~44 % to ~68 %. The baseline needs about +6 % more package opportunities.
+2. **Without learning, capacity is the constraint, not the market.** Without extra FAT, packages plateau
+   at ~30 a year even if the market grows 2.5×. Quotes exceed 6 months, and the extra packages crowd out
+   single and quad retrofit (41 → 27 a year). **+25 % FAT reaches 30 a year at today's market.** Production
+   is then at 100 %, so **+10 % production** is needed as well to have headroom (ceiling ~44 a year).
+3. **Decision rule:**
+   - Do type approval for DNV and pull forward now; they pay off in both cases.
+   - Track hours per simple-equivalent. If year-1 hours are not ≈ 0.88× today's, start the FAT (+25 %)
+     and production (+10 %) expansion, since without learning the target cannot be reached otherwise.
+4. Bundled deliveries are not affected (0 % late) in any of these cases.
+
+**Hand check of the capacity ceiling** for packages, per resource:
+
+    max packages/yr = (0.98 × capacity − bundled − single/quad retrofit) / hours per package
+
+Hours per package are 11.5 simple-equivalents × 15 h = 172.5 h of FAT, and 11.5 × 52.5 h = 604 h of
+production. Divide the hours by the learning factor (~0.72 in years 3–5) when learning applies.
+
+| Without learning | FAT | Production | Ceiling | Model |
+|---|---|---|---|---|
+| Today | (10,027 − 3,975 − 1,800) / 172.5 = 25 | (38,000 − 13,900 − 6,300) / 604 = 29 | **≈ 25** | 25 (B, M = 1) |
+| + 25 % FAT | (12,534 − 5,775) / 172.5 = 39 | 29 | **≈ 29–30** | 30.5 (E, M = 1, production 100 %) |
+| + FAT + 10 % production | 39 | (41,800 − 20,200) / 604 = 36 | **≈ 36** | 31 at M = 1 (market-limited); 44 at M = 2.5 by crowding out single/quad |
+
 ## Still to calibrate
 
 - **FAT**: test hours per unit, number of benches and real load. This is the most important input.

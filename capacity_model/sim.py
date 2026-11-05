@@ -140,18 +140,25 @@ def ld(cfg, late_weeks, value):
     return min(cfg.ld_per_week * math.floor(late_weeks + 1e-9), cfg.ld_cap) * value
 
 
+def ramp(cfg: Config, t: str, w: int) -> float:
+    """Market multiplier for retrofit type t in week w (1 before the horizon starts)."""
+    m = cfg.retrofit_ramp.get(t, 1.0)
+    x = min(max((w - cfg.warmup_weeks) / cfg.ramp_weeks, 0.0), 1.0)
+    return 1.0 + (m - 1.0) * x
+
+
 def generate_arrivals(cfg: Config, seed: int, n_weeks: int, retro_rates: dict):
-    """Pre-draw all randomness (common random numbers across scenarios)."""
+    """Pre-draw all randomness (common random numbers across scenarios with the same market)."""
     rng = np.random.default_rng(seed)
     out = []
-    for _ in range(n_weeks):
+    for w in range(n_weeks):
         b, r = [], []
         for t, n in cfg.bundled_per_year.items():
             for _ in range(rng.poisson(n / 52.0)):
                 b.append(dict(otype=t, lead=int(round(rng.uniform(*cfg.bundled_lead_weeks))),
                               u=rng.random(4), z=rng.standard_normal(MAX_UNITS)))
         for t, n in retro_rates.items():
-            for _ in range(rng.poisson(n / 52.0)):
+            for _ in range(rng.poisson(n * ramp(cfg, t, w) / 52.0)):
                 r.append(dict(otype=t, u=rng.random(4), z=rng.standard_normal(MAX_UNITS)))
         rng.shuffle(r)
         out.append((b, r))
@@ -352,12 +359,25 @@ def simulate(cfg: Config, seed: int, retro_rates: dict):
         r[f"won_{c}"] = sum(1 for x in q if x[3] and x[4] == c) / years
     r["no_quote"] = sum(1 for x in q if x[4] == "none") / years
 
+    for y in range(int(years)):
+        a, b = t0 + 52 * y, t0 + 52 * (y + 1)
+        qy = [x for x in quotes if a <= x[0] < b]
+        for t in ORDER_TYPES:
+            r[f"y{y + 1}_won_{t}"] = sum(1 for x in qy if x[3] and x[1] == t)
+            r[f"y{y + 1}_opps_{t}"] = sum(1 for x in qy if x[1] == t)
+            Ls = [x[2] for x in qy if x[1] == t]
+            r[f"y{y + 1}_quote_{t}"] = float(np.median(Ls)) if Ls else float("nan")
+        for name, cal in (("eng", E), ("prod", P), ("fat", F)):
+            r[f"y{y + 1}_{name}_load"] = cal.used[a:b].sum() / cal.cap[a:b].sum()
+
     retro = [t for t in finished if t.kind == "retrofit" and inw(t.arrival)]
     bund = [t for t in finished if t.kind == "bundled" and inw(t.arrival)]
     r["retrofit_revenue"] = sum(t.price for t in retro) / years
     r["retrofit_late_share"] = float(np.mean([t.late >= 1 for t in retro])) if retro else 0.0
     r["bundled_late_share"] = float(np.mean([t.late >= 1 for t in bund])) if bund else 0.0
     r["bundled_late_weeks"] = float(np.mean([t.late for t in bund])) if bund else 0.0
+    late3 = [t for t in bund if t.arrival >= t0 + 104]
+    r["bundled_late_share_y3_5"] = float(np.mean([t.late >= 1 for t in late3])) if late3 else 0.0
     r["fat_rebook_share"] = float(np.mean([t.fat_rebooks > 0 for t in retro + bund])) if finished else 0.0
     r["ld_retrofit"] = sum(ld(cfg, t.late, t.contract_value) for t in retro) / years
     r["ld_bundled"] = sum(ld(cfg, t.late, t.contract_value) for t in bund) / years

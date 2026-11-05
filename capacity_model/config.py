@@ -55,6 +55,9 @@ class Config:
     bundled_per_year: dict = field(default_factory=lambda: {"single": 50, "quad": 20, "package": 10})  # USER
     retrofit_won_target: dict = field(default_factory=lambda: {"single": 20, "quad": 20, "package": 20})  # USER
     bundled_lead_weeks: tuple = (52.0, 156.0)   # USER: 1-3 years
+    # market growth: retrofit opportunities per type x multiplier, ramped linearly over ramp_weeks
+    retrofit_ramp: dict = field(default_factory=dict)   # e.g. {"package": 1.6}
+    ramp_weeks: int = 156                       # reached by year 3
 
     # --- engineering ---
     engineers: float = 24.0                     # USER
