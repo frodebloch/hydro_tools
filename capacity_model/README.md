@@ -28,8 +28,8 @@ Output in `results/`: `summary.md` (model table + learning sensitivity), `hand_c
 | Input | Value | Source |
 |---|---|---|
 | Order types | single (1 simple), quad (4 simple + simple top-level), package (8 simple + 1 advanced) | USER |
-| Bundled volume | 50 single, 20 quad, 10 package per year; 1–3 years lead time | USER |
-| Retrofit volume | 20 won per type per year today; opportunities back-calculated (≈ 37 / 43 / 46) | USER / calibrated |
+| Bundled volume | 50 single, 20 quad, 10 package orders per year; 1–3 years lead time | USER, **split to be verified** |
+| Retrofit volume | 20 single, 20 quad, 20 package orders won per year today; opportunities back-calculated (≈ 37 / 43 / 46) | **PROVISIONAL**: real split to come |
 | Engineering | 24 engineers, 80 %, 45 weeks/yr; 1 / 4 weeks per simple / advanced, scaled to 23,400 h/yr | USER |
 | Production | 32,300 h/yr; advanced 3.5 × simple (≈ 53 h); lognormal spread CV 0.3; load 85 % | USER / PLACEHOLDER load |
 | Test / FAT | Current bottleneck; 15 h per simple unit, load 92 % | PLACEHOLDER |
@@ -122,8 +122,17 @@ updated automatically.
 
     ρ = hours needed per year / hours available per year
 
-Count volume in simple-equivalents (simple = 1, advanced = 3.5): single = 1, quad = 5, package = 11.5.
-Today: 265 bundled + 350 retrofit = 615 per year.
+Count volume in **simple-equivalents**, a workload measure where simple = 1 and advanced = 3.5.
+Per order: single = 1, quad = 5 (4 + simple top-level), package = 11.5 (8 simple + 1 advanced).
+
+| Per year (provisional) | Orders | Simple systems | Advanced systems | Simple-equivalents |
+|---|---:|---:|---:|---:|
+| Bundled | 80 | 230 | 10 | 265 |
+| Retrofit | 60 | 280 | 20 | 350 |
+| Total | 140 | 510 | 30 | 615 |
+
+The reported hours are divided by the total (615) to get hours per unit. If the real bundled/retrofit
+split differs, hours per unit and all results change. The split shown is **provisional**.
 
 | Resource | Need | Available | ρ |
 |---|---|---|---|
@@ -271,6 +280,9 @@ production. Divide the hours by the learning factor (~0.72 in years 3–5) when 
 | + FAT + 10 % production | 39 | (41,800 − 20,200) / 604 = 36 | **≈ 36** | 31 at M = 1 (market-limited); 44 at M = 2.5 by crowding out single/quad |
 
 ## Still to calibrate
+
+- **Volume split (highest priority)**: actual orders per year by type (single / quad / package) for
+  bundled and retrofit, or systems delivered (simple / advanced). Hours per unit are calibrated on this.
 
 - **FAT**: test hours per unit, number of benches and real load. This is the most important input.
 - **Learning**: hours per simple-equivalent over time for engineering, production and FAT.
