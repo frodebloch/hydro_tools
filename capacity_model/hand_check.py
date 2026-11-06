@@ -15,7 +15,8 @@ Calculator-level formulas, using the same inputs as the model (config.py):
                      shares from a +-3 week spread of quotes around the average lead time
   5. Win rate        won = opportunities x p(L), same p(L) curve as the model
   6. NPV             sum of yearly contribution x discount factor - lever costs
-  7. Learning        per family: hours factor in year y = max(floor, (n_eff,y / n_eff,0)^-b),
+  7. Rework         production/FAT hours x (1 - r0) / (1 - r_y), r_y = floor + (r0 - floor) x 0.5^(t / half-life)
+  8. Learning        per family: hours factor in year y = max(floor, (n_eff,y / n_eff,0)^-b),
                      b = log2(1 / learning rate), n_eff = own experience + 0.3 x other families',
                      n_y = experience today + simple-equivalents per year x (y + 0.5); hours x factor
 
@@ -33,7 +34,8 @@ from pathlib import Path
 
 from config import (CASE_BY_CASE, CLASS_SHARE, ORDER_TYPES, SCENARIOS, TYPE_APPROVED, bundled_per_year,
                     contribution, cs_price, eng_capacity_per_week, eng_weeks, fat_capacity_per_week, fat_hours,
-                    experience_today, family_factors, lever_cost_per_year, prod_capacity_per_week, prod_hours, retrofit_won_target,
+                    experience_today, family_factors, lever_cost_per_year, rework_hours_factor,
+                    rework_share_at, prod_capacity_per_week, prod_hours, retrofit_won_target,
                     traded_cost, FAMILIES)
 from sim import win_probability
 
@@ -199,8 +201,12 @@ def se_per_year_by_family(cfg, won):
 def year_factors(cfg, rate_by_family, years):
     """Formula 7: learning factor per family and resource, per year, at mid-year experience."""
     n0 = experience_today(cfg)
-    return [family_factors(cfg, {f: n0[f] + rate_by_family[f] * (y + 0.5) for f in FAMILIES})
-            for y in range(years)]
+    out = []
+    for y in range(years):
+        fac = family_factors(cfg, {f: n0[f] + rate_by_family[f] * (y + 0.5) for f in FAMILIES})
+        rw = rework_hours_factor(cfg, 52 * (y + 0.5))      # rework reduction on production and FAT
+        out.append({f: {r: v * (rw if r in ("prod", "fat") else 1.0) for r, v in d.items()} for f, d in fac.items()})
+    return out
 
 
 def npv(cfg, opps):
@@ -300,7 +306,12 @@ def main():
     if base.learning:
         fs = base_ss["factors"]
         n0 = experience_today(base)
-        L += ["", "## 7. Learning: hours factor per family and year (baseline volume)", "",
+        L += ["", "## 7. Rework: share of production/FAT hours and resulting hours factor", "",
+              "| | " + " | ".join(f"Year {y + 1}" for y in range(len(fs))) + " |", "|---|" + "---:|" * len(fs),
+              "| Rework share (mid-year) | " + " | ".join(f"{rework_share_at(base, 52 * (y + 0.5)):.0%}" for y in range(len(fs))) + " |",
+              "| Hours factor from rework | " + " | ".join(f"{rework_hours_factor(base, 52 * (y + 0.5)):.2f}" for y in range(len(fs))) + " |",
+              "", f"Rework today {base.rework_share:.0%}, half-life {base.rework_halflife_weeks:.0f} weeks, floor {base.rework_floor:.0%}."]
+        L += ["", "## 8. Learning + rework: production hours factor per family and year (baseline volume)", "",
               "| Family | Experience today [simple-eq.] | " + " | ".join(f"Year {y + 1}" for y in range(len(fs))) + " |",
               "|---|---:|" + "---:|" * len(fs)]
         for fam in FAMILIES:

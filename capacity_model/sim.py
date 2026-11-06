@@ -38,7 +38,7 @@ from config import (CASE_BY_CASE, CLASS_SHARE, ORDER_TYPES, TYPE_APPROVED, Confi
                     comment_probability, contribution, cs_price, eng_capacity_per_week, eng_weeks,
                     experience_today, family_factors, fat_capacity_per_week, lever_cost_per_year,
                     prod_capacity_per_week,
-                    prod_hours, retrofit_won_target, traded_cost, FAMILIES)
+                    prod_hours, retrofit_won_target, rework_share_at, traded_cost, FAMILIES)
 
 DRAIN_WEEKS = 170
 SOCIETIES = list(CLASS_SHARE)
@@ -65,6 +65,7 @@ class Task:
     rebooked: bool = False
     fat_rebooks: int = 0
     wc: float = 0.0
+    g: float = 1.0
 
 
 class Calendar:
@@ -169,6 +170,12 @@ def generate_arrivals(cfg: Config, seed: int, n_weeks: int, retro_rates: dict):
     return out
 
 
+def rework_draw(cfg, z):
+    """Per-project rework multiplier g (mean 1, lognormal with cv rework_cv)."""
+    s = math.sqrt(math.log(1 + cfg.rework_cv ** 2))
+    return math.exp(s * z[1] - s * s / 2)
+
+
 def unit_hours(cfg, mean_hours, z):
     """Hours for one project: mean x lognormal factor (same draw for production and FAT)."""
     s = math.sqrt(math.log(1 + cfg.unit_cv ** 2))
@@ -208,10 +215,13 @@ def simulate(cfg: Config, seed: int, retro_rates: dict):
         return ep, pp, fp
 
     active, finished, quotes = [], [], []
+    rework_end = cfg.rework_share
     cals = {"eng": E, "prod": P, "fat": F}
     n_fam = dict(experience_today(cfg))
     n_appr = cfg.approvals_done_today
     f_cur = {fam: {r: 1.0 for r in cals} for fam in FAMILIES}
+    r_now = rework_share_at(cfg, 0)
+    rr_cur = r_now / (1 - r_now)
     se_today = {fam: 0.0 for fam in FAMILIES}
     for t, n in cfg.projects_per_year.items():
         se_today[ORDER_TYPES[t].family] += n * cfg.class_weight[ORDER_TYPES[t].cls]
@@ -235,7 +245,21 @@ def simulate(cfg: Config, seed: int, retro_rates: dict):
                                 plan[k] -= cut
                                 cal.used[k] -= cut
                         f_cur[fam][r] = f_new[fam][r]
+        # ---------------- rework reduction (every 4 weeks): rescale remaining prod/FAT work ----------------
+        if w > t0 and (w - t0) % 4 == 0:
+            r_new = rework_share_at(cfg, w - t0)
+            rr_new = r_new / (1 - r_new)
+            if rr_new < rr_cur - 1e-5:
+                for t in active:
+                    ratio = (1 + rr_new * t.g) / (1 + rr_cur * t.g)
+                    for cal, plan in ((P, t.prod), (F, t.fat)):
+                        for k in [k for k in plan if k > w]:
+                            cut = plan[k] * (1 - ratio)
+                            plan[k] -= cut
+                            cal.used[k] -= cut
+                rr_cur = rr_new
         if w == t1 - 1:
+            rework_end = rr_cur / (1 + rr_cur)
             f_end = {fam: f_cur[fam]["prod"] for fam in FAMILIES}
             c_end = comment_probability(cfg, CASE_BY_CASE.p_comments, n_appr)
 
@@ -247,8 +271,10 @@ def simulate(cfg: Config, seed: int, retro_rates: dict):
             hw = w + (lo + u[3] * (hi - lo) if ot.long_lead else cfg.stock_hw_weeks)
             fc = f_cur[ot.family]
             ew = eng_weeks(cfg, ot) * fc["eng"]
-            ph0 = unit_hours(cfg, prod_hours(cfg, ot), a["z"])
-            ph, fh = ph0 * fc["prod"], ph0 * cfg.fat_to_prod * fc["fat"]
+            g = rework_draw(cfg, a["z"])
+            clean = unit_hours(cfg, prod_hours(cfg, ot), a["z"]) * (1 - cfg.rework_share)
+            rw = 1 + rr_cur * g
+            ph, fh = clean * rw * fc["prod"], clean * rw * cfg.fat_to_prod * fc["fat"]
             plans = None
             if cfg.bundled_policy == "alap":
                 fp = F.backward(due - ship - 1, w + 2, fh, ot.fat_max_rate)
@@ -274,6 +300,7 @@ def simulate(cfg: Config, seed: int, retro_rates: dict):
                 plans = forward_chain(ot, s, hw, ew, ph, fh, appr.nominal_weeks)
             value = cs_price(cfg, ot) + ot.n_mech * cfg.price_mech_unit
             active.append(Task("bundled", ot.name, w, due, hw, appr, cs_price(cfg, ot), value, u, *plans))
+            active[-1].g = g
 
         # ---------------- retrofit opportunities ----------------
         for a in retro_arr:
@@ -289,8 +316,10 @@ def simulate(cfg: Config, seed: int, retro_rates: dict):
                     hw = w + lo + u[3] * (hi - lo)
             fc = f_cur[ot.family]
             ew = eng_weeks(cfg, ot) * fc["eng"]
-            ph0 = unit_hours(cfg, prod_hours(cfg, ot), a["z"])
-            ph, fh = ph0 * fc["prod"], ph0 * cfg.fat_to_prod * fc["fat"]
+            g = rework_draw(cfg, a["z"])
+            clean = unit_hours(cfg, prod_hours(cfg, ot), a["z"]) * (1 - cfg.rework_share)
+            rw = 1 + rr_cur * g
+            ph, fh = clean * rw * fc["prod"], clean * rw * cfg.fat_to_prod * fc["fat"]
             appr_q = appr.nominal_weeks + (appr.comment_weeks if cfg.quote_comment_allowance else 0.0)
             ep, pp, fp = forward_chain(ot, w + 1, hw, ew, ph, fh, appr_q)
             L = math.ceil(end_of(fp) + ship - w + cfg.quote_safety_weeks)
@@ -307,6 +336,7 @@ def simulate(cfg: Config, seed: int, retro_rates: dict):
             price = cs_price(cfg, ot) * price_factor(cfg, L)
             active.append(Task("retrofit", ot.name, w, w + L, hw, appr, price, price, u,
                                ep, pp, fp, quoted_L=L))
+            active[-1].g = g
 
         # ---------------- approval comments -> rebook FAT ----------------
         for t in active:
@@ -366,7 +396,7 @@ def simulate(cfg: Config, seed: int, retro_rates: dict):
     years = cfg.horizon_weeks / 52.0
     inw = lambda wk: t0 <= wk < t1
     disc = lambda wk: (1.0 + cfg.discount_rate) ** (-(wk - t0) / 52.0)
-    r = {}
+    r = {"rework_end": rework_end}
     q = [x for x in quotes if inw(x[0])]
     r["retrofit_opps"] = len(q) / years
     r["retrofit_won"] = sum(x[3] for x in q) / years

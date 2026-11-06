@@ -157,8 +157,14 @@ class Config:
 
     # --- learning (new product, wrinkles being ironed out) ---
     learning: bool = True
-    learning_rates: dict = field(default_factory=lambda: {"eng": 0.90, "prod": 0.90, "fat": 0.90})  # USER
-    learning_floor: float = 0.50                # USER: hours can fall to 50 % of today at best
+    # repetition learning on the "clean" hours (literature: 80-90 %, assembly/electrical ~80-85 %)
+    learning_rates: dict = field(default_factory=lambda: {"eng": 0.85, "prod": 0.85, "fat": 0.85})
+    learning_floor: float = 0.50                # USER: clean hours can fall to 50 % of today at best
+    # rework / waiting (software not ready, drawing errors, FAT re-tests) in production and FAT
+    rework_share: float = 0.30                  # USER: share of today's production + FAT hours
+    rework_halflife_weeks: float = 52.0         # USER: half gone within a year (None = no improvement)
+    rework_floor: float = 0.05                  # PLACEHOLDER: residual rework
+    rework_cv: float = 1.0                      # spread of rework between projects (some projects hit hard)
     # experience per family = simple-equivalents built so far, from the delivery history:
     first_year: int = 2023                      # USER: BruCon-5 and PTC delivered since 2023
     growth_since_first_year: dict = field(default_factory=lambda: {"PTC": 2.0, "CMS": 2.0, "BruCon-5": 2.0})
@@ -302,6 +308,20 @@ def family_factors(cfg: Config, n: dict) -> dict:
             for f in FAMILIES}
 
 
+def rework_share_at(cfg: Config, weeks_from_today: float) -> float:
+    """Rework share of production/FAT hours, decaying from today with the given half-life."""
+    r0 = cfg.rework_share
+    if not cfg.learning or cfg.rework_halflife_weeks is None or weeks_from_today <= 0:
+        return r0
+    fl = min(cfg.rework_floor, r0)
+    return fl + (r0 - fl) * 0.5 ** (weeks_from_today / cfg.rework_halflife_weeks)
+
+
+def rework_hours_factor(cfg: Config, weeks_from_today: float) -> float:
+    """Mean production/FAT hours relative to today from rework alone: (1 - r0) / (1 - r)."""
+    return (1 - cfg.rework_share) / (1 - rework_share_at(cfg, weeks_from_today))
+
+
 def comment_probability(cfg: Config, p0: float, n_approvals: float) -> float:
     if not cfg.learning:
         return p0
@@ -321,6 +341,7 @@ SCENARIOS = {
     "0 bundled asap (ref.)": replace(BASE, bundled_policy="asap"),
     "1 baseline": BASE,
     "1b quote incl. comments": replace(BASE, quote_comment_allowance=True),
+    "1c no rework reduction": replace(BASE, rework_halflife_weeks=None),
     "2 +pull bundled fwd": BUF,
     "2b +sensor stock, no TA": replace(BUF, advanced_stock_sets=1),
     "3 +TA DNV": L3,

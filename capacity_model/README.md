@@ -15,6 +15,7 @@ python3 -m venv .venv && .venv/bin/pip install numpy matplotlib
 .venv/bin/python target_advanced.py 40                    # 300 MNOK DP2 case (~3 min each)
 .venv/bin/python target_advanced.py 40 --no-learning
 .venv/bin/python target_advanced.py 40 --dp2-weight=6
+.venv/bin/python sensitivity.py 40                        # rework / learning sensitivities (~3 min)
 ```
 
 Output in `results/`: `summary.md` (model table + learning sensitivity), `hand_check.md`,
@@ -27,6 +28,7 @@ Output in `results/`: `summary.md` (model table + learning sensitivity), `hand_c
 | `run_scenarios.py` | Calibration, Monte Carlo over scenarios (common random numbers), tables, plots, hand check |
 | `hand_check.py` | Calculator-level formulas with the same inputs, compared with the model |
 | `target_advanced.py` | What it takes to reach 30 retrofit DP2 projects (300 MNOK) per year |
+| `sensitivity.py` | One-at-a-time sensitivities on rework share, rework half-life and learning rate |
 
 ## Inputs
 
@@ -76,7 +78,8 @@ projects**: 23,400 h engineering and 32,300 h production (USER), minus the BruCo
 | LDs | Orgalim, 0.5 % per full week, max 7.5 %; bundled on mech + CS value (mech 20 MNOK) | USER / PLACEHOLDER |
 | Retrofit market | Win probability flat up to ~6 months, then falling; express (≤ 4 months) +15 % price | PLACEHOLDER |
 | Bundled scheduling | As late as possible (current practice) | USER |
-| Learning | Per family (PTC, CMS, BruCon-5), 90 % per doubling, floor 50 %, 30 % transfer between families | USER |
+| Rework / waiting | 30 % of today's production and FAT hours (software not ready, drawing errors, re-tests); half gone within a year, floor 5 %; varies strongly between projects (CV 1.0) | USER / PLACEHOLDER floor, CV |
+| Repetition learning | On the remaining ("clean") hours, per family (PTC, CMS, BruCon-5), **85 %** per doubling, floor 50 %, 30 % transfer between families | Literature (see below) / USER |
 | Experience today | Deliveries since 2023, volume doubled to 2026: PTC ≈ 239, CMS ≈ 72, BruCon-5 ≈ 93 simple-equivalents | USER (CMS history PLACEHOLDER) |
 | Comment learning | Comment rate × 0.6 per doubling of approvals, down to 7.5 % | USER (target 5–10 %) |
 | Today's quote (anchor) | Medium retrofit quoted 29.5 wk today (= model baseline) | **PLACEHOLDER: replace with real figure** |
@@ -103,7 +106,11 @@ order → engineering ─┬→ class approval (comments?) ───────
   later than quoted.
 - **Contribution** = own content × own margin + traded sensors × traded margin. Working capital on
   sensors is charged from arrival to delivery.
-- **Learning per family**: hours per project = today's hours × max(floor, (n_eff / n_eff,0)^−b), with
+- **Rework**: production and FAT hours = clean hours × (1 + r/(1−r) × g), with r the rework share and
+  g a per-project draw (mean 1, CV 1), so some projects are hit much harder than others. r falls from 30 %
+  with a half-life of one year; every 4 weeks the remaining booked production/FAT work is rescaled. Less
+  rework gives both fewer hours and less spread, so queues shrink twice.
+- **Repetition learning per family** (on clean hours): hours per project = today's hours × max(floor, (n_eff / n_eff,0)^−b), with
   b = log₂(1 / learning rate) and n_eff = own experience + 0.3 × the other families' experience
   (simple-equivalents completed). New projects are booked with the family's current factor; when the
   factor improves, the remaining booked work of the family's active projects is scaled down. So more
@@ -112,31 +119,63 @@ order → engineering ─┬→ class approval (comments?) ───────
 
 ## Results (placeholders, see `results/summary.md`)
 
-Turnover about 95 MNOK a year in the baseline (about 110 MNOK with all levers). ΔNPV over 5 years
-against the baseline (as late as possible, case-by-case approval):
+Production and FAT hours fall to about 0.6× in 5 years (rework 30 % → 6 %, repetition learning 85 %).
+Turnover about 100 MNOK a year in the baseline. ΔNPV over 5 years against the baseline (as late as
+possible, case-by-case approval):
 
-| Lever | Lever value, with learning | ΔNPV vs baseline, with learning | ΔNPV vs baseline, without learning | What happens |
-|---|---:|---:|---:|---|
-| Learning itself | | +10 | | Hours fall to ~0.85× in 5 years (all families), comments to ~7 % |
-| 0 Bundled as early as possible | | −1 | −2 | Blocks near-term capacity |
-| 1b Quote incl. approval comments | | −9 | −3 | Every quote 4 weeks longer although comments become rare |
-| **2 Pull bundled work into idle capacity** | **+12** | +12 | +15 | Nearly free; retrofit wins 52 → 63 a year |
-| **3 + Type approval DNV** | **+8** | +19 | +17 | Express (≤ 4 months) becomes possible: ~31 express wins a year |
-| 4 + 1 sensor stock set | −3 | +16 | +12 | 6 MNOK stock for ~1 retrofit DP2 a year |
-| 5 + Type approval ABS | −1 | +15 | +10 | Only 10 % of volume |
-| 5b + 10 % production instead | −13 | +1 | −4 | Not the bottleneck |
-| 6 + 25 % FAT capacity | −3 | +11 | +12 | FAT is at 100 % after step 2, but the gain does not cover the cost |
-| 7 + 10 % production as well | −13 | −1 | −1 | Not needed |
+| Lever | Lever value | ΔNPV vs baseline | What happens |
+|---|---:|---:|---|
+| 1c Rework *not* reduced | | −6 | FAT stays at ~85 %, quotes ~2 weeks longer |
+| 0 Bundled as early as possible | | −1 | Blocks near-term capacity |
+| 1b Quote incl. approval comments | | −11 | Every quote 4 weeks longer although comments become rare |
+| 2 Pull bundled work into idle capacity | +3 | +3 | Less valuable now that rework reduction frees capacity |
+| **3 + Type approval DNV** | **+13** | **+16** | **The most valuable lever**: ~39 express (≤ 4 months) wins a year |
+| 4 + 1 sensor stock set | −2 | +14 | Too few DP2 |
+| 5 + Type approval ABS | 0 | +14 | Only 10 % of volume |
+| 5b + 10 % production instead | −13 | +1 | Not needed |
+| 6 + 25 % FAT capacity | −8 | +6 | Not needed if rework halves |
+| 7 + 10 % production as well | −13 | −7 | Not needed |
+
+### Sensitivities (`results/sensitivity.md`, 40 runs each)
+
+ΔNPV of each lever vs the baseline of the same variant [MNOK]:
+
+| Variant | Baseline NPV vs base | Load prod / FAT | Pull fwd | + TA DNV | + 25 % FAT | FAT load with TA |
+|---|---:|---|---:|---:|---:|---:|
+| **Base: rework 30 %, half-life 1 yr, learning 85 %** | 0 | 67 % / 72 % | +4 | +17 | +7 | 81 % |
+| Rework 20 % today | −2 | 72 % / 78 % | +5 | +17 | +7 | 89 % |
+| Rework 40 % today | +1 | 60 % / 65 % | +3 | +17 | +6 | 73 % |
+| Rework half-life 6 months | +1 | 65 % / 70 % | +3 | +16 | +6 | 78 % |
+| Rework half-life 2 years | −1 | 70 % / 76 % | +5 | +17 | +7 | 86 % |
+| **No rework reduction** | **−6** | 79 % / 85 % | +8 | +18 | +8 | **98 %** |
+| Learning 80 % | +1 | 64 % / 69 % | +3 | +17 | +7 | 77 % |
+| Learning 90 % | −1 | 69 % / 75 % | +4 | +17 | +6 | 86 % |
+| No learning, no rework reduction | −18 | 81 % / 88 % | +14 | +17 | +9 | 100 % |
 
 Main messages at today's volume:
 
-1. **The economics are modest at today's volume** (contribution about 20 MNOK a year). Lever values are
-   single- to low double-digit MNOK.
-2. **Pull forward (+12) and type approval for DNV (+8)** pay off in all cases tested.
-3. **Learning is slower than first assumed**, because PTC and BruCon-5 have been delivered since 2023
-   (about 3 years of experience). Hours fall only to ~0.85× in 5 years. Learning alone does not remove the
-   FAT bottleneck.
-4. **Sensor stock does not pay off at 3 DP2 a year.**
+1. **Type approval for DNV is robust**: +16 to +18 MNOK in every variant.
+2. **Whether FAT capacity must rise depends on rework.** If rework halves within a year, FAT falls to
+   ~70–80 % and extra FAT capacity is not worth it. If rework stays, FAT is at ~98 % once type approval
+   brings more express orders. **Track rework hours and FAT re-tests**; this decides the FAT investment.
+3. **The exact learning rate (80–90 %) matters little** at today's volume; the rework assumption matters
+   more. The biggest effect is whether improvement happens at all (−18 MNOK if neither).
+4. The value of halving rework at today's volume is about +6 MNOK in contribution. Much larger value
+   comes from the capacity it frees for growth (see the DP2 case).
+
+### Sources for learning rates
+
+| Source | Finding |
+|---|---|
+| Wright (1936), *J. Aeronautical Sciences*, "Factors affecting the cost of airplanes" | Original learning curve, ~80 % in aircraft assembly |
+| Dutton & Thomas (1984), *Academy of Management Review*, "Treating progress functions as a managerial opportunity" | ~200 studies: mostly 70–90 %, centred ~80–82 % |
+| Argote & Epple (1990), *Science*, "Learning curves in manufacturing" | Overview; experience depreciates (turnover, gaps), which pulls the rate up |
+| NASA Cost Estimating Handbook / learning curve calculator | Aerospace ~85 %, electronics 90–95 %, repetitive electrical 75–85 % |
+| Argote (2013), *Organizational Learning* (book) | Transfer of learning between product lines |
+
+A historically fitted curve also contains rework removal. Here the two are separated: rework (driven by
+fixing causes, falls fast) and repetition learning (driven by volume, slow). The best calibration is
+your own data: hours per project per quarter against cumulative projects, on log-log axes.
 
 ## Case: 300 MNOK/yr retrofit on DP2
 
@@ -146,56 +185,43 @@ Main messages at today's volume:
 Today: 3 DP2 per year in total, ≈ 1.2 retrofit (placeholder split). The script grows the DP2 retrofit
 market (opportunities × M, linear to year 3), and finds the M each lever set needs.
 
-Retrofit DP2 won per year in years 3–5, at the largest market tested (M = 40, ~120 opportunities a year):
+Results with rework 30 % → half in a year and learning 85 % (DP2 = 3.5× a simple project):
 
-| Lever set | With learning, DP2 = 3.5× | Without learning | With learning, DP2 = 6× |
-|---|---:|---:|---:|
-| A Baseline | 22 | 16 | 14 |
-| B–D + pull forward, TA DNV, 4 sensor stock sets | 23 | 17 | 15 |
-| E D + 25 % FAT | 30 (just) | 22 | 19 |
-| G D + 25 % FAT + 25 % production | **38** ✓ (engineering 100 %) | 28 | 24 |
-| H D + 50 % FAT + 50 % production | **40** ✓ (engineering 100 %) | 30 | 24 |
-| I G + 25 % engineers | 38 ✓ | 28 | 25 |
-| **J H + 25 % engineers** | **53** ✓ | **39** ✓ | **34** ✓ (quotes > 6 mo) |
-| K H + 50 % engineers | 53 | 39 | 34 |
+| Lever set | DP2 won/yr at M = 30 | Market needed for 30 | Win rate | DP2 quote | Loads eng / prod / FAT | ΔNPV at same market |
+|---|---:|---:|---:|---:|---|---:|
+| A Baseline | 35 | 62 opps (M ≈ 24) | 49 % | 27 wk ⚠ | 96 % / 86 % / 92 % | 0 |
+| B + Pull forward | 44 | 48 (M ≈ 18) | 65 % | 22 wk | **98 %** / 88 % / 96 % | +47 |
+| **C + TA DNV** | 44 | **44 (M ≈ 17)** | **68 %** | **19 wk** | **99 %** / 89 % / 98 % | **+86** |
+| D + 4 sensor stock sets | 44 | 44 | 68 % | 18 wk | 99 % / 89 % / 98 % | +94 |
+| E D + 25 % FAT | 47 | 44 | 68 % | 17 wk | 98 % / 89 % / 77 % | +97 |
+| G D + 25 % FAT + 25 % production | 47 | 44 | 68 % | 17 wk | 98 % / 71 % / 77 % | +65 |
+| **I G + 25 % engineers** | **54** | 44 | 68 % | 17 wk | **82 %** / 74 % / 80 % | +36 |
+| J/K + 50 % FAT/prod, +25/50 % engineers | 54 | 44 | 68 % | 17 wk | ≤ 82 % / 62 % / 66 % | +6 / −27 |
 
-At the market needed to hit 30 a year:
+What it takes (with rework halved):
 
-| Case | Lever set | Market needed (DP2 opportunities/yr) | Win rate | DP2 quote | Loads eng / prod / FAT | ΔNPV vs baseline at same market |
-|---|---|---:|---:|---:|---|---:|
-| With learning | G: +25 % FAT, +25 % production (minimum) | 58 (M ≈ 18) | 55 % | 24 wk | **100 % / 95 % / 100 %** | +61 MNOK |
-| With learning | H: +50 % FAT, +50 % production | 52 (M ≈ 16) | 64 % | 21 wk | **100 %** / 80 % / 86 % | +64 MNOK |
-| With learning | **J: H + 25 % engineers (robust)** | **47 (M ≈ 14)** | **68 %** | **19 wk** | 92 % / 90 % / 96 % | +41 MNOK |
-| Without learning | J: H + 25 % engineers | 55 (M ≈ 17) | 58 % | 23 wk | 99 % / 97 % / 99 % | +19 MNOK |
-| DP2 = 6× | J: H + 25 % engineers | 63 (M ≈ 19) | 48 % | 27 wk ⚠ | 100 % / 98 % / 100 % | −2 MNOK |
+1. **The target is reachable without extra production or FAT capacity**, if rework halves within a year.
+   Pull forward + type approval DNV (+ sensor stock) are enough, at ~44 DP2 opportunities a year.
+2. **Engineering becomes the bottleneck** (98–99 %), since rework reduction frees production and FAT but
+   not engineering. For a robust plan: **+25 % engineers (~6) and +25 % FAT**. Note that drawing errors
+   probably also cost engineering hours today; if engineering rework is reduced too, fewer engineers are
+   needed. This is not modelled yet.
+3. **The market must grow about 15×**, from ~3 to ~44 DP2 retrofit opportunities a year.
+4. **About 180 MNOK of sensor purchases** a year, with 9–13 weeks lead time.
+5. The earlier runs (`target_advanced_no_learning.md`, `_w6.md`) are **from before the rework model**
+   and show the case without improvement: then +50 % FAT and production and +25 % engineers are needed.
 
-What it takes:
+**Hand check: capacity needed for 30 DP2 a year** (≈ 27 more than today), years 3–5:
 
-1. **Capacity: about +50 % FAT, +50 % production and +25 % engineering (~6 engineers).** With only
-   +25 % FAT and production the target is just reached, but engineering and FAT run at 100 %, which is
-   fragile. Without learning, or if a DP2 is heavier than assumed, the full package is needed.
-2. **The market must grow about 14–19×**, from ~3 to ~50–60 DP2 retrofit opportunities a year, and we
-   win only 1 in 2 to 2 in 3 of them.
-3. **Without capacity expansion** the extra DP2 projects only crowd out other retrofit, at quotes over
-   6 months. The maximum is then ~23 DP2 a year.
-4. **Supply chain and money:** 30 DP2 a year means about **180 MNOK of sensor purchases** a year with
-   9–13 weeks lead time. Supplier capacity and working capital have to be secured.
-5. **How heavy a DP2 is in own hours** (3.5× vs 6×) decides whether the case pays off (+41 vs −2 MNOK
-   for the robust lever set). Measure the hours booked on the 3 DP2 projects.
+    need = today's need + 27 × hours per DP2,   × hours factor (engineering ~0.88; production/FAT ~0.62)
 
-**Hand check: capacity needed for 30 DP2 a year** (≈ 27 more than today):
+| Resource | Total need without improvement | Factor | Need | Available (98 %) | Result |
+|---|---:|---:|---:|---:|---|
+| Engineering | 999 eng-wk | 0.88 (learning only) | 879 | 847 | **+4 %, at the limit** |
+| Production | 51,644 h | 0.62 (rework + learning) | 32,000 | 36,382 | fits (88 %) |
+| FAT | 14,776 h | 0.62 | 9,160 | 9,614 | fits, but at 93 % |
 
-    need = today's need + 27 × hours per DP2,   then × the learning factor (~0.85 in years 3–5)
-
-| Resource | Today's need | + 27 DP2 | Total | Available (98 %) | Without learning | With learning (× 0.85) |
-|---|---:|---:|---:|---:|---|---|
-| Engineering | 610 eng-wk | 27 × 14.4 = 389 | 999 | 847 | **+18 %** | 849: **at the limit** |
-| Production | 31,556 h | 27 × 744 = 20,088 | 51,644 | 36,382 | **+42 %** | 43,900: **+21 %** |
-| FAT | 9,025 h | 27 × 213 = 5,751 | 14,776 | 9,614 | **+54 %** | 12,560: **+31 %** |
-
-This matches the model. With learning, +25 % production and FAT is just enough, with engineering at its
-limit; with margin for queues (loads ≤ ~90 %), roughly +50 % FAT and production and +25 % engineering
-are needed.
+Matches the model: engineering is binding, FAT tight, production has room.
 
 ## Hand check
 
@@ -282,14 +308,20 @@ This uses the same p(L) curve as the model, so the hand check verifies the model
 
 Type approval takes effect from year 2.
 
-**7. Learning (per family)**
+**7. Rework**
 
-    hours factor = max(50 %, (n_eff,y / n_eff,0)^−0.152)       n_eff = own + 0.3 × other families' experience
+    rework share r_t = 5 % + (30 % − 5 %) × 0.5^(t / 1 year)
+    production/FAT hours factor = (1 − r_0) / (1 − r_t)            year 1–5: 0.91, 0.81, 0.77, 0.75, 0.75
+
+**8. Repetition learning (per family)**
+
+    hours factor = max(50 %, (n_eff,y / n_eff,0)^−0.234)          (85 %: b = log₂(1/0.85) = 0.234)       n_eff = own + 0.3 × other families' experience
     n_y = experience today + simple-equivalents per year × (y + 0.5)
 
 Hours per project are multiplied by the factor. Experience today (from deliveries since 2023, volume
 doubled to 2026): PTC 239, CMS 72, BruCon-5 93 simple-equivalents. At today's volume all families
-give 0.97, 0.94, 0.91, 0.88, 0.86 for years 1–5.
+give (at 85 %) about 0.96, 0.90, 0.86, 0.82, 0.80 for years 1–5. Combined with rework, production and FAT:
+0.87, 0.73, 0.66, 0.62, 0.59.
 
 Steps 1–5 depend on each other (more wins mean higher load and longer lead times). By hand, repeat them
 2–3 times. The script iterates until the numbers settle, and caps load at 98 %.
@@ -301,13 +333,13 @@ Latest run (with learning), ΔNPV vs baseline over 5 years [MNOK]:
 
 | Scenario | Lever value hand / model | ΔNPV hand | ΔNPV model | Check |
 |---|---:|---:|---:|---|
-| 2 +pull bundled fwd | 13.1 / 11.8 | 13 | 12 | OK |
-| 3 +TA DNV | 5.9 / 7.6 | 19 | 19 | OK |
-| 4 +1 sensor stock set | -0.4 / -3.4 | 19 | 16 | OK |
-| 5 +TA ABS | -1.2 / -1.4 | 17 | 15 | OK |
-| 5b +10% prod. (not FAT) | -11.9 / -13.1 (vs 5) | 5 | 1 | OK |
-| 6 +25% FAT capacity | -0.9 / -3.1 | 16 | 11 | OK |
-| 7 +FAT +production | -10.9 / -12.8 | 5 | -1 | OK |
+| 2 +pull bundled fwd | 5.5 / 3.1 | 6 | 3 | OK |
+| 3 +TA DNV | 10.8 / 12.9 | 16 | 16 | OK |
+| 4 +1 sensor stock set | -0.5 / -1.6 | 16 | 14 | OK |
+| 5 +TA ABS | -0.5 / -0.4 | 15 | 14 | OK |
+| 5b +10% prod. (not FAT) | -12.1 / -12.8 (vs 5) | 3 | 1 | OK |
+| 6 +25% FAT capacity | -7.4 / -8.0 | 8 | 6 | OK |
+| 7 +FAT +production | -12.0 / -12.8 | -4 | -7 | OK |
 
 Check: lever values agree within 3 MNOK or 50%. Steps outside: 0.
 <!-- hand-check:end -->
@@ -324,6 +356,8 @@ model = conservative end.
 - **DP2 own hours**: hours booked on the 3 DP2 projects (decides 3.5× vs 6×), and medium's weight (2×).
 - **FAT**: test hours per project, number of benches and real load. FAT is the bottleneck.
 - **Today's quoted lead time** for a retrofit (anchors the hand check).
+- **Rework**: actual share of production/FAT hours (re-tests, NCRs, waiting for software/drawings), and
+  whether engineering also has significant rework from drawing errors.
 - **Learning**: hours per project over time per family; CMS delivery history (assumed as PTC).
 - Classification of CMS and PTC – Other (assumed simple).
 - Win probability vs quoted lead time, and the size of the express premium. No quote history is
