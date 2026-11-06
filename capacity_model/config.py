@@ -106,8 +106,10 @@ class Config:
     # --- hours per project: class weight x hours per simple-equivalent (calibrated) ---
     class_weight: dict = field(default_factory=lambda: {"simple": 1.0, "medium": 2.0, "advanced": 3.5})  # USER/PLACEHOLDER
     eng_hours_reported: float = 23400.0         # USER: booked on the 2026 projects (incl. BruCon-4)
-    prod_hours_reported: float = 32300.0        # USER
-    fat_to_prod: float = 0.286                  # PLACEHOLDER: FAT hours per production hour
+    # USER 2026: "Production control systems" 17,599 + "Assembly bridge systems" 545 (integration part of
+    # package deliveries). "Production Service / Retrofit" 2,111 h left out for now (not sure it belongs).
+    prod_hours_reported: float = 18144.0
+    fat_hours_reported: float = 6972.0          # USER 2026: "Test and FAT control systems"
     unit_cv: float = 0.30                       # spread of hours per project (lognormal), PLACEHOLDER
 
     # --- capacity ---
@@ -190,6 +192,8 @@ class Config:
 
 
 # ---------------------------------------------------------------- derived quantities
+Config.fat_to_prod = property(lambda self: self.fat_hours_reported / self.prod_hours_reported)
+
 def bundled_per_year(cfg: Config) -> dict:
     return {t: n * (1 - cfg.retrofit_share[t]) for t, n in cfg.projects_per_year.items()}
 

@@ -55,22 +55,30 @@ BruCon-5 medium (12) and BruCon-5 DP2 (3).
 
 | Class | Price | Traded sensors | Weight (hours vs simple) | Eng / project | Prod / project | FAT / project | Hardware |
 |---|---:|---:|---:|---:|---:|---:|---|
-| Simple | 0.3 MNOK | – | 1 | 154 h (4.1 wk) | 212 h | 61 h | stock |
-| Medium | 1 MNOK | – | 2 (PLACEHOLDER) | 308 h | 425 h | 122 h | stock |
-| Advanced (DP2) | 10 MNOK | 75 % of price | 3.5 (PLACEHOLDER, test 6) | 539 h | 744 h | 213 h | sensors 9–13 wk |
+| Simple | 0.3 MNOK | – | 1 | 154 h (4.1 wk) | 119 h | 46 h | stock |
+| Medium | 1 MNOK | – | 2 (PLACEHOLDER) | 308 h | 239 h | 92 h | stock |
+| Advanced (DP2) | 10 MNOK | 75 % of price | 3.5 (PLACEHOLDER, test 6) | 539 h | 418 h | 161 h | sensors 9–13 wk |
 
 Hours per project = class weight × hours per simple-equivalent. The hours per simple-equivalent are
 calibrated so that the 2026 volume (148.5 simple-equivalents) reproduces the hours **booked on the
-projects**: 23,400 h engineering and 32,300 h production (USER), minus the BruCon-4 share.
+projects** in 2026 (USER), minus the BruCon-4 share:
+
+| Hours 2026 | Hours | In the model |
+|---|---:|---|
+| Engineering | 23,400 | yes (breakdown being checked) |
+| Production control systems | 17,599 | production |
+| Assembly bridge systems (integration part of packages) | 545 | production |
+| Production Service / Retrofit | 2,111 | **left out for now** (unclear if it belongs) |
+| Test and FAT control systems | 6,972 | FAT |
 
 ### Other inputs
 
 | Input | Value | Source |
 |---|---|---|
 | Bundled / retrofit split | 60 % / 40 % for all classes | **PLACEHOLDER (highest priority)** |
-| Capacity | 24 engineers × 80 % × 45 wk; production load 85 %; FAT load 92 % (bottleneck) | USER / PLACEHOLDER loads |
+| Capacity | 24 engineers × 80 % × 45 wk; production load 85 %; FAT load 92 % (bottleneck); capacity = hours / load | USER / **PLACEHOLDER loads** |
 | Cost of extra capacity | Engineer 1.3 MNOK/yr; production 0.8 kNOK/h; FAT +25 %: 2 MNOK + 1.5 MNOK/yr | PLACEHOLDER |
-| FAT hours | 0.286 × production hours | PLACEHOLDER |
+| FAT hours | 6,972 h/yr (0.38 × production hours) | USER |
 | Class approval | Case-by-case 13 wk, 50 % comments +4 wk; type approval 6.5 wk (25 %, +2 wk) | USER / PLACEHOLDER |
 | Class share | DNV 80 %, ABS 10 %, BV 7 %, LR 3 % | USER |
 | Margin | 20 % on own content, 20 % on traded sensors (separate variable) | USER |
@@ -125,16 +133,16 @@ possible, case-by-case approval):
 
 | Lever | Lever value | ΔNPV vs baseline | What happens |
 |---|---:|---:|---|
-| 1c Rework *not* reduced | | −6 | FAT stays at ~85 %, quotes ~2 weeks longer |
+| 1c Rework *not* reduced | | −5 | FAT stays at ~85 %, quotes ~2 weeks longer |
 | 0 Bundled as early as possible | | −1 | Blocks near-term capacity |
-| 1b Quote incl. approval comments | | −11 | Every quote 4 weeks longer although comments become rare |
+| 1b Quote incl. approval comments | | −9 | Every quote 4 weeks longer although comments become rare |
 | 2 Pull bundled work into idle capacity | +3 | +3 | Less valuable now that rework reduction frees capacity |
-| **3 + Type approval DNV** | **+13** | **+16** | **The most valuable lever**: ~39 express (≤ 4 months) wins a year |
-| 4 + 1 sensor stock set | −2 | +14 | Too few DP2 |
-| 5 + Type approval ABS | 0 | +14 | Only 10 % of volume |
-| 5b + 10 % production instead | −13 | +1 | Not needed |
-| 6 + 25 % FAT capacity | −8 | +6 | Not needed if rework halves |
-| 7 + 10 % production as well | −13 | −7 | Not needed |
+| **3 + Type approval DNV** | **+15** | **+18** | **The most valuable lever**: ~40 express (≤ 4 months) wins a year |
+| 4 + 1 sensor stock set | −3 | +15 | Too few DP2 |
+| 5 + Type approval ABS | 0 | +15 | Only 10 % of volume |
+| 5b + 10 % production instead | −7 | +8 | Not needed |
+| 6 + 25 % FAT capacity | −8 | +7 | Not needed if rework halves |
+| 7 + 10 % production as well | −7 | 0 | Not needed |
 
 ### Sensitivities (`results/sensitivity.md`, 40 runs each)
 
@@ -142,19 +150,19 @@ possible, case-by-case approval):
 
 | Variant | Baseline NPV vs base | Load prod / FAT | Pull fwd | + TA DNV | + 25 % FAT | FAT load with TA |
 |---|---:|---|---:|---:|---:|---:|
-| **Base: rework 30 %, half-life 1 yr, learning 85 %** | 0 | 67 % / 72 % | +4 | +17 | +7 | 81 % |
-| Rework 20 % today | −2 | 72 % / 78 % | +5 | +17 | +7 | 89 % |
-| Rework 40 % today | +1 | 60 % / 65 % | +3 | +17 | +6 | 73 % |
-| Rework half-life 6 months | +1 | 65 % / 70 % | +3 | +16 | +6 | 78 % |
-| Rework half-life 2 years | −1 | 70 % / 76 % | +5 | +17 | +7 | 86 % |
-| **No rework reduction** | **−6** | 79 % / 85 % | +8 | +18 | +8 | **98 %** |
-| Learning 80 % | +1 | 64 % / 69 % | +3 | +17 | +7 | 77 % |
-| Learning 90 % | −1 | 69 % / 75 % | +4 | +17 | +6 | 86 % |
-| No learning, no rework reduction | −18 | 81 % / 88 % | +14 | +17 | +9 | 100 % |
+| **Base: rework 30 %, half-life 1 yr, learning 85 %** | 0 | 66 % / 72 % | +3 | +19 | +8 | 80 % |
+| Rework 20 % today | −2 | 72 % / 78 % | +5 | +19 | +9 | 88 % |
+| Rework 40 % today | +2 | 59 % / 65 % | +2 | +18 | +7 | 72 % |
+| Rework half-life 6 months | +1 | 64 % / 70 % | +3 | +18 | +7 | 77 % |
+| Rework half-life 2 years | −1 | 69 % / 75 % | +4 | +19 | +9 | 85 % |
+| **No rework reduction** | **−6** | 78 % / 85 % | +8 | +20 | +11 | **97 %** |
+| Learning 80 % | +1 | 63 % / 69 % | +2 | +18 | +8 | 76 % |
+| Learning 90 % | −1 | 69 % / 75 % | +4 | +19 | +8 | 85 % |
+| No learning, no rework reduction | −18 | 81 % / 88 % | +15 | +20 | +14 | 100 % |
 
 Main messages at today's volume:
 
-1. **Type approval for DNV is robust**: +16 to +18 MNOK in every variant.
+1. **Type approval for DNV is robust**: +18 to +20 MNOK in every variant.
 2. **Whether FAT capacity must rise depends on rework.** If rework halves within a year, FAT falls to
    ~70–80 % and extra FAT capacity is not worth it. If rework stays, FAT is at ~98 % once type approval
    brings more express orders. **Track rework hours and FAT re-tests**; this decides the FAT investment.
@@ -189,14 +197,14 @@ Results with rework 30 % → half in a year and learning 85 % (DP2 = 3.5× a sim
 
 | Lever set | DP2 won/yr at M = 30 | Market needed for 30 | Win rate | DP2 quote | Loads eng / prod / FAT | ΔNPV at same market |
 |---|---:|---:|---:|---:|---|---:|
-| A Baseline | 35 | 62 opps (M ≈ 24) | 49 % | 27 wk ⚠ | 96 % / 86 % / 92 % | 0 |
-| B + Pull forward | 44 | 48 (M ≈ 18) | 65 % | 22 wk | **98 %** / 88 % / 96 % | +47 |
-| **C + TA DNV** | 44 | **44 (M ≈ 17)** | **68 %** | **19 wk** | **99 %** / 89 % / 98 % | **+86** |
-| D + 4 sensor stock sets | 44 | 44 | 68 % | 18 wk | 99 % / 89 % / 98 % | +94 |
-| E D + 25 % FAT | 47 | 44 | 68 % | 17 wk | 98 % / 89 % / 77 % | +97 |
-| G D + 25 % FAT + 25 % production | 47 | 44 | 68 % | 17 wk | 98 % / 71 % / 77 % | +65 |
-| **I G + 25 % engineers** | **54** | 44 | 68 % | 17 wk | **82 %** / 74 % / 80 % | +36 |
-| J/K + 50 % FAT/prod, +25/50 % engineers | 54 | 44 | 68 % | 17 wk | ≤ 82 % / 62 % / 66 % | +6 / −27 |
+| A Baseline | 36 | 60 opps (M ≈ 23) | 51 % | 27 wk ⚠ | 96 % / 86 % / 92 % | 0 |
+| B + Pull forward | 44 | 47 (M ≈ 18) | 65 % | 22 wk | **98 %** / 88 % / 96 % | +46 |
+| **C + TA DNV** | 45 | **45 (M ≈ 17)** | **68 %** | **18 wk** | **99 %** / 89 % / 98 % | **+113** |
+| D + 4 sensor stock sets | 45 | 46 | 68 % | 17 wk | 99 % / 90 % / 98 % | +113 |
+| E D + 25 % FAT | 48 | 44 | 69 % | 17 wk | 98 % / 89 % / 77 % | +114 |
+| G D + 25 % FAT + 25 % production | 48 | 44 | 69 % | 17 wk | 98 % / 71 % / 77 % | +97 |
+| **I G + 25 % engineers** | **54** | 44 | 69 % | 16 wk | **81 %** / 74 % / 80 % | +65 |
+| J/K + 50 % FAT/prod, +25/50 % engineers | 54 | 44 | 69 % | 16 wk | ≤ 81 % / 61 % / 66 % | +50 / +16 |
 
 What it takes (with rework halved):
 
@@ -217,9 +225,9 @@ What it takes (with rework halved):
 
 | Resource | Total need without improvement | Factor | Need | Available (98 %) | Result |
 |---|---:|---:|---:|---:|---|
-| Engineering | 999 eng-wk | 0.88 (learning only) | 879 | 847 | **+4 %, at the limit** |
-| Production | 51,644 h | 0.62 (rework + learning) | 32,000 | 36,382 | fits (88 %) |
-| FAT | 14,776 h | 0.62 | 9,160 | 9,614 | fits, but at 93 % |
+| Engineering | 610 + 27 × 14.4 = 999 eng-wk | 0.88 (learning only) | 879 | 847 | **+4 %, at the limit** |
+| Production | 17,726 + 27 × 418 = 29,012 h | 0.62 (rework + learning) | 17,990 | 20,437 | fits (86 %) |
+| FAT | 6,811 + 27 × 161 = 11,158 h | 0.62 | 6,918 | 7,256 | fits, but at 93 % |
 
 Matches the model: engineering is binding, FAT tight, production has room.
 
@@ -245,8 +253,8 @@ Volume in simple-equivalents (simple = 1, medium = 2, DP2 = 3.5): 68 + 35 × 2 +
 | Resource | Need | Available | ρ |
 |---|---:|---:|---:|
 | Engineering | 610 eng-weeks | 24 × 0.8 × 45 = 864 | 71 % |
-| Production | 31,556 h | 37,125 h | 85 % |
-| FAT | 9,025 h | 9,810 h | **92 %** |
+| Production | 17,726 h | 20,854 h | 85 % |
+| FAT | 6,811 h | 7,404 h | **92 %** |
 
 **2. Minimum lead time (critical path, no queues)**
 
@@ -263,7 +271,7 @@ the sensor lead time (9–13 weeks) is on the critical path. Comments add 0.5 ×
 
 **3. Queue: anchored on today's quote, scaled with the queueing factor**
 
-    W_today = L_quoted_today − L_min − safety − 0.5          (medium: 29.5 − 21.3 − 1 − 0.5 = 6.7 weeks)
+    W_today = L_quoted_today − L_min − safety − 0.5          (PTC medium: 29.5 − 20.6 − 1 − 0.5 = 7.4 weeks)
     W_new   = W_today × [ρ / (1 − ρ_seen)]_new / [ρ / (1 − ρ)]_today
 
 - ρ_seen = total load when served first come first served (today).
@@ -333,18 +341,26 @@ Latest run (with learning), ΔNPV vs baseline over 5 years [MNOK]:
 
 | Scenario | Lever value hand / model | ΔNPV hand | ΔNPV model | Check |
 |---|---:|---:|---:|---|
-| 2 +pull bundled fwd | 5.5 / 3.1 | 6 | 3 | OK |
-| 3 +TA DNV | 10.8 / 12.9 | 16 | 16 | OK |
-| 4 +1 sensor stock set | -0.5 / -1.6 | 16 | 14 | OK |
-| 5 +TA ABS | -0.5 / -0.4 | 15 | 14 | OK |
-| 5b +10% prod. (not FAT) | -12.1 / -12.8 (vs 5) | 3 | 1 | OK |
-| 6 +25% FAT capacity | -7.4 / -8.0 | 8 | 6 | OK |
-| 7 +FAT +production | -12.0 / -12.8 | -4 | -7 | OK |
+| 2 +pull bundled fwd | 6.4 / 3.0 | 6 | 3 | **CHECK** |
+| 3 +TA DNV | 12.4 / 14.6 | 19 | 18 | OK |
+| 4 +1 sensor stock set | -1.8 / -2.5 | 17 | 15 | OK |
+| 5 +TA ABS | -0.4 / -0.2 | 17 | 15 | OK |
+| 5b +10% prod. (not FAT) | -6.7 / -7.2 (vs 5) | 10 | 8 | OK |
+| 6 +25% FAT capacity | -7.3 / -7.9 | 9 | 7 | OK |
+| 7 +FAT +production | -6.5 / -7.2 | 3 | -0 | OK |
 
-Check: lever values agree within 3 MNOK or 50%. Steps outside: 0.
+Check: lever values agree within 3 MNOK or 50%. Steps outside: 1.
 <!-- hand-check:end -->
 
+The FAT and production loads (92 % / 85 %) are still placeholders: capacity = reported hours / assumed
+load. Today's queue of ~7 weeks matches what is seen in practice (USER), which supports the combination
+of load and variability, but not where the queue sits. Next calibration: FAT benches/hours, FAT waiting
+time, rework share.
+
 The hand calculation agrees with the model on load, lead times, retrofit volume and most lever values.
+**Pull forward** is flagged in the latest run (hand ≈ 6, model ≈ 3 MNOK): the hand formula gives retrofit
+full priority over bundled work at every resource, while in the model bundled work only gives way in idle
+weeks. With rework halving and loads falling, the model value is the more realistic one.
 It **overestimates express** volume (≈ 29 vs 22 a year with type approval), because its queue estimate
 is about 1 week shorter than the model's. Levers whose value comes mainly from express pricing
 (type approval, sensor stock) are therefore higher by hand. Read them as a range: hand = optimistic end,
