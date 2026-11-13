@@ -87,7 +87,7 @@ projects** in 2026 (USER), minus the BruCon-4 share:
 | Retrofit market | Win probability flat up to ~6 months, then falling; express (≤ 4 months) +15 % price | PLACEHOLDER |
 | Bundled scheduling | As late as possible (current practice) | USER |
 | Rework / waiting | 30 % of today's production and FAT hours (software not ready, drawing errors, re-tests); half gone within a year, floor 5 %; varies strongly between projects (CV 1.0) | USER / PLACEHOLDER floor, CV |
-| Repetition learning | On the remaining ("clean") hours, per family (PTC, CMS, BruCon-5), **85 %** per doubling, floor 50 %, 30 % transfer between families | Literature (see below) / USER |
+| Repetition learning | On the remaining ("clean") hours, per family (PTC, CMS, BruCon-5), **85 %** per doubling for production/FAT (data 2022–25: 73–84 %), **92 %** for engineering (data 2023–25: ≈ flat), floor 50 %, 30 % transfer between families | Literature (see below) / USER |
 | Experience today | Deliveries since 2023, volume doubled to 2026: PTC ≈ 239, CMS ≈ 72, BruCon-5 ≈ 93 simple-equivalents | USER (CMS history PLACEHOLDER) |
 | Comment learning | Comment rate × 0.6 per doubling of approvals, down to 7.5 % | USER (target 5–10 %) |
 | Today's quote (anchor) | Medium retrofit quoted 29.5 wk today (= model baseline) | **PLACEHOLDER: replace with real figure** |
@@ -185,6 +185,26 @@ A historically fitted curve also contains rework removal. Here the two are separ
 fixing causes, falls fast) and repetition learning (driven by volume, slow). The best calibration is
 your own data: hours per project per quarter against cumulative projects, on log-log axes.
 
+## Calibration against delivery data
+
+From `plants_vs_hours.xlsx` (control-system plants, by FAT date):
+
+| | 2022 | 2023 | 2024 | 2025 | 2026 YTD |
+|---|---:|---:|---:|---:|---:|
+| Share of FAT after delivery date | 11 % | 15 % | 31 % | 47 % | **58 %** |
+| Median FAT vs delivery (days) | −19 | −12 | −14 | 0 | **+47** |
+
+Learning fitted on hours per plant vs cumulative plants: factory 73–84 %; project engineering and SW
+engineering 86–89 % for 2022–25 but ≈ 100 % (flat) for 2023–25.
+
+**The model does not reproduce the FAT lateness yet**: it gives ~5 % FAT after the delivery date (0 % for
+bundled; median FAT ~6 months *before* delivery), against 58 % in reality. Bundled projects are booked as
+late as possible with approval contingency and a 1–3 year window, so they never collide with delivery.
+The real picture points to less slack than modelled (late design inputs or late booking of FAT), higher
+real FAT load / variability, or rework sending projects back. This is the main calibration task once FAT
+capacity, re-test and waiting-time data are available. Until then, results on bundled lateness and LDs
+are optimistic.
+
 ## Case: 300 MNOK/yr retrofit on DP2
 
 `target_advanced.py` → `results/target_advanced*.md/png`.
@@ -193,18 +213,17 @@ your own data: hours per project per quarter against cumulative projects, on log
 Today: 3 DP2 per year in total, ≈ 1.2 retrofit (placeholder split). The script grows the DP2 retrofit
 market (opportunities × M, linear to year 3), and finds the M each lever set needs.
 
-Results with rework 30 % → half in a year and learning 85 % (DP2 = 3.5× a simple project):
+Results with rework 30 % → half in a year, learning 85 % production/FAT and 92 % engineering,
+experience from data (DP2 = 3.5× a simple project):
 
-| Lever set | DP2 won/yr at M = 30 | Market needed for 30 | Win rate | DP2 quote | Loads eng / prod / FAT | ΔNPV at same market |
-|---|---:|---:|---:|---:|---|---:|
-| A Baseline | 36 | 60 opps (M ≈ 23) | 51 % | 27 wk ⚠ | 96 % / 86 % / 92 % | 0 |
-| B + Pull forward | 44 | 47 (M ≈ 18) | 65 % | 22 wk | **98 %** / 88 % / 96 % | +46 |
-| **C + TA DNV** | 45 | **45 (M ≈ 17)** | **68 %** | **18 wk** | **99 %** / 89 % / 98 % | **+113** |
-| D + 4 sensor stock sets | 45 | 46 | 68 % | 17 wk | 99 % / 90 % / 98 % | +113 |
-| E D + 25 % FAT | 48 | 44 | 69 % | 17 wk | 98 % / 89 % / 77 % | +114 |
-| G D + 25 % FAT + 25 % production | 48 | 44 | 69 % | 17 wk | 98 % / 71 % / 77 % | +97 |
-| **I G + 25 % engineers** | **54** | 44 | 69 % | 16 wk | **81 %** / 74 % / 80 % | +65 |
-| J/K + 50 % FAT/prod, +25/50 % engineers | 54 | 44 | 69 % | 16 wk | ≤ 81 % / 61 % / 66 % | +50 / +16 |
+| Lever set | Market needed for 30 | Win rate | DP2 quote | Loads eng / prod / FAT | ΔNPV at same market |
+|---|---:|---:|---:|---|---:|
+| A Baseline | 75 opps (M ≈ 28) | 40 % | 29 wk ⚠ | **99 %** / 79 % / 85 % | 0 |
+| B + Pull forward | 49 (M ≈ 18) | 63 % | 23 wk | **100 %** / 78 % / 86 % | +57 |
+| **C + TA DNV** | **47 (M ≈ 17)** | **67 %** | **18 wk** | **100 %** / 78 % / 88 % | **+121** |
+| E D + 25 % FAT | 46 | 67 % | 18 wk | 100 % / 79 % / 68 % | +117 |
+| **I + 25 % FAT, prod. and engineers** | 45 | 69 % | 17 wk | **90 %** / 70 % / 76 % | +76 |
+| K + 50 % FAT/prod, +50 % engineers | 44 | 69 % | 17 wk | 75 % / 59 % / 64 % | +29 |
 
 What it takes (with rework halved):
 
