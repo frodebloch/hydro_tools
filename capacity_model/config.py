@@ -160,7 +160,8 @@ class Config:
     # --- learning (new product, wrinkles being ironed out) ---
     learning: bool = True
     # repetition learning on the "clean" hours (literature: 80-90 %, assembly/electrical ~80-85 %)
-    learning_rates: dict = field(default_factory=lambda: {"eng": 0.85, "prod": 0.85, "fat": 0.85})
+    # eng: data 2023-25 shows ~flat hours/plant -> 92 % (sensitivity 100 %); prod/FAT: data 73-84 %
+    learning_rates: dict = field(default_factory=lambda: {"eng": 0.92, "prod": 0.85, "fat": 0.85})
     learning_floor: float = 0.50                # USER: clean hours can fall to 50 % of today at best
     # rework / waiting (software not ready, drawing errors, FAT re-tests) in production and FAT
     rework_share: float = 0.30                  # USER: share of today's production + FAT hours
@@ -171,6 +172,8 @@ class Config:
     first_year: int = 2023                      # USER: BruCon-5 and PTC delivered since 2023
     growth_since_first_year: dict = field(default_factory=lambda: {"PTC": 2.0, "CMS": 2.0, "BruCon-5": 2.0})
                                                 # USER: volume doubled 2023 -> 2026 (CMS: PLACEHOLDER)
+    # USER data (plants_analysis.xlsx): simple-equivalents delivered up to 2026 YTD per family
+    experience_override: dict = field(default_factory=lambda: {"PTC": 205.0, "CMS": 26.0, "BruCon-5": 78.0})
     learning_transfer: float = 0.30             # USER: experience from other families counts 30 %
     comment_learning_rate: float = 0.60         # comment rate x0.6 per doubling of approvals (USER: "fast")
     comment_floor: float = 0.075                # USER: 5-10 % realistic target
@@ -280,7 +283,10 @@ def learning_factor(rate: float, n: float, n0: float, floor: float) -> float:
 
 
 def experience_today(cfg: Config) -> dict:
-    """Simple-equivalents built per family: years since first_year at constant growth, plus 2026 to date."""
+    """Simple-equivalents built per family: from data if given, else years since first_year at constant
+    growth plus 2026 to date."""
+    if cfg.experience_override:
+        return dict(cfg.experience_override)
     yr26 = {f: 0.0 for f in FAMILIES}
     to_date = {f: 0.0 for f in FAMILIES}
     for t, done, planned in SUBTYPES.values():

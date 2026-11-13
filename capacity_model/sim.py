@@ -422,6 +422,13 @@ def simulate(cfg: Config, seed: int, retro_rates: dict):
     retro = [t for t in finished if t.kind == "retrofit" and inw(t.arrival)]
     bund = [t for t in finished if t.kind == "bundled" and inw(t.arrival)]
     r["retrofit_revenue"] = sum(t.price for t in retro) / years
+    # FAT vs contractual delivery date (as in plants_vs_hours.xlsx: FAT date after delivery date)
+    allp = retro + bund
+    fat_vs = [end_of(t.fat) - (t.due - cfg.shipping_weeks) for t in allp]
+    r["fat_after_delivery_share"] = float(np.mean([x > 0 for x in fat_vs])) if allp else 0.0
+    r["fat_vs_delivery_days_median"] = float(np.median(fat_vs)) * 7 if allp else 0.0
+    fb = [end_of(t.fat) - (t.due - cfg.shipping_weeks) for t in bund]
+    r["fat_after_delivery_share_bundled"] = float(np.mean([x > 0 for x in fb])) if bund else 0.0
     r["retrofit_late_share"] = float(np.mean([t.late >= 1 for t in retro])) if retro else 0.0
     r["bundled_late_share"] = float(np.mean([t.late >= 1 for t in bund])) if bund else 0.0
     r["bundled_late_weeks"] = float(np.mean([t.late for t in bund])) if bund else 0.0

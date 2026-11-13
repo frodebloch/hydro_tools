@@ -342,11 +342,11 @@ Latest run (with learning), ΔNPV vs baseline over 5 years [MNOK]:
 | Scenario | Lever value hand / model | ΔNPV hand | ΔNPV model | Check |
 |---|---:|---:|---:|---|
 | 2 +pull bundled fwd | 6.4 / 3.0 | 6 | 3 | **CHECK** |
-| 3 +TA DNV | 12.4 / 14.6 | 19 | 18 | OK |
-| 4 +1 sensor stock set | -1.8 / -2.5 | 17 | 15 | OK |
-| 5 +TA ABS | -0.4 / -0.2 | 17 | 15 | OK |
+| 3 +TA DNV | 12.7 / 14.9 | 19 | 18 | OK |
+| 4 +1 sensor stock set | -2.1 / -2.6 | 17 | 15 | OK |
+| 5 +TA ABS | -0.5 / -0.2 | 17 | 15 | OK |
 | 5b +10% prod. (not FAT) | -6.7 / -7.2 (vs 5) | 10 | 8 | OK |
-| 6 +25% FAT capacity | -7.3 / -7.9 | 9 | 7 | OK |
+| 6 +25% FAT capacity | -7.4 / -8.0 | 9 | 7 | OK |
 | 7 +FAT +production | -6.5 / -7.2 | 3 | -0 | OK |
 
 Check: lever values agree within 3 MNOK or 50%. Steps outside: 1.

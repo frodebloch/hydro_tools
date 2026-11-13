@@ -8,33 +8,33 @@ Assumptions: DP2 = 3.5 × a simple project in own hours; traded sensors 75% of t
 
 | Lever set | M = 1 | M = 5 | M = 10 | M = 20 | M = 30 | M = 40 |
 |---|---:|---:|---:|---:|---:|---:|
-| A baseline | 1.7 | 8.2 | 15.8 | 27.8 | 35.6 | 39.3 |
-| B pull bundled fwd | 1.7 | 8.5 | 17.0 | 33.8 | 44.2 | 46.0 |
-| C B + TA DNV | 1.8 | 8.8 | 17.7 | 35.2 | 44.5 | 46.5 |
-| D C + 4 sensor stock sets | 1.8 | 8.8 | 17.8 | 35.3 | 44.5 | 46.5 |
-| E D + 25% FAT | 1.8 | 8.8 | 17.8 | 35.9 | 47.5 | 49.2 |
-| F D + 25% production | 1.8 | 8.8 | 17.8 | 35.4 | 44.7 | 46.6 |
-| G D + 25% FAT + 25% production | 1.8 | 8.8 | 17.8 | 35.9 | 47.5 | 49.2 |
-| H G + 50% FAT + 50% production | 1.8 | 8.8 | 17.8 | 35.9 | 47.5 | 49.1 |
-| I G + 25% engineers | 1.8 | 8.8 | 17.8 | 36.0 | 54.3 | 68.2 |
-| J H + 25% engineers | 1.8 | 8.8 | 17.8 | 36.0 | 54.4 | 69.3 |
-| K H + 50% engineers | 1.8 | 8.8 | 17.8 | 36.0 | 54.5 | 72.0 |
+| A baseline | 1.7 | 8.0 | 15.2 | 25.2 | 31.1 | 33.6 |
+| B pull bundled fwd | 1.7 | 8.4 | 16.8 | 32.6 | 38.6 | 39.5 |
+| C B + TA DNV | 1.8 | 8.8 | 17.7 | 34.2 | 39.9 | 40.8 |
+| D C + 4 sensor stock sets | 1.8 | 8.8 | 17.8 | 34.2 | 39.9 | 40.8 |
+| E D + 25% FAT | 1.8 | 8.8 | 17.8 | 34.3 | 39.8 | 40.5 |
+| F D + 25% production | 1.8 | 8.8 | 17.8 | 34.3 | 39.9 | 40.8 |
+| G D + 25% FAT + 25% production | 1.8 | 8.8 | 17.8 | 34.3 | 39.8 | 40.4 |
+| H G + 50% FAT + 50% production | 1.8 | 8.8 | 17.8 | 34.3 | 39.7 | 40.3 |
+| I G + 25% engineers | 1.8 | 8.8 | 17.8 | 35.9 | 53.2 | 59.6 |
+| J H + 25% engineers | 1.8 | 8.8 | 17.8 | 35.9 | 53.3 | 59.6 |
+| K H + 50% engineers | 1.8 | 8.8 | 17.8 | 35.9 | 54.4 | 71.2 |
 
 ## At the market needed to reach the target
 
 | Lever set | Market M | DP2 opps/yr | Win rate | DP2 quote [wk] | PTC medium quote [wk] | Load eng / prod / FAT | Other retrofit won/yr | Bundled late | ΔNPV vs baseline at same market [MNOK] |
 |---|---:|---:|---:|---:|---:|---|---:|---:|---:|
-| A baseline | 22.8 | 60 | 51% | 27 ⚠ | 27 | 96% / 86% / 92% | 47 (at M=1: 58) | 0.0% | 0 |
-| B pull bundled fwd | 17.7 | 47 | 65% | 22 | 22 | 98% / 88% / 96% | 58 (at M=1: 58) | 0.0% | 46 |
-| C B + TA DNV | 17.0 | 45 | 68% | 18 | 17 | 99% / 89% / 98% | 61 (at M=1: 58) | 0.0% | 113 |
-| D C + 4 sensor stock sets | 17.0 | 46 | 68% | 17 | 17 | 99% / 90% / 98% | 61 (at M=1: 58) | 0.0% | 113 |
-| E D + 25% FAT | 16.7 | 44 | 69% | 17 | 16 | 98% / 89% / 77% | 60 (at M=1: 58) | 0.0% | 114 |
-| F D + 25% production | 17.0 | 46 | 68% | 17 | 17 | 99% / 72% / 98% | 60 (at M=1: 58) | 0.0% | 95 |
-| G D + 25% FAT + 25% production | 16.7 | 44 | 69% | 17 | 16 | 98% / 71% / 77% | 60 (at M=1: 58) | 0.0% | 97 |
-| H G + 50% FAT + 50% production | 16.7 | 44 | 69% | 17 | 16 | 98% / 60% / 64% | 60 (at M=1: 58) | 0.0% | 82 |
-| I G + 25% engineers | 16.7 | 44 | 69% | 16 | 16 | 81% / 74% / 80% | 61 (at M=1: 58) | 0.0% | 65 |
-| J H + 25% engineers | 16.7 | 44 | 69% | 16 | 16 | 81% / 61% / 66% | 61 (at M=1: 58) | 0.0% | 50 |
-| K H + 50% engineers | 16.7 | 44 | 69% | 16 | 16 | 68% / 61% / 66% | 61 (at M=1: 58) | 0.0% | 16 |
+| A baseline | 28.2 | 75 | 40% | 29 ⚠ | 29 | 99% / 79% / 85% | 39 (at M=1: 58) | 0.0% | 0 |
+| B pull bundled fwd | 18.4 | 49 | 63% | 23 | 22 | 100% / 78% / 86% | 57 (at M=1: 58) | 0.0% | 57 |
+| C B + TA DNV | 17.4 | 47 | 67% | 18 | 17 | 100% / 78% / 88% | 60 (at M=1: 58) | 0.0% | 121 |
+| D C + 4 sensor stock sets | 17.4 | 47 | 67% | 18 | 17 | 100% / 79% / 88% | 60 (at M=1: 58) | 0.0% | 115 |
+| E D + 25% FAT | 17.4 | 46 | 67% | 18 | 17 | 100% / 79% / 68% | 60 (at M=1: 58) | 0.0% | 117 |
+| F D + 25% production | 17.4 | 47 | 67% | 18 | 17 | 100% / 63% / 88% | 60 (at M=1: 58) | 0.0% | 98 |
+| G D + 25% FAT + 25% production | 17.4 | 46 | 67% | 17 | 17 | 100% / 63% / 68% | 60 (at M=1: 58) | 0.0% | 99 |
+| H G + 50% FAT + 50% production | 17.4 | 47 | 67% | 17 | 17 | 100% / 52% / 57% | 60 (at M=1: 58) | 0.0% | 84 |
+| I G + 25% engineers | 16.7 | 45 | 69% | 17 | 16 | 90% / 70% / 76% | 61 (at M=1: 58) | 0.0% | 76 |
+| J H + 25% engineers | 16.7 | 45 | 69% | 17 | 16 | 90% / 59% / 63% | 61 (at M=1: 58) | 0.0% | 61 |
+| K H + 50% engineers | 16.7 | 44 | 69% | 17 | 16 | 75% / 59% / 64% | 60 (at M=1: 58) | 0.0% | 29 |
 
 ⚠ = quoted DP2 lead time above 6 months (win rate falls steeply).
 ΔNPV compares each lever set with the baseline **at the same market**: the value of the levers given that the market has been grown. The cost of growing the market (sales effort) is not included.

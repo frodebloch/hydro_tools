@@ -51,9 +51,9 @@ Rework today 30%, half-life 52 weeks, floor 5%.
 
 | Family | Experience today [simple-eq.] | Year 1 | Year 2 | Year 3 | Year 4 | Year 5 |
 |---|---:|---:|---:|---:|---:|---:|
-| PTC | 239 | 0.87 | 0.73 | 0.66 | 0.62 | 0.59 |
-| CMS | 72 | 0.87 | 0.73 | 0.66 | 0.62 | 0.59 |
-| BruCon-5 | 93 | 0.87 | 0.73 | 0.66 | 0.62 | 0.59 |
+| PTC | 205 | 0.86 | 0.72 | 0.65 | 0.60 | 0.58 |
+| CMS | 26 | 0.85 | 0.70 | 0.63 | 0.58 | 0.55 |
+| BruCon-5 | 78 | 0.86 | 0.72 | 0.64 | 0.60 | 0.57 |
 
 Learning rate 85% per doubling, transfer between families 30%, floor 50%. Experience from deliveries since 2023 (volume doubled to 2026).
 
@@ -65,14 +65,14 @@ Retrofit opportunities by hand (today's wins / p(today's lead time)): ptc_simple
 
 | Scenario | FAT load ρ (retrofit part), 5-yr avg. | Queue [wk] hand | Quote anchor class [wk] hand / model | Retrofit won/yr hand / model | Express/yr hand / model | ΔNPV [MNOK] hand / model | Ratio | Step = lever value [MNOK] hand / model | Check |
 |---|---:|---:|---:|---:|---:|---:|---:|---|---:|
-| 1 baseline | 77% (39%) | 2.8 | 24 / 23 | 63.3 / 57.3 | 3.5 / 0.0 | 0.0 / 0.0 | – | – | – |
-| 2 +pull bundled fwd | 79% (41%) | 1.1 | 22 / 22 | 66.8 / 60.0 | 7.5 / 0.0 | 6.4 / 3.0 | – | 6.4 / 3.0 | **CHECK** |
-| 3 +TA DNV | 81% (42%) | 1.1 | 18 / 16 | 68.7 / 62.1 | 39.2 / 39.5 | 18.8 / 17.6 | 1.07 | 12.4 / 14.6 | OK |
-| 4 +1 sensor stock set | 81% (42%) | 1.1 | 18 / 16 | 68.7 / 62.1 | 39.5 / 39.8 | 17.1 / 15.1 | 1.13 | -1.8 / -2.5 | OK |
-| 5 +TA ABS | 81% (43%) | 1.1 | 17 / 16 | 68.9 / 62.3 | 43.5 / 44.7 | 16.6 / 14.8 | 1.12 | -0.4 / -0.2 | OK |
-| 5b +10% prod. (not FAT) | 81% (43%) | 1.0 | 17 / 16 | 68.9 / 62.3 | 43.9 / 44.7 | 10.0 / 7.6 | 1.30 | -6.7 / -7.2 (vs 5) | OK |
-| 6 +25% FAT capacity | 64% (34%) | 0.9 | 17 / 16 | 69.2 / 62.4 | 44.6 / 45.0 | 9.4 / 6.9 | 1.36 | -7.3 / -7.9 | OK |
-| 7 +FAT +production | 64% (34%) | 0.8 | 17 / 16 | 69.2 / 62.4 | 45.2 / 45.0 | 2.9 / -0.3 | – | -6.5 / -7.2 | OK |
+| 1 baseline | 75% (38%) | 2.9 | 24 / 23 | 63.0 / 57.1 | 2.8 / 0.0 | 0.0 / 0.0 | – | – | – |
+| 2 +pull bundled fwd | 77% (40%) | 1.1 | 22 / 22 | 66.7 / 60.0 | 6.6 / 0.0 | 6.4 / 3.0 | 2.14 | 6.4 / 3.0 | **CHECK** |
+| 3 +TA DNV | 78% (41%) | 1.1 | 18 / 16 | 68.7 / 62.1 | 38.2 / 39.6 | 19.2 / 17.9 | 1.07 | 12.7 / 14.9 | OK |
+| 4 +1 sensor stock set | 79% (41%) | 1.1 | 18 / 16 | 68.7 / 62.1 | 38.5 / 39.9 | 17.0 / 15.3 | 1.11 | -2.1 / -2.6 | OK |
+| 5 +TA ABS | 79% (41%) | 1.1 | 17 / 16 | 69.0 / 62.3 | 42.5 / 44.8 | 16.6 / 15.1 | 1.10 | -0.5 / -0.2 | OK |
+| 5b +10% prod. (not FAT) | 79% (42%) | 1.1 | 17 / 16 | 69.0 / 62.3 | 42.8 / 44.8 | 9.9 / 7.9 | 1.26 | -6.7 / -7.2 (vs 5) | OK |
+| 6 +25% FAT capacity | 62% (33%) | 0.9 | 17 / 16 | 69.1 / 62.3 | 43.5 / 45.1 | 9.2 / 7.1 | 1.30 | -7.4 / -8.0 | OK |
+| 7 +FAT +production | 62% (33%) | 0.9 | 17 / 16 | 69.2 / 62.3 | 44.0 / 45.1 | 2.7 / -0.1 | – | -6.5 / -7.2 | OK |
 
 Check: each lever's own value (step vs previous) by hand and by model differ by at most 3 MNOK or 50% of the model value.
 Steps outside: 1.
