@@ -1,4 +1,4 @@
-% Created 2026-11-19 Thu 12:26
+% Created 2026-11-19 Thu 12:28
 % Intended LaTeX compiler: pdflatex
 \documentclass[a4paper,11pt]{article}
 \usepackage[utf8]{inputenc}
@@ -43,7 +43,7 @@
 \newpage
 
 \section{Introduction}
-\label{sec:org9cd7180}
+\label{sec:org996338f}
 
 A ship owner has asked for a maximum fuel flow limit (fuel cap) in the
 Propulsion Optimiser.  This note examines whether a fuel cap saves fuel
@@ -53,10 +53,10 @@ planned with knowledge of current and weather, and summarises the
 general fuel effect of speed variation and early arrival.
 
 \section{Simulation}
-\label{sec:orge476913}
+\label{sec:org7b602a5}
 
 \subsection{Route and vessel}
-\label{sec:org694fe7c}
+\label{sec:orgc775a70}
 
 \begin{itemize}
 \item Route Rotterdam Europoort -- Gothenburg (509 nm, 7 legs), both
@@ -74,12 +74,12 @@ included in the voyage fuel.  No shaft generator load.
 \end{itemize}
 
 \subsection{Environment}
-\label{sec:org8a3038f}
+\label{sec:org74631ae}
 
 \begin{itemize}
 \item Waves and wind: NORA3 hindcast (MET Norway), hourly.  Wave added
-resistance from PdStrip transfer functions, hull wind resistance from
-Blendermann.
+resistance from strip theory, hull wind resistance from Blendermann
+coefficients.
 \item Current: Copernicus Marine Service North-West European Shelf physics
 reanalysis, hourly surface current at about 7 km resolution, tides
 included (product ID in Section 6).  The mean along-track current
@@ -88,7 +88,7 @@ percentile about 1.7 kn).
 \end{itemize}
 
 \subsection{Method}
-\label{sec:org8fd0ada}
+\label{sec:org2815e09}
 
 \begin{itemize}
 \item The route is divided into about 100 segments of 5 nm.  For each
@@ -103,7 +103,7 @@ the strategies reach a segment within a few minutes of each other.
 \end{itemize}
 
 \subsection{Strategies}
-\label{sec:orgc55c7e3}
+\label{sec:orgdbf5ac0}
 
 All strategies arrive at the same time.
 
@@ -121,7 +121,7 @@ Fuel cap \(k\times\) & Speed control, with speed reduced where the fuel rate wou
 \end{center}
 
 \section{Results}
-\label{sec:org6010a0a}
+\label{sec:orgab4cffe}
 
 Fuel relative to constant speed over ground (speed control), same
 arrival time, with the Flettner rotor.  Values in brackets are the same
@@ -164,7 +164,7 @@ accepting later arrival in bad weather.
 \end{itemize}
 
 \section{Speed control saving potential}
-\label{sec:org20d5c20}
+\label{sec:org86e0329}
 
 The examples below are for a 240 nm leg scheduled for 24 h at an
 average speed of 10 kn.  The fuel rate is assumed proportional to
@@ -172,7 +172,7 @@ average speed of 10 kn.  The fuel rate is assumed proportional to
 engine load), so the larger deviations are somewhat underestimated.
 
 \subsection{Speed variation at equal arrival time}
-\label{sec:orgbfb0c00}
+\label{sec:org3db0955}
 
 The vessel sails above the setpoint for part of the leg and slower for
 the rest, arriving at the scheduled time.
@@ -207,7 +207,7 @@ variations cost a few tenths of a percent.
 \end{figure}
 
 \subsection{Arriving early}
-\label{sec:org89ecab9}
+\label{sec:org37ed91e}
 
 Arriving early means a higher average speed than required.  The fuel
 for the leg is proportional to \(V^2\).  Fuel while waiting is not
@@ -240,7 +240,7 @@ above the setpoint.
 \end{figure}
 
 \subsection{Interpretation}
-\label{sec:org0c0fb80}
+\label{sec:orgf0a4c24}
 
 \begin{itemize}
 \item The main saving potential of speed control is not tighter speed
@@ -262,7 +262,7 @@ is calculated from distance to go and the required arrival time.
 \end{itemize}
 
 \section{Conclusions}
-\label{sec:org6f8fcc1}
+\label{sec:orgc5c0eea}
 
 \begin{itemize}
 \item With a fixed arrival time, a fuel cap gives no fuel saving compared
@@ -277,7 +277,7 @@ arrival margin on a 24 h leg.
 \end{itemize}
 
 \section{Data sources and acknowledgement}
-\label{sec:org2433717}
+\label{sec:orga0e87bb}
 
 \begin{itemize}
 \item This study has been conducted using E.U. Copernicus Marine Service

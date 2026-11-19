@@ -52,8 +52,8 @@ general fuel effect of speed variation and early arrival.
 ** Environment
 
 - Waves and wind: NORA3 hindcast (MET Norway), hourly.  Wave added
-  resistance from PdStrip transfer functions, hull wind resistance from
-  Blendermann.
+  resistance from strip theory, hull wind resistance from Blendermann
+  coefficients.
 - Current: Copernicus Marine Service North-West European Shelf physics
   reanalysis, hourly surface current at about 7 km resolution, tides
   included (product ID in Section 6).  The mean along-track current
