@@ -5,7 +5,7 @@
 #+LATEX_HEADER: % --- Document metadata (must precede bv.sty which uses them in \hypersetup) ---
 #+LATEX_HEADER: \newcommand{\bvReferenceNumber}{XXXXXX}
 #+LATEX_HEADER: \newcommand{\bvIssue}{Pre}
-#+LATEX_HEADER: \newcommand{\bvTitle}{Speed Strategies, Ocean Current and Fuel Cap -- Rotterdam--Gothenburg}
+#+LATEX_HEADER: \newcommand{\bvTitle}{Speed Strategies, Ocean Current and Fuel Cap}
 #+LATEX_HEADER: \newcommand{\bvDate}{\today}
 #+LATEX_HEADER: \newcommand{\bvType}{Technical Note}
 #+LATEX_HEADER: \newcommand{\bvAuthor}{Frode Bloch}
