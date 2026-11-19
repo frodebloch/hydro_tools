@@ -1,4 +1,4 @@
-% Created 2026-11-19 Thu 12:28
+% Created 2026-11-19 Thu 13:01
 % Intended LaTeX compiler: pdflatex
 \documentclass[a4paper,11pt]{article}
 \usepackage[utf8]{inputenc}
@@ -43,7 +43,7 @@
 \newpage
 
 \section{Introduction}
-\label{sec:org996338f}
+\label{sec:orge6f183f}
 
 A ship owner has asked for a maximum fuel flow limit (fuel cap) in the
 Propulsion Optimiser.  This note examines whether a fuel cap saves fuel
@@ -53,10 +53,10 @@ planned with knowledge of current and weather, and summarises the
 general fuel effect of speed variation and early arrival.
 
 \section{Simulation}
-\label{sec:org7b602a5}
+\label{sec:orgb364e3b}
 
 \subsection{Route and vessel}
-\label{sec:orgc775a70}
+\label{sec:orgd12d3bb}
 
 \begin{itemize}
 \item Route Rotterdam Europoort -- Gothenburg (509 nm, 7 legs), both
@@ -74,7 +74,7 @@ included in the voyage fuel.  No shaft generator load.
 \end{itemize}
 
 \subsection{Environment}
-\label{sec:org74631ae}
+\label{sec:org1ccb363}
 
 \begin{itemize}
 \item Waves and wind: NORA3 hindcast (MET Norway), hourly.  Wave added
@@ -88,7 +88,7 @@ percentile about 1.7 kn).
 \end{itemize}
 
 \subsection{Method}
-\label{sec:org2815e09}
+\label{sec:org4108e9c}
 
 \begin{itemize}
 \item The route is divided into about 100 segments of 5 nm.  For each
@@ -100,10 +100,17 @@ cross current is ignored.
 \item Weather and current at each segment are taken at the scheduled time;
 the strategies reach a segment within a few minutes of each other.
 \item Each voyage's fuel is corrected to the exact scheduled arrival time.
+\item The optimised strategies assume perfect knowledge of current and
+weather for the whole voyage, taken from the hindcast.  In practice
+the speed profile must be planned from forecasts and updated during
+the voyage, so the optimised results are an upper bound on what can be
+achieved.  Tidal currents are well predicted, so the current-only
+result should be close to achievable; the weather-dependent part
+depends on forecast quality.
 \end{itemize}
 
 \subsection{Strategies}
-\label{sec:orgdbf5ac0}
+\label{sec:org4cb8002}
 
 All strategies arrive at the same time.
 
@@ -121,7 +128,7 @@ Fuel cap \(k\times\) & Speed control, with speed reduced where the fuel rate wou
 \end{center}
 
 \section{Results}
-\label{sec:orgab4cffe}
+\label{sec:orgaf2bae7}
 
 Fuel relative to constant speed over ground (speed control), same
 arrival time, with the Flettner rotor.  Values in brackets are the same
@@ -154,17 +161,18 @@ not particularly cheap.
 \item A tight cap makes the schedule impossible in heavy weather on a large
 share of voyages (more than one third at 1.1\(\times\)).
 \item Planning the speed with knowledge of current alone gains about
-0.15 \%.  With the Flettner rotor, planning with current and weather
+0.15 \% (upper bound, perfect knowledge).  With the Flettner rotor, planning with current and weather
 gains about 0.6 \% on average, and 1--1.4 \% on the 10 \% most
 favourable voyages: the optimum sails faster when the rotor is
-effective and slower in head wind.
+effective and slower in head wind.  Both are upper bounds, as the
+simulation assumes perfect knowledge of the conditions.
 \item A fuel cap may still be wanted for other purposes, such as limiting
 engine load, staying within a consumption budget, or deliberately
 accepting later arrival in bad weather.
 \end{itemize}
 
 \section{Speed control saving potential}
-\label{sec:org86e0329}
+\label{sec:org1e59fbb}
 
 The examples below are for a 240 nm leg scheduled for 24 h at an
 average speed of 10 kn.  The fuel rate is assumed proportional to
@@ -172,7 +180,7 @@ average speed of 10 kn.  The fuel rate is assumed proportional to
 engine load), so the larger deviations are somewhat underestimated.
 
 \subsection{Speed variation at equal arrival time}
-\label{sec:org3db0955}
+\label{sec:org673623e}
 
 The vessel sails above the setpoint for part of the leg and slower for
 the rest, arriving at the scheduled time.
@@ -207,7 +215,7 @@ variations cost a few tenths of a percent.
 \end{figure}
 
 \subsection{Arriving early}
-\label{sec:org37ed91e}
+\label{sec:org4deb89d}
 
 Arriving early means a higher average speed than required.  The fuel
 for the leg is proportional to \(V^2\).  Fuel while waiting is not
@@ -240,7 +248,7 @@ above the setpoint.
 \end{figure}
 
 \subsection{Interpretation}
-\label{sec:orgf0a4c24}
+\label{sec:orgf6aa0e3}
 
 \begin{itemize}
 \item The main saving potential of speed control is not tighter speed
@@ -262,7 +270,7 @@ is calculated from distance to go and the required arrival time.
 \end{itemize}
 
 \section{Conclusions}
-\label{sec:orgc5c0eea}
+\label{sec:org23586ca}
 
 \begin{itemize}
 \item With a fixed arrival time, a fuel cap gives no fuel saving compared
@@ -270,14 +278,16 @@ with speed control on this route (+0.1--0.2 \%), and a tight cap
 compromises the schedule.
 \item The fuel benefit the owner is looking for is better obtained by
 planned speed: ETA hold, extended with current and weather forecasts.
-With a Flettner rotor this is worth about 0.6 \% on this route.
+With a Flettner rotor and perfect knowledge of current and weather this
+is worth about 0.6 \% on this route; with real forecasts the gain will
+be lower.
 \item The largest speed-related saving is to avoid sailing faster than the
 schedule requires (Section 4): about 2 \% per 15 minutes of unnecessary
 arrival margin on a 24 h leg.
 \end{itemize}
 
 \section{Data sources and acknowledgement}
-\label{sec:orga0e87bb}
+\label{sec:org77304db}
 
 \begin{itemize}
 \item This study has been conducted using E.U. Copernicus Marine Service

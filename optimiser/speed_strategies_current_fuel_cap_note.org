@@ -71,6 +71,13 @@ general fuel effect of speed variation and early arrival.
 - Weather and current at each segment are taken at the scheduled time;
   the strategies reach a segment within a few minutes of each other.
 - Each voyage's fuel is corrected to the exact scheduled arrival time.
+- The optimised strategies assume perfect knowledge of current and
+  weather for the whole voyage, taken from the hindcast.  In practice
+  the speed profile must be planned from forecasts and updated during
+  the voyage, so the optimised results are an upper bound on what can be
+  achieved.  Tidal currents are well predicted, so the current-only
+  result should be close to achievable; the weather-dependent part
+  depends on forecast quality.
 
 ** Strategies
 
@@ -113,10 +120,11 @@ Observations:
 - A tight cap makes the schedule impossible in heavy weather on a large
   share of voyages (more than one third at 1.1$\times$).
 - Planning the speed with knowledge of current alone gains about
-  0.15 %.  With the Flettner rotor, planning with current and weather
+  0.15 % (upper bound, perfect knowledge).  With the Flettner rotor, planning with current and weather
   gains about 0.6 % on average, and 1--1.4 % on the 10 % most
   favourable voyages: the optimum sails faster when the rotor is
-  effective and slower in head wind.
+  effective and slower in head wind.  Both are upper bounds, as the
+  simulation assumes perfect knowledge of the conditions.
 - A fuel cap may still be wanted for other purposes, such as limiting
   engine load, staying within a consumption budget, or deliberately
   accepting later arrival in bad weather.
@@ -202,7 +210,9 @@ above the setpoint.
   compromises the schedule.
 - The fuel benefit the owner is looking for is better obtained by
   planned speed: ETA hold, extended with current and weather forecasts.
-  With a Flettner rotor this is worth about 0.6 % on this route.
+  With a Flettner rotor and perfect knowledge of current and weather this
+  is worth about 0.6 % on this route; with real forecasts the gain will
+  be lower.
 - The largest speed-related saving is to avoid sailing faster than the
   schedule requires (Section 4): about 2 % per 15 minutes of unnecessary
   arrival margin on a 24 h leg.
