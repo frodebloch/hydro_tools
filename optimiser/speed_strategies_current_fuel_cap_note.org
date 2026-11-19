@@ -198,8 +198,6 @@ above the setpoint.
 - The saving depends on how the vessel was operated before.  It should
   be documented per vessel from arrival times and average speeds before
   and after installation.
-- On Link Galaxy the crew uses speed control more than 90 % of the
-  transit time and holds the setpoint within ±0.1 kn.
 - A natural extension is an ETA hold function, where the speed setpoint
   is calculated from distance to go and the required arrival time.
 
