@@ -1,0 +1,3 @@
+.cache_eco/
+eco_voyage_A_results.npz
+.cache_current_fuel_table.npy
